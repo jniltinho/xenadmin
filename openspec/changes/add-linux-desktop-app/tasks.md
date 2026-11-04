@@ -68,6 +68,7 @@
 - [ ] 7.6 Abas Performance (gráficos RRD), NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável (New/Edit/Saved Searches, colunas)
 - [x] 7.7a Aba Storage da VM: criar drive de DVD, trocar/ejetar ISO, Add (New Disk), Attach Disk, Activate/Deactivate, Detach, Delete, Properties do disco, com as regras de habilitação dos comandos originais; teste de escrita no 110
 - [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e Move de disco
-- [ ] 7.8 Wizards: New VM, New SR, New Pool, Import/Export
+- [x] 7.8a Wizard New VM (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish → `CreateVMAction`), Copy VM (fast clone / full copy) e Delete VM (discos e snapshots); teste no 110: criar (Debian 11, 512 MB, disco 64 MB) → iniciar → reboot → desligar → clone → copy → apagar tudo
+- [ ] 7.8 Wizards: New SR, New Pool, Import/Export
 - [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)
 - [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico

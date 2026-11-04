@@ -181,7 +181,7 @@ namespace XenModel.Linux.Tests
 
                 // add a 64 MB disk the way the Add Virtual Disk dialog does
                 var home = vm.Home() ?? c.Cache.Hosts[0];
-                var sr0 = c.Cache.SRs.First(sr => sr.SupportsVdiCreate() && !sr.IsBroken(false) && sr.content_type != SR.Content_Type_ISO && sr.CanBeSeenFrom(home) && !sr.IsToolsSR());
+                var sr0 = c.Cache.SRs.First(sr => sr.SupportsVdiCreate() && sr.HasPBDs() && !sr.IsBroken() && sr.content_type != SR.Content_Type_ISO && sr.CanBeSeenFrom(home) && !sr.IsToolsSR());
                 var vdi = new VDI { Connection = c, SR = new XenRef<SR>(sr0), virtual_size = 64L * 1024 * 1024, name_label = "linux-test-disk", name_description = "", type = vdi_type.user };
                 vdi.SetVmHint(vm.uuid);
                 var vbd = new VBD { Connection = c, device = "", empty = false, type = vbd_type.Disk, mode = vbd_mode.RW, unpluggable = true };
@@ -224,6 +224,112 @@ namespace XenModel.Linux.Tests
                 if (vmRef != null)
                     VM.destroy(session, vmRef);
                 c.EndConnect();
+            }
+        }
+
+        /// <summary>New VM wizard (CreateVMAction) -> reboot -> shut down -> fast clone + full copy -> delete all with their disks.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void NewVmCloneCopyDelete()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            var name = VmName + "-newvm";
+            try
+            {
+                CleanupNamed(c, session, VmName + "-newvm");
+                // a default HVM template that provisions a disk (e.g. a Debian/Ubuntu template)
+                var template = c.Cache.VMs.Where(v => v.is_a_template && v.DefaultTemplate() && v.IsHVM() && v.ProvisionXml()?.ChildNodes.Count > 0)
+                    .OrderBy(v => v.name_label.Contains("Debian") ? 0 : 1).First();
+                System.Console.WriteLine("template: " + template.name_label);
+                var disks = XenAdmin.Linux.NewVmWizard.DisksFor(c, template, name, null);
+                Assert.IsTrue(disks.Count > 0, "default template provisions a disk");
+                foreach (var d in disks) d.Disk.virtual_size = 64L * 1024 * 1024; // small, as requested
+                var vifs = XenAdmin.Linux.NewVmWizard.VifsFor(c, template);
+                var mem = Math.Max(256L * 1024 * 1024, template.memory_static_min);
+                var create = XenAdmin.Linux.NewVmWizard.Build(c, template, name, "created by the Linux New VM wizard test", XenAdmin.Actions.VMActions
+.InstallMethod.CD, null, "",
+                    VmBootMode.Bios, null, 1, 1, mem, disks, vifs, false);
+                Run(create);
+                Assert.IsTrue(create.Succeeded, create.Exception?.ToString());
+                var vm = WaitFor(c, create.VM.opaque_ref, v => v.name_label == name);
+                // "Start the new VM automatically" runs this same action after creation
+                var start = VmOperations.Create(vm, VmOp.Start);
+                Run(start);
+                Assert.IsTrue(start.Succeeded, "start: " + start.Exception?.Message);
+                vm = WaitFor(c, create.VM.opaque_ref, v => v.power_state == vm_power_state.Running);
+                Assert.AreEqual(name, vm.name_label);
+                Assert.AreEqual(1, c.ResolveAll(vm.VBDs).Count(b => b.type == vbd_type.Disk), "one provisioned disk");
+                Assert.AreEqual(vifs.Count, vm.VIFs.Count);
+                System.Console.WriteLine($"created {vm.name_label}: {vm.VCPUs_max} vCPU, {vm.memory_static_max / 1048576} MB, disks={vm.VBDs.Count}, vifs={vm.VIFs.Count}, running on {c.Resolve(vm.resident_on)?.Name()}");
+
+                // reboot (no guest tools in an empty VM, so the forced variant) and shut down
+                Assert.IsTrue(VmOperations.IsAllowed(vm, VmOp.ForceReboot));
+                var reboot = VmOperations.Create(vm, VmOp.ForceReboot);
+                Run(reboot);
+                Assert.IsTrue(reboot.Succeeded, reboot.Exception?.ToString());
+                vm = WaitFor(c, vm.opaque_ref, v => v.power_state == vm_power_state.Running);
+                var stop = VmOperations.Create(vm, VmOp.ForceShutdown);
+                Run(stop);
+                vm = WaitFor(c, vm.opaque_ref, v => v.power_state == vm_power_state.Halted);
+                Assert.IsTrue(XenAdmin.Linux.MainWindow.CanCopy(vm) && XenAdmin.Linux.MainWindow.CanDeleteVm(vm));
+
+                // Copy VM: fast clone and full copy
+                var clone = new XenAdmin.Actions.VMActions.VMCloneAction(vm, name + "-clone", "fast clone");
+                Run(clone);
+                Assert.IsTrue(clone.Succeeded, clone.Exception?.ToString());
+                var sr = c.Resolve(c.Resolve(c.ResolveAll(vm.VBDs).First(b => b.type == vbd_type.Disk).VDI).SR);
+                var copy = new XenAdmin.Actions.VMActions.VMCopyAction(vm, vm.GetStorageHost(false), sr, name + "-copy", "full copy");
+                Run(copy);
+                Assert.IsTrue(copy.Succeeded, copy.Exception?.ToString());
+                var copies = new[] { name + "-clone", name + "-copy" }.Select(n => WaitForVm(c, n)).ToList();
+                foreach (var cp in copies)
+                    Assert.AreEqual(1, c.ResolveAll(cp.VBDs).Count(b => b.type == vbd_type.Disk), cp.name_label + " has its own disk");
+                System.Console.WriteLine("copies: " + string.Join(", ", copies.Select(v => v.name_label)));
+
+                // Delete VM with its disks, as ConfirmVMDeleteDialog does by default (owned disks checked)
+                foreach (var target in copies.Append(vm))
+                {
+                    var owned = c.ResolveAll(target.VBDs).Where(b => b.type == vbd_type.Disk && b.GetIsOwner()).ToList();
+                    var vdis = owned.Select(b => b.VDI.opaque_ref).ToList();
+                    var del = new XenAdmin.Actions.VMActions.VMDestroyAction(target, owned, new System.Collections.Generic.List<VM>());
+                    Run(del);
+                    Assert.IsTrue(del.Succeeded, del.Exception?.ToString());
+                    var deadline = DateTime.Now.AddSeconds(30);
+                    while ((c.Resolve(new XenRef<VM>(target.opaque_ref)) != null || vdis.Any(r => c.Resolve(new XenRef<VDI>(r)) != null)) && DateTime.Now < deadline)
+                        Thread.Sleep(250);
+                    Assert.IsNull(c.Resolve(new XenRef<VM>(target.opaque_ref)), target.name_label + " deleted");
+                    Assert.IsTrue(vdis.All(r => c.Resolve(new XenRef<VDI>(r)) == null), target.name_label + " disks deleted");
+                }
+            }
+            finally
+            {
+                CleanupNamed(c, session, VmName + "-newvm");
+                c.EndConnect();
+            }
+        }
+
+        private static VM WaitForVm(XenAdmin.Network.XenConnection c, string name)
+        {
+            var deadline = DateTime.Now.AddSeconds(60);
+            VM vm;
+            while ((vm = c.Cache.VMs.FirstOrDefault(v => v.name_label == name && !v.is_a_template)) == null && DateTime.Now < deadline)
+                Thread.Sleep(250);
+            Assert.IsNotNull(vm, name + " not found");
+            return vm;
+        }
+
+        /// <summary>Removes leftovers (VMs whose name starts with the prefix, plus their owned disks).</summary>
+        private static void CleanupNamed(XenAdmin.Network.XenConnection c, Session session, string prefix)
+        {
+            foreach (var old in c.Cache.VMs.Where(v => v.name_label.StartsWith(prefix) && !v.is_a_template && !v.is_a_snapshot).ToList())
+            {
+                try { if (old.power_state != vm_power_state.Halted) VM.hard_shutdown(session, old.opaque_ref); } catch { }
+                foreach (var b in c.ResolveAll(old.VBDs).Where(b => b.type == vbd_type.Disk && b.GetIsOwner()))
+                    try { VDI.destroy(session, b.VDI.opaque_ref); } catch { }
+                try { VM.destroy(session, old.opaque_ref); } catch { }
             }
         }
 

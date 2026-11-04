@@ -44,7 +44,7 @@ namespace XenAdmin.Linux
         private readonly Button _back, _forward, _addServer, _newPool, _newStorage, _newVm, _pause;
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
-        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _vmProps;
+        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _vmProps, _newVmMenu, _copyVmMenu, _deleteVmMenu;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -62,7 +62,7 @@ namespace XenAdmin.Linux
             _addServer = Tool("000_AddApplicationServer_h32bit_24", "Add New Server", async () => await AddServer());
             _newPool = Tool("000_PoolNew_h32bit_24", "New Pool", null);
             _newStorage = Tool("000_NewStorage_h32bit_24", "New Storage", null);
-            _newVm = Tool("000_CreateVM_h32bit_24", "New VM", null);
+            _newVm = Tool("000_CreateVM_h32bit_24", "New VM", () => ShowNewVm());
             _power[VmOp.Start] = Tool("001_PowerOn_h32bit_24", "Start", () => RunVmOp(VmOp.Start));
             _power[VmOp.Shutdown] = Tool("001_ShutDown_h32bit_24", "Shut Down", () => RunVmOp(VmOp.Shutdown));
             _power[VmOp.ForceShutdown] = Tool("001_ForceShutDown_h32bit_24", "Force Shutdown", () => RunVmOp(VmOp.ForceShutdown));
@@ -262,8 +262,10 @@ namespace XenAdmin.Linux
                     Top("_Pool", Item("New Pool..."), "-", _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool))),
                     Top("_Server", Item("_Add...", async () => await AddServer()), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
                         _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host))),
-                    Top("V_M", Item("New VM..."), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
+                    Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm()), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
                         _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
+                        _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
+                        _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM))),
                     Top("S_torage", Item("New SR...")),
                     Top("_Templates", Item("New VM from Template...")),
@@ -453,6 +455,9 @@ namespace XenAdmin.Linux
             _poolProps.IsEnabled = o is Pool && CanEditProperties(o);
             _hostProps.IsEnabled = o is Host && CanEditProperties(o);
             _vmProps.IsEnabled = o is VM && CanEditProperties(o);
+            _newVm.IsEnabled = _newVmMenu.IsEnabled = c != null && c.IsConnected;
+            _copyVmMenu.IsEnabled = vm != null && CanCopy(vm);
+            _deleteVmMenu.IsEnabled = vm != null && CanDeleteVm(vm);
 
             if (_showEvents)
             {
@@ -601,6 +606,8 @@ namespace XenAdmin.Linux
                 Add(VmOp.ForceShutdown, Messages.MAINWINDOW_FORCE_SHUTDOWN);
                 Add(VmOp.ForceReboot, Messages.MAINWINDOW_FORCE_REBOOT);
                 if (before > 0 && items.Count > before) items.Insert(before, new Separator());
+                if (CanCopy(vm)) { items.Add(new Separator()); items.Add(Item("Cop&y VM...", () => CopyVm(vm))); }
+                if (CanDeleteVm(vm)) { items.Add(new Separator()); items.Add(Item("&Delete VM...", () => DeleteVm(vm))); }
             }
             else if (c != null && n.XenObject == null)
             {
@@ -616,6 +623,8 @@ namespace XenAdmin.Linux
             }
             else if (c != null && c.IsConnected && (n.XenObject is Pool || n.XenObject is Host h && Helpers.GetPool(c) == null))
             {
+                items.Add(Item("&New VM...", () => ShowNewVm()));
+                items.Add(new Separator());
                 items.Add(Item(n.XenObject is Pool ? Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU_POOL : Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU, () => Disconnect(c)));
             }
             if (CanEditProperties(n.XenObject))
@@ -624,6 +633,41 @@ namespace XenAdmin.Linux
                 items.Add(Item("P&roperties", () => ShowProperties(n.XenObject)));
             }
             return items;
+        }
+
+        // ---------- New VM / Copy VM / Delete VM ----------
+
+        /// <summary>CopyVMCommand: a halted, unlocked VM that can be cloned or copied.</summary>
+        public static bool CanCopy(VM vm) =>
+            vm != null && !vm.is_a_snapshot && !vm.is_a_template && !vm.Locked && vm.power_state == vm_power_state.Halted
+            && (vm.allowed_operations.Contains(vm_operations.clone) || vm.allowed_operations.Contains(vm_operations.copy));
+
+        /// <summary>DeleteVMCommand: destroy allowed (the VM is shut down).</summary>
+        public static bool CanDeleteVm(VM vm) =>
+            vm != null && !vm.is_a_snapshot && !vm.Locked && vm.allowed_operations.Contains(vm_operations.destroy);
+
+        private async void ShowNewVm()
+        {
+            var c = SelectedNode()?.Connection ?? _connections.FirstOrDefault(x => x.IsConnected);
+            if (c == null || !c.IsConnected) return;
+            var wizard = new NewVmWizard(c);
+            await wizard.ShowDialog(this);
+            if (wizard.Action != null)
+                RunTracked(wizard.Action);
+        }
+
+        private async void CopyVm(VM vm)
+        {
+            if (!CanCopy(vm)) return;
+            var action = await Dialogs.CopyVm(this, vm);
+            if (action != null) RunTracked(action);
+        }
+
+        private async void DeleteVm(VM vm)
+        {
+            if (!CanDeleteVm(vm)) return;
+            var action = await Dialogs.DeleteVm(this, vm);
+            if (action != null) RunTracked(action);
         }
 
         // ---------- Properties (PropertiesCommand) ----------

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -305,7 +306,7 @@ namespace XenAdmin.Linux
             var size = new NumericUpDown { Value = 10, Minimum = 0.01m, Maximum = 2040, Increment = 1, FormatString = "0.##", Width = 110 };
             var unit = new ComboBox { ItemsSource = new[] { "GB", "MB" }, SelectedIndex = 0, Width = 70 };
             var home = vm.Home();
-            var srs = c.Cache.SRs.Where(sr => sr.SupportsVdiCreate() && !sr.IsBroken(false) && sr.Show(false) && sr.content_type != XenAPI.SR.Content_Type_ISO
+            var srs = c.Cache.SRs.Where(sr => sr.SupportsVdiCreate() && sr.HasPBDs() && !sr.IsBroken() && sr.Show(false) && sr.content_type != XenAPI.SR.Content_Type_ISO
                                               && (home == null || sr.CanBeSeenFrom(home)))
                        .OrderBy(sr => sr.Name()).ToList();
             var srList = new ListBox { ItemsSource = srs.Select(sr => $"{sr.NameWithLocation()}   {Util.DiskSizeString(sr.FreeSpace())} free of {Util.DiskSizeString(sr.physical_size)}").ToList(), Height = 140 };
@@ -409,6 +410,115 @@ namespace XenAdmin.Linux
             };
             vbd.SetIsOwner(chosen.VBDs.Count == 0);
             return new XenAdmin.Actions.VbdCreateAndPlugAction(vm, vbd, chosen.Name(), false);
+        }
+
+        /// <summary>CopyVMDialog: fast clone (VMCloneAction) or full copy to an SR (VMCopyAction).</summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> CopyVm(Window owner, XenAPI.VM vm)
+        {
+            var c = vm.Connection;
+            var name = new TextBox { Text = XenAdmin.Core.Helpers.MakeUniqueName(string.Format(Messages.ACTION_TEMPLATE_CLONE_NEW_NAME, vm.Name()), c.Cache.VMs.Select(v => v.Name()).ToList()) };
+            var description = new TextBox { Text = vm.Description(), AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Height = 50 };
+            var allowCopy = !vm.is_a_template || vm.allowed_operations.Contains(XenAPI.vm_operations.copy);
+            var fastable = vm.AnyDiskFastClonable();
+            var hasDisk = vm.HasAtLeastOneDisk();
+            var clone = new RadioButton { Content = M("&Fast clone"), GroupName = "copy", IsEnabled = !allowCopy || fastable || !hasDisk };
+            var copy = new RadioButton { Content = M("F&ull copy"), GroupName = "copy", IsEnabled = allowCopy && hasDisk };
+            clone.IsChecked = clone.IsEnabled;
+            copy.IsChecked = !clone.IsEnabled;
+            var host = vm.GetStorageHost(false);
+            var srs = c.Cache.SRs.Where(sr => sr.SupportsVdiCreate() && sr.HasPBDs() && !sr.IsBroken() && sr.content_type != XenAPI.SR.Content_Type_ISO && sr.Show(false) && (host == null || sr.CanBeSeenFrom(host))).OrderBy(s => s.Name()).ToList();
+            var srList = new ListBox { ItemsSource = srs.Select(sr => $"{sr.NameWithLocation()}   {Util.DiskSizeString(sr.FreeSpace())} free").ToList(), Height = 120, Margin = new Thickness(22, 0, 0, 0) };
+            srList.SelectedIndex = srs.Count > 0 ? 0 : -1;
+            void Update() => srList.IsEnabled = copy.IsChecked == true;
+            copy.IsCheckedChanged += (_, _) => Update();
+            Update();
+            var ok = new Button { Content = M("C&opy"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto"), RowSpacing = 8, ColumnSpacing = 10 };
+            var l1 = new Label { Content = M("&Name:"), Target = name, Padding = new Thickness(0, 4, 0, 0) };
+            var l2 = new Label { Content = M("&Description:"), Target = description, Padding = new Thickness(0, 4, 0, 0) };
+            Grid.SetColumn(name, 1); Grid.SetRow(l2, 1); Grid.SetRow(description, 1); Grid.SetColumn(description, 1);
+            grid.Children.Add(l1); grid.Children.Add(name); grid.Children.Add(l2); grid.Children.Add(description);
+            var mode = new StackPanel { Spacing = 6 };
+            mode.Children.Add(new TextBlock { Text = "Copy mode" });
+            mode.Children.Add(clone);
+            mode.Children.Add(new TextBlock { Text = Messages.COPY_VM_FAST_CLONE_DESCRIPTION, Opacity = 0.7, Margin = new Thickness(22, 0, 0, 0), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            mode.Children.Add(copy);
+            mode.Children.Add(new TextBlock { Text = vm.is_a_template ? Messages.COPY_TEMPLATE_SELECT_SR : Messages.COPY_VM_SELECT_SR, Opacity = 0.7, Margin = new Thickness(22, 0, 0, 0), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            mode.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#828790"), BorderThickness = new Thickness(1), Child = srList, Margin = new Thickness(22, 0, 0, 0) });
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(grid);
+            panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#DCDCDC"), BorderThickness = new Thickness(1), Padding = new Thickness(8, 4, 8, 8), Child = mode });
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame(vm.is_a_template ? Messages.COPY_TEMPLATE : Messages.COPY_VM, panel, 520);
+            XenAdmin.Actions.AsyncAction result = null;
+            ok.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(name.Text)) return;
+                result = copy.IsChecked == true && srList.SelectedIndex >= 0
+                    ? new XenAdmin.Actions.VMActions.VMCopyAction(vm, host, srs[srList.SelectedIndex], name.Text.Trim(), description.Text ?? "")
+                    : new XenAdmin.Actions.VMActions.VMCloneAction(vm, name.Text.Trim(), description.Text ?? "");
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
+        /// <summary>ConfirmVMDeleteDialog: disks owned by the VM checked, snapshots unchecked; VMDestroyAction.</summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> DeleteVm(Window owner, XenAPI.VM vm)
+        {
+            var c = vm.Connection;
+            var disks = c.ResolveAll(vm.VBDs).Where(b => b.type == XenAPI.vbd_type.Disk && c.Resolve(b.VDI) != null).ToList();
+            var snaps = c.ResolveAll(vm.snapshots).ToList();
+            var items = new List<(CheckBox Box, object Item)>();
+            var list = new StackPanel { Spacing = 2 };
+            foreach (var b in disks)
+            {
+                var vdi = c.Resolve(b.VDI);
+                var box = new CheckBox { Content = $"{vdi.Name()}   ({vdi.SizeText()})", IsChecked = b.GetIsOwner() };
+                items.Add((box, b)); list.Children.Add(box);
+            }
+            foreach (var sn in snaps)
+            {
+                var box = new CheckBox { Content = $"{sn.Name()}   (snapshot)", IsChecked = false };
+                items.Add((box, sn)); list.Children.Add(box);
+            }
+            var all = new Button { Content = M("&Select All") };
+            var none = new Button { Content = M("&Clear All") };
+            all.Click += (_, _) => items.ForEach(i => i.Box.IsChecked = true);
+            none.Click += (_, _) => items.ForEach(i => i.Box.IsChecked = false);
+            var ok = new Button { Content = M("&Delete"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            var panel = new StackPanel { Spacing = 10 };
+            var warn = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            warn.Children.Add(Views.Icon("000_WarningAlert_h32bit_32", 32));
+            var texts = new StackPanel();
+            texts.Children.Add(new TextBlock { Text = string.Format(Messages.CONFIRM_DELETE_VM, vm.Name(), XenAdmin.Core.Helpers.GetName(c)), TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxWidth = 400 });
+            texts.Children.Add(new TextBlock { Text = "Deleted VMs and Templates cannot be recovered.", FontWeight = Avalonia.Media.FontWeight.SemiBold });
+            warn.Children.Add(texts);
+            panel.Children.Add(warn);
+            if (items.Count > 0)
+            {
+                panel.Children.Add(new TextBlock { Text = "The selected virtual disks and snapshots below will also be deleted:" });
+                panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#828790"), BorderThickness = new Thickness(1), Background = Avalonia.Media.Brushes.White, Padding = new Thickness(4), Height = 140, Child = new ScrollViewer { Content = list } });
+                var sel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                sel.Children.Add(all); sel.Children.Add(none);
+                panel.Children.Add(sel);
+            }
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame("Delete VM", panel, 480);
+            XenAdmin.Actions.AsyncAction result = null;
+            ok.Click += (_, _) =>
+            {
+                result = new XenAdmin.Actions.VMActions.VMDestroyAction(vm,
+                    items.Where(i => i.Box.IsChecked == true && i.Item is XenAPI.VBD).Select(i => (XenAPI.VBD)i.Item).ToList(),
+                    items.Where(i => i.Box.IsChecked == true && i.Item is XenAPI.VM).Select(i => (XenAPI.VM)i.Item).ToList());
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
         }
 
         public static Task<bool> TrustCertificate(Window owner, string hostKey, string fingerprint, string oldFingerprint)
