@@ -122,6 +122,7 @@ namespace XenAdmin.Desktop
                     var stream = OpenTunnel(new Uri(location), _session.opaque_ref);
                     if (_closed) { stream.Dispose(); return; }
                     _vnc = new VNCStream(this, stream, false);
+                    _vnc.ErrorOccurred += (_, e) => { if (KeyLog) System.Console.Error.WriteLine("console vnc error " + e); };
                     _vnc.ErrorOccurred += (_, e) => Ui(() => _status.Text = _closed ? "" : "Disconnected: " + e.Message);
                     _vnc.ConnectionSuccess += (_, _) => Ui(() => _status.Text = $"Connected to {VmName}");
                     _vnc.Connect(null);
@@ -184,6 +185,7 @@ namespace XenAdmin.Desktop
 
         public void ClientDesktopSize(int width, int height)
         {
+            if (KeyLog) System.Console.Error.WriteLine($"console vnc desktop size {width}x{height}");
             lock (_fbLock)
             {
                 _width = width;
@@ -244,8 +246,16 @@ namespace XenAdmin.Desktop
         {
             var vnc = _vnc;
             if (vnc == null) return;
-            foreach (var k in new[] { 0xffe3, 0xffe9, 0xffff }) vnc.keyCodeEvent(true, k);
-            foreach (var k in new[] { 0xffff, 0xffe9, 0xffe3 }) vnc.keyCodeEvent(false, k);
+            if (_vm.IsHVM())
+            {
+                foreach (var (k, sym) in new[] { (0x1d, 0xffe3), (0x38, 0xffe9), (0xd3, 0xffff) }) vnc.keyScanEvent(true, k, sym, true);
+                foreach (var (k, sym) in new[] { (0xd3, 0xffff), (0x38, 0xffe9), (0x1d, 0xffe3) }) vnc.keyScanEvent(false, k, sym, true);
+            }
+            else
+            {
+                foreach (var k in new[] { 0xffe3, 0xffe9, 0xffff }) vnc.keyCodeEvent(true, k);
+                foreach (var k in new[] { 0xffff, 0xffe9, 0xffe3 }) vnc.keyCodeEvent(false, k);
+            }
             _screen.Focus();
         }
 
@@ -266,7 +276,17 @@ namespace XenAdmin.Desktop
                 return;
             }
             var sym = KeySyms.Track(_pressed, e, down);
-            if (sym != 0)
+            // HVM (QEMU): scancodes like XSVNCScreen.SendScanCodes, so the guest's layout picks the character;
+            // the PV text console (vncterm) only understands keysyms
+            var scan = _vm.IsHVM() && !ForceKeysyms ? KeySyms.Scancode(e.PhysicalKey) : 0;
+            if (KeyLog)
+                System.Console.Error.WriteLine($"console key {(down ? "down" : "up  ")} key={e.Key} physical={e.PhysicalKey} symbol={(e.KeySymbol == null ? "null" : "'" + e.KeySymbol + "'")} modifiers={e.KeyModifiers} -> scancode 0x{scan:x} keysym 0x{sym:x}");
+            if (scan != 0)
+            {
+                _vnc?.keyScanEvent(down, scan, sym, true);
+                e.Handled = true;
+            }
+            else if (sym != 0)
             {
                 _vnc?.keyCodeEvent(down, sym);
                 e.Handled = true;
@@ -274,6 +294,11 @@ namespace XenAdmin.Desktop
         }
 
         private readonly System.Collections.Generic.Dictionary<(Avalonia.Input.PhysicalKey, Avalonia.Input.Key), int> _pressed = new();
+
+        // XCP_CONSOLE_KEYLOG=1 prints every key event and the keysym sent, to diagnose keyboard layouts
+        private static readonly bool KeyLog = Environment.GetEnvironmentVariable("XCP_CONSOLE_KEYLOG") == "1";
+        // XCP_CONSOLE_KEYSYMS=1 sends keysyms to HVM guests too (diagnostics; the guest then depends on QEMU's keymap)
+        private static readonly bool ForceKeysyms = Environment.GetEnvironmentVariable("XCP_CONSOLE_KEYSYMS") == "1";
 
         /// <summary>Draws the framebuffer, scaled to fit (keeping the aspect ratio) or at real size.</summary>
         private class Screen : Control
@@ -400,7 +425,62 @@ namespace XenAdmin.Desktop
             var s = e.KeySymbol;
             if (!string.IsNullOrEmpty(s) && s.Length == 1 && !char.IsControl(s[0]))
                 return s[0] < 0x100 ? s[0] : 0x01000000 | s[0];
-            return 0;
+            // X11 reports no symbol for some shifted keys (Shift+5): use the US character of the physical key
+            var us = UsCharacter(e.PhysicalKey, e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+            return us == '\0' ? 0 : us;
+        }
+
+        private const string UsRow = "`1234567890-=[]\\;',./", UsShiftRow = "~!@#$%^&*()_+{}|:\"<>?";
+
+        private static char UsCharacter(PhysicalKey k, bool shift)
+        {
+            if (k >= PhysicalKey.A && k <= PhysicalKey.Z)
+                return (char)((shift ? 'A' : 'a') + (k - PhysicalKey.A));
+            var i = k switch
+            {
+                PhysicalKey.Backquote => 0, PhysicalKey.Digit1 => 1, PhysicalKey.Digit2 => 2, PhysicalKey.Digit3 => 3, PhysicalKey.Digit4 => 4,
+                PhysicalKey.Digit5 => 5, PhysicalKey.Digit6 => 6, PhysicalKey.Digit7 => 7, PhysicalKey.Digit8 => 8, PhysicalKey.Digit9 => 9,
+                PhysicalKey.Digit0 => 10, PhysicalKey.Minus => 11, PhysicalKey.Equal => 12, PhysicalKey.BracketLeft => 13, PhysicalKey.BracketRight => 14,
+                PhysicalKey.Backslash => 15, PhysicalKey.Semicolon => 16, PhysicalKey.Quote => 17, PhysicalKey.Comma => 18, PhysicalKey.Period => 19,
+                PhysicalKey.Slash => 20, _ => -1
+            };
+            return i < 0 ? '\0' : (shift ? UsShiftRow : UsRow)[i];
+        }
+
+        /// <summary>
+        /// The XT (set 1) scancode of a physical key, as QEMU's extended key event wants it: 0xE0-prefixed keys
+        /// are sent with the high bit set (Right Ctrl 0xE0 0x1D = 0x9D). 0 when the key has none.
+        /// </summary>
+        public static int Scancode(PhysicalKey k)
+        {
+            if (k >= PhysicalKey.F1 && k <= PhysicalKey.F10) return 0x3b + (k - PhysicalKey.F1);
+            return k switch
+            {
+                PhysicalKey.Escape => 0x01, PhysicalKey.Digit1 => 0x02, PhysicalKey.Digit2 => 0x03, PhysicalKey.Digit3 => 0x04, PhysicalKey.Digit4 => 0x05,
+                PhysicalKey.Digit5 => 0x06, PhysicalKey.Digit6 => 0x07, PhysicalKey.Digit7 => 0x08, PhysicalKey.Digit8 => 0x09, PhysicalKey.Digit9 => 0x0a,
+                PhysicalKey.Digit0 => 0x0b, PhysicalKey.Minus => 0x0c, PhysicalKey.Equal => 0x0d, PhysicalKey.Backspace => 0x0e, PhysicalKey.Tab => 0x0f,
+                PhysicalKey.Q => 0x10, PhysicalKey.W => 0x11, PhysicalKey.E => 0x12, PhysicalKey.R => 0x13, PhysicalKey.T => 0x14, PhysicalKey.Y => 0x15,
+                PhysicalKey.U => 0x16, PhysicalKey.I => 0x17, PhysicalKey.O => 0x18, PhysicalKey.P => 0x19, PhysicalKey.BracketLeft => 0x1a,
+                PhysicalKey.BracketRight => 0x1b, PhysicalKey.Enter => 0x1c, PhysicalKey.ControlLeft => 0x1d, PhysicalKey.A => 0x1e, PhysicalKey.S => 0x1f,
+                PhysicalKey.D => 0x20, PhysicalKey.F => 0x21, PhysicalKey.G => 0x22, PhysicalKey.H => 0x23, PhysicalKey.J => 0x24, PhysicalKey.K => 0x25,
+                PhysicalKey.L => 0x26, PhysicalKey.Semicolon => 0x27, PhysicalKey.Quote => 0x28, PhysicalKey.Backquote => 0x29, PhysicalKey.ShiftLeft => 0x2a,
+                PhysicalKey.Backslash => 0x2b, PhysicalKey.Z => 0x2c, PhysicalKey.X => 0x2d, PhysicalKey.C => 0x2e, PhysicalKey.V => 0x2f, PhysicalKey.B => 0x30,
+                PhysicalKey.N => 0x31, PhysicalKey.M => 0x32, PhysicalKey.Comma => 0x33, PhysicalKey.Period => 0x34, PhysicalKey.Slash => 0x35,
+                PhysicalKey.ShiftRight => 0x36, PhysicalKey.NumPadMultiply => 0x37, PhysicalKey.AltLeft => 0x38, PhysicalKey.Space => 0x39,
+                PhysicalKey.CapsLock => 0x3a, PhysicalKey.NumLock => 0x45, PhysicalKey.ScrollLock => 0x46, PhysicalKey.NumPad7 => 0x47,
+                PhysicalKey.NumPad8 => 0x48, PhysicalKey.NumPad9 => 0x49, PhysicalKey.NumPadSubtract => 0x4a, PhysicalKey.NumPad4 => 0x4b,
+                PhysicalKey.NumPad5 => 0x4c, PhysicalKey.NumPad6 => 0x4d, PhysicalKey.NumPadAdd => 0x4e, PhysicalKey.NumPad1 => 0x4f,
+                PhysicalKey.NumPad2 => 0x50, PhysicalKey.NumPad3 => 0x51, PhysicalKey.NumPad0 => 0x52, PhysicalKey.NumPadDecimal => 0x53,
+                PhysicalKey.IntlBackslash => 0x56, PhysicalKey.F11 => 0x57, PhysicalKey.F12 => 0x58, PhysicalKey.IntlRo => 0x73, PhysicalKey.IntlYen => 0x7d,
+                PhysicalKey.NumPadComma => 0x7e,
+                // 0xE0-prefixed
+                PhysicalKey.NumPadEnter => 0x9c, PhysicalKey.ControlRight => 0x9d, PhysicalKey.NumPadDivide => 0xb5, PhysicalKey.PrintScreen => 0xb7,
+                PhysicalKey.AltRight => 0xb8, PhysicalKey.Home => 0xc7, PhysicalKey.ArrowUp => 0xc8, PhysicalKey.PageUp => 0xc9,
+                PhysicalKey.ArrowLeft => 0xcb, PhysicalKey.ArrowRight => 0xcd, PhysicalKey.End => 0xcf, PhysicalKey.ArrowDown => 0xd0,
+                PhysicalKey.PageDown => 0xd1, PhysicalKey.Insert => 0xd2, PhysicalKey.Delete => 0xd3, PhysicalKey.MetaLeft => 0xdb,
+                PhysicalKey.MetaRight => 0xdc, PhysicalKey.ContextMenu => 0xdd,
+                _ => 0
+            };
         }
     }
 }

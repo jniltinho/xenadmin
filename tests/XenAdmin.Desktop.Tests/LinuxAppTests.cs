@@ -160,5 +160,18 @@ namespace XenAdmin.Desktop.Tests
             Assert.AreEqual('%', KeySyms.Track(pressed, Ev(null), false), "X11 reports no symbol on key up");
             Assert.AreEqual(0, pressed.Count);
         }
+
+        [TestMethod]
+        public void ConsoleKeysWithoutSymbolUseTheUsCharacterAndHvmGetsScancodes()
+        {
+            // X11 gives no symbol for Shift+5: the keysym path must still send '%'
+            var shift5 = new Avalonia.Input.KeyEventArgs { Key = Avalonia.Input.Key.D5, PhysicalKey = Avalonia.Input.PhysicalKey.Digit5, KeyModifiers = Avalonia.Input.KeyModifiers.Shift };
+            Assert.AreEqual('%', KeySyms.From(shift5));
+            Assert.AreEqual(0x06, KeySyms.Scancode(Avalonia.Input.PhysicalKey.Digit5));
+            Assert.AreEqual(0x2a, KeySyms.Scancode(Avalonia.Input.PhysicalKey.ShiftLeft));
+            Assert.AreEqual(0x33, KeySyms.Scancode(Avalonia.Input.PhysicalKey.Comma));
+            Assert.AreEqual(0x9d, KeySyms.Scancode(Avalonia.Input.PhysicalKey.ControlRight), "0xE0 0x1D");
+            Assert.AreEqual(0x73, KeySyms.Scancode(Avalonia.Input.PhysicalKey.IntlRo), "ABNT2 /? key");
+        }
     }
 }
