@@ -43,6 +43,11 @@ make test-win    # checks the core still builds for net481 (Windows app)
 `tools/vagrant/xcp-ng-lab/lab.sh` (two XCP-ng hosts in VirtualBox, installed unattended); it forms a pool and ejects
 the member again. Never point it at real servers.
 
+`XCP_LAB_HOSTS=192.168.56.11` with the lab already pooled runs the storage tests instead: `lab.sh storage-up` serves
+NFS (`192.168.56.1:/export`) and SMB (`\\192.168.56.1\sr`, user `xcp`) from a container bound to the host-only address,
+and the tests create, scan, detach, reattach and destroy a shared SR of each kind. The VirtualBox lab cannot run guests
+on AMD (no nested NPT, and XCP-ng 8.3's Xen has no shadow paging), so the migration test is inconclusive there.
+
 Integration tests read `.env` (git-ignored, see `.env.example`). `XCP_ALLOW_WRITE=1` lets them create,
 power-cycle and destroy a throwaway diskless VM named `xcpng-center-linux-test` on `XCP_HOST`.
 

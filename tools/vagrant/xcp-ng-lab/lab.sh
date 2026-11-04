@@ -4,6 +4,9 @@
 # each ISO boots straight into the installer with an answerfile served from the host.
 #   XCP_LAB_PASS=... ./lab.sh up        # creates and installs xcp-lab-1/2 (192.168.56.11/.12)
 #   ./lab.sh status | halt | start | destroy
+#   XCP_LAB_PASS=... ./lab.sh storage-up    # NFS nfs://192.168.56.1/export and SMB //192.168.56.1/sr (user xcp)
+#   ./lab.sh storage-down
+#   XCP_LAB_PASS=... ./lab.sh guest-kernel  # Alpine PV kernel in dom0 /var/lib/xcp/guest (nested HVM has no NPT here)
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT=$(git rev-parse --show-toplevel)
@@ -12,6 +15,8 @@ ISO_URL=${XCP_LAB_ISO_URL:-https://mirrors.xcp-ng.org/isos/8.3/xcp-ng-8.3.0-2026
 ISO=$WORK/$(basename "$ISO_URL")
 NET=${XCP_LAB_NET:-vboxnet0}                    # host-only network, host is 192.168.56.1
 PORT=8099
+ALPINE_ISO=alpine-virt-3.22.7-x86_64.iso
+ALPINE_SHA256=c345ec65055908734523e03e81137a2e2f82f0094eb2b6e99bc6e07a7d2a0556
 HOSTS=(1 2)
 ip_of() { echo "192.168.56.1$1"; }
 vm_of() { echo "xcp-lab-$1"; }
@@ -91,5 +96,35 @@ case "${1:-}" in
   halt)    for n in "${HOSTS[@]}"; do VBoxManage controlvm "$(vm_of "$n")" acpipowerbutton || true; done ;;
   status)  for n in "${HOSTS[@]}"; do printf '%s %s ' "$(vm_of "$n")" "$(ip_of "$n")"; VBoxManage showvminfo "$(vm_of "$n")" --machinereadable 2>/dev/null | grep '^VMState=' || echo absent; done ;;
   destroy) for n in "${HOSTS[@]}"; do VBoxManage controlvm "$(vm_of "$n")" poweroff 2>/dev/null || true; VBoxManage unregistervm "$(vm_of "$n")" --delete 2>/dev/null || true; done ;;
-  *) echo "usage: XCP_LAB_PASS=... $0 up | start | halt | status | destroy" >&2; exit 2 ;;
+  storage-up)
+    : "${XCP_LAB_PASS:?set XCP_LAB_PASS (also the SMB password of user xcp)}"
+    docker build -q -t xcp-lab-storage storage >/dev/null
+    mkdir -p "$WORK/nfs" "$WORK/smb"
+    docker rm -f xcp-lab-nfs xcp-lab-smb >/dev/null 2>&1 || true
+    # published on the host-only address only; ganesha needs privileges for its VFS file handles
+    docker run -d --name xcp-lab-nfs --privileged -v "$WORK/nfs":/export \
+      $(for p in 111 2049 20048 32803 875; do printf -- '-p 192.168.56.1:%s:%s/tcp -p 192.168.56.1:%s:%s/udp ' $p $p $p $p; done) \
+      xcp-lab-storage nfs >/dev/null
+    docker run -d --name xcp-lab-smb -e SMB_PASS="$XCP_LAB_PASS" -v "$WORK/smb":/share -p 192.168.56.1:445:445 \
+      xcp-lab-storage smb >/dev/null
+    echo "NFS 192.168.56.1:/export  SMB //192.168.56.1/sr (user xcp)" ;;
+  storage-down) docker rm -f xcp-lab-nfs xcp-lab-smb >/dev/null 2>&1 || true ;;
+  guest-kernel)
+    : "${XCP_LAB_PASS:?set XCP_LAB_PASS}"
+    command -v sshpass >/dev/null || { echo "sshpass is required" >&2; exit 1; }
+    iso=$WORK/nfs/iso/$ALPINE_ISO
+    mkdir -p "$WORK/nfs/iso" "$WORK/pv"
+    [ -f "$iso" ] || curl -fL -o "$iso" "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/x86_64/$ALPINE_ISO"
+    echo "$ALPINE_SHA256  $iso" | sha256sum -c --quiet
+    xorriso -osirrox on -indev "$iso" -extract /boot/vmlinuz-virt "$WORK/pv/vmlinuz-virt" -extract /boot/initramfs-virt "$WORK/pv/initramfs-virt" 2>/dev/null
+    for n in "${HOSTS[@]}"; do
+      # XCP-ng 8.3 only accepts PV kernels in /var/lib/xcp/guest
+      SSHPASS=$XCP_LAB_PASS sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "root@$(ip_of "$n")" mkdir -p /var/lib/xcp/guest
+      for f in vmlinuz-virt initramfs-virt; do
+        SSHPASS=$XCP_LAB_PASS sshpass -e scp -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+          "$WORK/pv/$f" "root@$(ip_of "$n"):/var/lib/xcp/guest/alpine-$f"
+      done
+    done
+    echo "PV kernel in /var/lib/xcp/guest/alpine-* on every lab host" ;;
+  *) echo "usage: XCP_LAB_PASS=... $0 up | start | halt | status | destroy | storage-up | storage-down | guest-kernel" >&2; exit 2 ;;
 esac

@@ -48,8 +48,8 @@ namespace XenAdmin.Desktop.Tests
             // XenConnection adds itself to ConnectionsManager once connected (HandleSuccessfulConnection)
             try
             {
-                Assert.IsNull(Helpers.GetPool(coordinatorConn), "lab coordinator is already in a pool");
-                Assert.IsNull(Helpers.GetPool(memberConn), "lab member is already in a pool");
+                if (Helpers.GetPool(coordinatorConn) != null || Helpers.GetPool(memberConn) != null)
+                    Assert.Inconclusive("the lab hosts are already a pool (the storage tests use it); eject the member to rerun");
 
                 var candidates = PoolRules.Candidates(new IXenConnection[] { memberConn, coordinatorConn }, coordinatorConn);
                 Assert.IsTrue(candidates[0].WillBeCoordinator && candidates[0].Connection == coordinatorConn, "coordinator sorts first");

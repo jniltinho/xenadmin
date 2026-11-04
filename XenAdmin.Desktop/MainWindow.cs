@@ -44,7 +44,7 @@ namespace XenAdmin.Desktop
         private readonly Button _back, _forward, _addServer, _newPool, _newStorage, _newVm, _pause;
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
-        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _vmProps, _newVmMenu, _newPoolMenu, _copyVmMenu, _deleteVmMenu;
+        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -61,7 +61,7 @@ namespace XenAdmin.Desktop
             _forward = Tool("001_Forward_h32bit_24", "Forward", () => Navigate(1));
             _addServer = Tool("000_AddApplicationServer_h32bit_24", "Add New Server", async () => await AddServer());
             _newPool = Tool("000_PoolNew_h32bit_24", "New Pool", () => ShowNewPool());
-            _newStorage = Tool("000_NewStorage_h32bit_24", "New Storage", null);
+            _newStorage = Tool("000_NewStorage_h32bit_24", "New Storage", () => ShowNewSr());
             _newVm = Tool("000_CreateVM_h32bit_24", "New VM", () => ShowNewVm());
             _power[VmOp.Start] = Tool("001_PowerOn_h32bit_24", "Start", () => RunVmOp(VmOp.Start));
             _power[VmOp.Shutdown] = Tool("001_ShutDown_h32bit_24", "Shut Down", () => RunVmOp(VmOp.Shutdown));
@@ -264,10 +264,11 @@ namespace XenAdmin.Desktop
                         _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host))),
                     Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm()), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
                         _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
+                        _migrateMenu = MigrateMenu(() => SelectedNode()?.XenObject as VM), "-",
                         _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM))),
-                    Top("S_torage", Item("New SR...")),
+                    Top("S_torage", _newSrMenu = Item("New SR...", () => ShowNewSr())),
                     Top("_Templates", Item("New VM from Template...")),
                     Top("T_ools", Item("Server Status Report...")),
                     Top("_Help", Item("_About XCP-ng Center", async () => await Dialogs.Info(this, "About XCP-ng Center",
@@ -457,8 +458,10 @@ namespace XenAdmin.Desktop
             _hostProps.IsEnabled = o is Host && VmRules.CanEditProperties(o);
             _vmProps.IsEnabled = o is VM && VmRules.CanEditProperties(o);
             _newVm.IsEnabled = _newVmMenu.IsEnabled = c != null && c.IsConnected;
+            _newStorage.IsEnabled = _newSrMenu.IsEnabled = c != null && c.IsConnected;
             _newPool.IsEnabled = _newPoolMenu.IsEnabled = _connections.Any(x => x.IsConnected);
             _copyVmMenu.IsEnabled = vm != null && VmRules.CanCopy(vm);
+            _migrateMenu.IsEnabled = vm != null && MigrateRules.CanMigrate(vm);
             _deleteVmMenu.IsEnabled = vm != null && VmRules.CanDeleteVm(vm);
 
             if (_showEvents)
@@ -608,6 +611,7 @@ namespace XenAdmin.Desktop
                 Add(VmOp.ForceShutdown, Messages.MAINWINDOW_FORCE_SHUTDOWN);
                 Add(VmOp.ForceReboot, Messages.MAINWINDOW_FORCE_REBOOT);
                 if (before > 0 && items.Count > before) items.Insert(before, new Separator());
+                if (MigrateRules.CanMigrate(vm)) { items.Add(new Separator()); items.Add(MigrateMenu(() => vm)); }
                 if (VmRules.CanCopy(vm)) { items.Add(new Separator()); items.Add(Item("Cop&y VM...", () => CopyVm(vm))); }
                 if (VmRules.CanDeleteVm(vm)) { items.Add(new Separator()); items.Add(Item("&Delete VM...", () => DeleteVm(vm))); }
             }
@@ -640,6 +644,53 @@ namespace XenAdmin.Desktop
         // ---------- New VM / Copy VM / Delete VM ----------
 
 
+
+        /// <summary>
+        /// MigrateVMToolStripMenuItem: one item per host, disabled with the reason when the VM cannot go there.
+        /// The reasons need VM.assert_can_boot_here, so they load when the submenu opens.
+        /// </summary>
+        private MenuItem MigrateMenu(Func<VM> current)
+        {
+            var menu = new MenuItem { Header = Dialogs.M(Messages.MAINWINDOW_MIGRATE_TO_SERVER) };
+            menu.Items.Add(new MenuItem { Header = Messages.DELAY_LOADING_COMBO_BOX_WAITING, IsEnabled = false });
+            var generation = 0;
+            menu.SubmenuOpened += (_, e) =>
+            {
+                if (e.Source != menu || current() is not VM vm) return;
+                // drop the previous VM's hosts at once; a slower, older query must not publish its items
+                var mine = ++generation;
+                menu.Items.Clear();
+                menu.Items.Add(new MenuItem { Header = Messages.DELAY_LOADING_COMBO_BOX_WAITING, IsEnabled = false });
+                System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    List<(Host Host, string Reason)> targets;
+                    try { targets = MigrateRules.Targets(vm, vm.Connection.DuplicateSession()); } // shared session: never log it out
+                    catch { targets = new List<(Host, string)>(); }
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (mine != generation) return;
+                        menu.Items.Clear();
+                        foreach (var (host, reason) in targets)
+                        {
+                            var item = new MenuItem { Header = MigrateRules.MenuText(host, reason).Replace("_", "__"), IsEnabled = reason == null, Icon = Views.Icon("000_TreeConnected_h32bit_16", 16) };
+                            item.Click += (_, _) => { if (mine == generation && MigrateRules.CanMigrate(vm)) RunTracked(MigrateRules.Migrate(vm, host)); };
+                            menu.Items.Add(item);
+                        }
+                        menu.Items.Add(new Separator());
+                        menu.Items.Add(new MenuItem { Header = Dialogs.M("&Migrate VM wizard..."), IsEnabled = false });
+                    });
+                });
+            };
+            return menu;
+        }
+
+        /// <summary>NewSRCommand: the wizard for the selected (or first connected) pool or server.</summary>
+        private async void ShowNewSr()
+        {
+            var c = SelectedNode()?.Connection ?? _connections.FirstOrDefault(x => x.IsConnected);
+            if (c == null || !c.IsConnected) return;
+            await new NewSrWizard(c, RunTracked).ShowDialog(this);
+        }
 
         private async void ShowNewVm()
         {

@@ -30,14 +30,15 @@ namespace XenAdmin.Desktop
             return p;
         }
 
-        public static async Task<bool> Confirm(Window owner, string title, string message, string okText = "OK", string cancelText = "Cancel")
+        public static async Task<bool> Confirm(Window owner, string title, string message, string okText = "OK", string cancelText = "Cancel", bool cancelIsDefault = false)
         {
-            var ok = new Button { Content = M(okText), IsDefault = true, MinWidth = 75 };
-            var cancel = new Button { Content = M(cancelText), IsCancel = true, MinWidth = 75 };
+            var ok = new Button { Content = M(okText), IsDefault = !cancelIsDefault, MinWidth = 75 };
+            var cancel = new Button { Content = M(cancelText), IsCancel = true, IsDefault = cancelIsDefault, MinWidth = 75 };
             var panel = new StackPanel();
             panel.Children.Add(new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
             panel.Children.Add(Buttons(ok, cancel));
             var w = Frame(title, panel);
+            if (cancelIsDefault) w.Opened += (_, _) => cancel.Focus();
             ok.Click += (_, _) => w.Close(true);
             cancel.Click += (_, _) => w.Close(false);
             return await w.ShowDialog<bool>(owner);
