@@ -36,6 +36,8 @@ namespace XenAdmin.Linux
         private string _treeSignature;
         private string _tabsSignature;
         private TreeNode _rootNode;
+        // last tab per object, as MainWindow.selectedTabs (RememberLastSelectedTab)
+        private readonly Dictionary<string, string> _lastTab = new Dictionary<string, string>();
         private bool _refreshing;
 
         // toolbar / menu items whose state follows the selection
@@ -130,7 +132,9 @@ namespace XenAdmin.Linux
             searchRow.Children.Add(_search);
 
             var navButtons = new StackPanel();
-            navButtons.Children.Add(NavButton("infra_view_24", "Infrastructure", true, () => { _showEvents = false; UpdateContent(); }));
+            var infra = NavButton("infra_view_24", "Infrastructure", true, () => { _showEvents = false; UpdateContent(); });
+            infra.Classes.Add("active");
+            navButtons.Children.Add(infra);
             navButtons.Children.Add(NavButton("objects_24", "Objects", false, null));
             navButtons.Children.Add(NavButton("org_view_24", "Organization Views", false, null));
             navButtons.Children.Add(NavButton("saved_searches_24", "Saved Searches", false, null));
@@ -148,6 +152,11 @@ namespace XenAdmin.Linux
             DockPanel.SetDock(_titleBand, Dock.Top);
             right.Children.Add(_titleBand);
             right.Children.Add(_tabs);
+            _tabs.SelectionChanged += (_, _) =>
+            {
+                if (_tabs.SelectedItem is TabItem t && SelectedNode()?.XenObject is IXenObject x && _tabsSignature == x.opaque_ref)
+                    _lastTab[x.opaque_ref] = (string)t.Header;
+            };
 
             var split = new Grid { ColumnDefinitions = new ColumnDefinitions("245,3,*") };
             Grid.SetColumn(left, 0);
@@ -178,7 +187,7 @@ namespace XenAdmin.Linux
             };
 
             foreach (var s in _config.Servers)
-                Track(new XenConnection { Hostname = s.Host, Port = s.Port, Username = s.User });
+                Track(new XenConnection { Hostname = s.Host, Port = s.Port, Username = s.User, FriendlyName = s.Name });
             Select("<root>", true);
             RefreshTree();
             Closing += (_, _) =>
@@ -283,7 +292,7 @@ namespace XenAdmin.Linux
                 if (e.Connected)
                 {
                     SetStatus($"Connected to {c.Hostname}");
-                    _config.AddOrUpdateServer(c.Hostname, c.Port, c.Username);
+                    _config.AddOrUpdateServer(c.Hostname, c.Port, c.Username, c.Name);
                 }
                 else if (await ResolvePendingCertificates())
                 {
@@ -466,8 +475,8 @@ namespace XenAdmin.Linux
 
             _titleBand.Content = Views.TitleBand(node.Icon, Details.Heading(o), user);
             // rebuild the tab bodies on every refresh so values stay live, but keep the selected tab
-            var current = (_tabs.SelectedItem as TabItem)?.Header as string;
             var sig = o.opaque_ref;
+            _lastTab.TryGetValue(sig, out var current);
             var items = Details.Tabs(o).Select(t => Details.NotPorted(o, t)
                 ? new TabItem { Header = t, IsEnabled = false }
                 : Tab(t, TabBody(o, t))).ToList();
@@ -526,7 +535,7 @@ namespace XenAdmin.Linux
                         ? Views.GridPage(nt, null, "Add Interface...", "Properties", "Activate", "Remove")
                         : Views.GridPage(nt, null, "Add Network...", "Properties", "Remove Network"));
                 case "Console":
-                    return Body("Console", ConsoleView.For(o as VM));
+                    return ConsoleView.For(o as VM);
             }
             return new TextBlock();
         }

@@ -135,6 +135,8 @@ namespace XenAdmin.Linux
                     s.Add(FN("VM.OperatingMode"), vm.IsHVM() ? Messages.VM_OPERATING_MODE_HVM : Messages.VM_OPERATING_MODE_PV);
                     if (!vm.DefaultTemplate())
                         s.Add(Messages.BIOS_STRINGS_COPIED, vm.BiosStringsCopied() ? Messages.YES : Messages.NO);
+                    if (!vm.is_a_template)
+                        VirtualizationState(s, vm);
                     var running = vm.RunningTime();
                     if (running != null)
                         s.Add(FN("VM.uptime"), running.ToString());
@@ -171,6 +173,26 @@ namespace XenAdmin.Linux
                         vcpus.Add(FN("VM.MaxVCPUs"), vm.VCPUs_max.ToString());
                     vcpus.Add(FN("VM.Topology"), vm.Topology());
                     list.Add(vcpus);
+                    if (vm.IsRunning())
+                    {
+                        var rc = new Section { Title = "Read Caching" };
+                        var pvsProxy = vm.PvsProxy();
+                        if (pvsProxy != null)
+                            rc.Add(FN("VM.pvs_read_caching_status"), pvs_proxy_status_extensions.ToFriendlyString(pvsProxy.status));
+                        else if (vm.ReadCachingEnabled())
+                        {
+                            rc.Add(FN("VM.read_caching_status"), Messages.VM_READ_CACHING_ENABLED);
+                            rc.Add(FN("VM.read_caching_disks"), string.Join("\n", vm.ReadCachingVDIs().Select(v => v.NameWithLocation())));
+                        }
+                        else
+                        {
+                            rc.Add(FN("VM.read_caching_status"), Messages.VM_READ_CACHING_DISABLED);
+                            var reason = vm.ReadCachingDisabledReason();
+                            if (reason != null)
+                                rc.Add(FN("VM.read_caching_reason"), reason);
+                        }
+                        list.Add(rc);
+                    }
                     break;
 
                 case Pool pool:
@@ -210,6 +232,33 @@ namespace XenAdmin.Linux
                     break;
             }
             return list;
+        }
+
+        /// <summary>GeneralTabPage.GenerateVirtualisationStatusForGeneralBox.</summary>
+        private static void VirtualizationState(Section s, VM vm)
+        {
+            if (vm.HasNewVirtualizationStates())
+            {
+                var status = vm.GetVirtualizationStatus(out var statusString);
+                var lines = new List<string>();
+                if (vm.power_state == vm_power_state.Running)
+                {
+                    if (status.HasFlag(VM.VirtualizationStatus.Unknown))
+                        lines.Add(statusString);
+                    else
+                    {
+                        lines.Add(status.HasFlag(VM.VirtualizationStatus.IoDriversInstalled) ? Messages.VIRTUALIZATION_STATE_VM_IO_OPTIMIZED : Messages.VIRTUALIZATION_STATE_VM_IO_NOT_OPTIMIZED);
+                        lines.Add(status.HasFlag(VM.VirtualizationStatus.ManagementInstalled) ? Messages.VIRTUALIZATION_STATE_VM_MANAGEMENT_AGENT_INSTALLED : Messages.VIRTUALIZATION_STATE_VM_MANAGEMENT_AGENT_NOT_INSTALLED);
+                    }
+                }
+                lines.Add(vm.has_vendor_device ? Messages.VIRTUALIZATION_STATE_VM_RECEIVING_UPDATES : Messages.VIRTUALIZATION_STATE_VM_NOT_RECEIVING_UPDATES);
+                s.Add(FN("VM.VirtualizationState"), string.Join("\n", lines));
+            }
+            else if (vm.power_state == vm_power_state.Running)
+            {
+                vm.GetVirtualizationStatus(out var statusString);
+                s.Add(FN("VM.VirtualizationState"), statusString);
+            }
         }
 
         private static Section Certificates(Host host)

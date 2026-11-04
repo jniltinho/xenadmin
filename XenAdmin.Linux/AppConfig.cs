@@ -10,6 +10,8 @@ namespace XenAdmin.Linux
         public string Host { get; set; }
         public int Port { get; set; } = 443;
         public string User { get; set; } = "root";
+        /// <summary>Pool (or host) name shown while disconnected, like XenConnection.FriendlyName in the WinForms settings.</summary>
+        public string Name { get; set; }
     }
 
     /// <summary>
@@ -62,13 +64,16 @@ namespace XenAdmin.Linux
             }
         }
 
-        public void AddOrUpdateServer(string host, int port, string user)
+        public void AddOrUpdateServer(string host, int port, string user, string name = null)
         {
             var s = Servers.Find(x => string.Equals(x.Host, host, StringComparison.OrdinalIgnoreCase) && x.Port == port);
             if (s == null)
-                Servers.Add(new SavedServer { Host = host, Port = port, User = user });
+                Servers.Add(new SavedServer { Host = host, Port = port, User = user, Name = name });
             else
+            {
                 s.User = user;
+                s.Name = name ?? s.Name;
+            }
             Save();
         }
 

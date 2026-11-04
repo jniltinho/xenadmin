@@ -38,12 +38,13 @@
 ## 5. Console VNC (marco 2)
 
 - [ ] 5.0 Teste de regressão do console no Windows (manual documentado ou automatizado) antes de mexer no WinForms
+- [x] 5.1a (atalho) Compilar `VNCStream`/`MyStream`/`VNCException`/`IVNCGraphicsClient` sem alterações no app Linux, com shims portáveis (`Bitmap`/`Color`/`PixelFormat`/`Win32`) no namespace `DotNetVnc`
 - [ ] 5.1 Extrair `VNCStream`/`MyStream`/`VNCException` para `XenAdmin.Vnc` multi-target; trocar `Win32.QueryPerformance*` por `Stopwatch`
 - [ ] 5.1b Novo contrato de framebuffer por buffer de pixels no lugar de `Bitmap` em `IVNCGraphicsClient`, substituindo `GraphicsUtils` (GDI)
 - [ ] 5.2 Adaptador WinForms (`Bitmap`) para o novo contrato e WinForms consumindo `XenAdmin.Vnc`; repetir o teste 5.0
-- [ ] 5.3 Renderizador Avalonia (`WriteableBitmap`) com escala proporcional e conversão de coordenadas do mouse
-- [ ] 5.4 Teclado por keysym X11, Ctrl+Alt+Del, teste com layout ABNT2
-- [ ] 5.5 Teste de integração: abrir túnel CONNECT para uma VM em execução e receber o primeiro framebuffer update
+- [x] 5.3 Renderizador Avalonia (`WriteableBitmap`) com escala proporcional e conversão de coordenadas do mouse
+- [~] 5.4 Teclado por keysym X11 e Ctrl+Alt+Del (+ Ctrl+Alt+Insert) feitos; falta teste com layout ABNT2 numa VM descartável
+- [~] 5.5 Validado manualmente (somente visualização) no .114 com túnel CONNECT + TOFU; falta teste automatizado
 
 ## 6. Empacotamento
 
@@ -52,3 +53,16 @@
 - [x] 6.3 Smoke test: executar o artefato em container Ubuntu 22.04 limpo com `xvfb-run` e verificar que a janela abre
 - [x] 6.4 Workflow `.github/workflows/linux.yml` (via `make`): testes, build `net481`, AppImage, smoke e release em tags `linux-v*`
 - [x] 6.5 README: build em container, `.env`, limitações conhecidas (Wayland, XCM, export)
+
+## 7. Paridade com o app Windows (revisão Codex: visual ~85%, funcional ~40%)
+
+- [x] 7.1 Layout do WinForms: menus, toolbar com ícones originais (cinza quando desabilitados), painel de navegação, faixa de título, cabeçalho teal, seções PDSection, grids com botões
+- [x] 7.2 Árvore: pool/host/VM/SR via `Home()`, SR de tools oculto, templates de usuário, `+/−`, expansão por nó, nome do pool para servidor desconectado
+- [x] 7.3 Eventos: duplo clique (conectar/iniciar/retomar), menu de contexto com os comandos e textos originais, diálogos "Connecting to…" e "Connect to Server", confirmações de operações forçadas, aba lembrada por objeto
+- [x] 7.4 Abas na ordem original; as não portadas aparecem desabilitadas
+- [ ] 7.5 Diálogo Properties (nome, descrição, tags, pasta, CPU/memória, opções de boot)
+- [ ] 7.6 Abas Performance (RRD), Snapshots, Search, NICs, GPU, USB, console do host
+- [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e de disco/DVD (Add, Attach, Detach, Move, Delete, criar DVD)
+- [ ] 7.8 Wizards: New VM, New SR, New Pool, Import/Export
+- [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)
+- [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico

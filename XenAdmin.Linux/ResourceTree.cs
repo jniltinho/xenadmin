@@ -34,6 +34,12 @@ namespace XenAdmin.Linux
         public static bool IsRealVm(VM vm) =>
             !vm.is_a_template && !vm.is_a_snapshot && !vm.is_control_domain && vm.Show(false);
 
+        public static bool IsUserTemplate(VM vm) =>
+            vm.is_a_template && !vm.is_a_snapshot && !vm.DefaultTemplate() && vm.Show(false);
+
+        /// <summary>Pool name remembered from the last connection, else the address (XenConnection.Name).</summary>
+        private static string Name(IXenConnection c) => c is XenConnection xc ? xc.Name : c.Hostname;
+
         public static bool IsShownSr(SR sr) => sr.Show(false) && !sr.IsToolsSR();
 
         private static TreeNode Node(IXenObject o, string name = null) =>
@@ -49,7 +55,7 @@ namespace XenAdmin.Linux
         public static TreeNode Build(IXenConnection connection)
         {
             if (!connection.IsConnected || !connection.CacheIsPopulated)
-                return new TreeNode { Connection = connection, Name = connection.Hostname, Icon = Images.IconFor(connection) };
+                return new TreeNode { Connection = connection, Name = Name(connection), Icon = Images.IconFor(connection) };
 
             var pool = Helpers.GetPool(connection);
             var hosts = connection.Cache.Hosts.OrderBy(h => h.Name(), StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -65,7 +71,7 @@ namespace XenAdmin.Linux
             {
                 var host = hosts.FirstOrDefault();
                 if (host == null)
-                    return new TreeNode { Connection = connection, Name = connection.Hostname, Icon = Images.IconFor(connection) };
+                    return new TreeNode { Connection = connection, Name = Name(connection), Icon = Images.IconFor(connection) };
                 top = hostNodes[host.opaque_ref] = Node(host);
             }
 
@@ -75,6 +81,9 @@ namespace XenAdmin.Linux
             // under each host: its VMs first, then its storage (as in the WinForms tree)
             foreach (var vm in connection.Cache.VMs.Where(IsRealVm).OrderBy(v => v.Name(), StringComparer.CurrentCultureIgnoreCase))
                 ParentFor(vm.Home()).Children.Add(Node(vm));
+            // user templates sit with the pool (default templates stay hidden, as with DefaultTemplatesVisible=false)
+            foreach (var t in connection.Cache.VMs.Where(IsUserTemplate).OrderBy(v => v.Name(), StringComparer.CurrentCultureIgnoreCase))
+                top.Children.Add(Node(t));
             foreach (var sr in connection.Cache.SRs.Where(IsShownSr).OrderBy(s => s.NameWithoutHost(), StringComparer.CurrentCultureIgnoreCase))
                 ParentFor(sr.Home()).Children.Add(Node(sr, sr.NameWithoutHost()));
             return top;

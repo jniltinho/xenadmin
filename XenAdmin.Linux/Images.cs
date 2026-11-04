@@ -52,7 +52,7 @@ namespace XenAdmin.Linux
                     for (int i = 0; i < px.Length; i += 4)
                     {
                         // lighter grey, like ControlPaint.DrawImageDisabled
-                        var l = (byte)Math.Min(255, 90 + (px[i] * 11 + px[i + 1] * 59 + px[i + 2] * 30) / 100 * 3 / 5);
+                        var l = (byte)Math.Min(255, 70 + (px[i] * 11 + px[i + 1] * 59 + px[i + 2] * 30) / 100 * 2 / 3);
                         px[i] = px[i + 1] = px[i + 2] = l;
                     }
                     System.Runtime.InteropServices.Marshal.Copy(px, 0, fb.Address, px.Length);
@@ -88,6 +88,8 @@ namespace XenAdmin.Linux
         public static string IconFor(VM vm)
         {
             bool disabled = vm.IsHidden();
+            if (vm.is_a_template)
+                return disabled ? "000_TemplateDisabled_h32bit_16" : vm.DefaultTemplate() ? "000_VMTemplate_h32bit_16" : "000_UserTemplate_h32bit_16";
             if (!vm.ExistsOnServer())
                 return disabled ? "000_VMStoppedDisabled_h32bit_16" : "000_StoppedVM_h32bit_16";
             if (vm.current_operations.ContainsValue(vm_operations.migrate_send))

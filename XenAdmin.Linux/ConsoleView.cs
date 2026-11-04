@@ -29,7 +29,7 @@ namespace XenAdmin.Linux
         private readonly VM _vm;
         private readonly Screen _screen;
         private readonly TextBlock _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0) };
-        private readonly CheckBox _scale = new CheckBox { Content = "Scale", IsChecked = true, Margin = new Thickness(8, 0) };
+        private readonly CheckBox _scale = new CheckBox { Content = "Scale", IsChecked = false, VerticalAlignment = VerticalAlignment.Center };
         private readonly object _fbLock = new object();
         private byte[] _fb = Array.Empty<byte>();
         private int _width, _height;
@@ -45,20 +45,46 @@ namespace XenAdmin.Linux
         private ConsoleView(VM vm)
         {
             _vm = vm;
-            Background = Brushes.Black;
+            Background = Brushes.White;
             _screen = new Screen(this) { Focusable = true };
-            var bar = new DockPanel { Background = Brush.Parse("#F0F0F0"), Height = 32 };
-            var cad = new Button { Content = "Send Ctrl+Alt+Del", Margin = new Thickness(6, 2) };
+
+            // top: teal band with the DVD link and "Launch SSH Console", as in VNCTabView
+            var top = new DockPanel { Height = 36, Background = Views.Gradient("#396D8C", "#3F8B89", true) };
+            var ssh = new Button { Content = "Launch SSH Console", IsEnabled = false, Margin = new Thickness(6, 4), Background = Brushes.White };
+            DockPanel.SetDock(ssh, Dock.Right);
+            top.Children.Add(ssh);
+            var dvd = Views.LinkText("Click here to create a DVD drive", null);
+            dvd.Foreground = Brushes.White;
+            dvd.FontWeight = FontWeight.Bold;
+            dvd.TextDecorations = TextDecorations.Underline;
+            dvd.HorizontalAlignment = HorizontalAlignment.Center;
+            dvd.VerticalAlignment = VerticalAlignment.Center;
+            top.Children.Add(dvd);
+
+            // bottom: Send Ctrl+Alt+Del | Scale, Undock, Fullscreen
+            var bottom = new DockPanel { Height = 34, Background = Brush.Parse("#F0F0F0") };
+            var cad = new Button { Content = "Send Ctrl+Alt+Del (Ctrl+Alt+Insert)", Margin = new Thickness(4) };
             cad.Click += (_, _) => SendCtrlAltDel();
-            DockPanel.SetDock(cad, Dock.Right);
-            DockPanel.SetDock(_scale, Dock.Right);
-            bar.Children.Add(cad);
-            bar.Children.Add(_scale);
-            bar.Children.Add(_status);
-            DockPanel.SetDock(bar, Dock.Top);
-            Children.Add(bar);
+            DockPanel.SetDock(cad, Dock.Left);
+            bottom.Children.Add(cad);
+            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 6, Margin = new Thickness(4) };
+            right.Children.Add(_scale);
+            var undock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+            undock.Children.Add(Views.Icon("detach_24", 16));
+            undock.Children.Add(new TextBlock { Text = "Undock (Alt+Shift+U)", VerticalAlignment = VerticalAlignment.Center });
+            right.Children.Add(new Button { Content = undock, IsEnabled = false });
+            right.Children.Add(new Button { Content = "Fullscreen (Ctrl+Enter)", IsEnabled = false });
+            bottom.Children.Add(right);
+
+            var status = new Border { Child = _status, Height = 22 };
+            DockPanel.SetDock(top, Dock.Top);
+            DockPanel.SetDock(bottom, Dock.Bottom);
+            DockPanel.SetDock(status, Dock.Bottom);
+            Children.Add(top);
+            Children.Add(bottom);
+            Children.Add(status);
             Children.Add(_screen);
-            _scale.IsCheckedChanged += (_, _) => _screen.InvalidateMeasure();
+            _scale.IsCheckedChanged += (_, _) => _screen.InvalidateVisual();
             AttachedToVisualTree += (_, _) => Start();
             DetachedFromVisualTree += (_, _) => Stop();
         }
@@ -234,6 +260,12 @@ namespace XenAdmin.Linux
 
         private void Key(KeyEventArgs e, bool down)
         {
+            if (down && e.Key == Avalonia.Input.Key.Insert && e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+            {
+                SendCtrlAltDel();
+                e.Handled = true;
+                return;
+            }
             var sym = KeySyms.From(e);
             if (sym != 0)
             {
@@ -304,9 +336,12 @@ namespace XenAdmin.Linux
 
             public override void Render(DrawingContext context)
             {
-                context.FillRectangle(Brushes.Black, new Rect(Bounds.Size));
-                if (_bitmap != null)
-                    context.DrawImage(_bitmap, new Rect(_bitmap.Size), Target());
+                context.FillRectangle(Brushes.White, new Rect(Bounds.Size));
+                if (_bitmap == null) return;
+                var t = Target();
+                context.DrawImage(_bitmap, new Rect(_bitmap.Size), t);
+                // focus frame around the screen, as the WinForms console draws it
+                context.DrawRectangle(new Pen(Brush.Parse(IsFocused ? "#3399FF" : "#7A7A7A"), 1), t.Inflate(1));
             }
         }
     }

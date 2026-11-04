@@ -101,8 +101,8 @@ namespace XenAdmin.Linux
                 foreach (var (key, value) in s.Rows)
                 {
                     var g = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
-                    var k = new TextBlock { Text = key + ":", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 7, 8, 7) };
-                    var v = new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 8, 7) };
+                    var k = new TextBlock { Text = key + ":", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 6, 8, 6) };
+                    var v = new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 8, 6) };
                     Grid.SetColumn(v, 1);
                     g.Children.Add(k);
                     g.Children.Add(v);
@@ -182,7 +182,8 @@ namespace XenAdmin.Linux
         /// <summary>A grid page: optional link on top, the table, and the WinForms action buttons below.</summary>
         public static Control GridPage(Table t, string topLink = null, params string[] buttons)
         {
-            var dock = new DockPanel { Margin = new Thickness(12) };
+            // WinForms layout: link strip, then the table in 75% and the button row on top of the last 25%
+            var dock = new Grid { Margin = new Thickness(12), RowDefinitions = new RowDefinitions("Auto,3*,Auto,*") };
             if (topLink != null)
             {
                 var link = LinkText(topLink, null);
@@ -190,18 +191,19 @@ namespace XenAdmin.Linux
                 link.TextDecorations = TextDecorations.Underline;
                 link.FontWeight = FontWeight.Bold;
                 link.Margin = new Thickness(0, 12, 0, 18);
-                DockPanel.SetDock(link, Dock.Top);
                 dock.Children.Add(link);
             }
             if (buttons.Length > 0)
             {
                 var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
                 foreach (var b in buttons)
-                    bar.Children.Add(new Button { Content = b, MinWidth = 94, IsEnabled = false, HorizontalContentAlignment = HorizontalAlignment.Center });
-                DockPanel.SetDock(bar, Dock.Bottom);
+                    bar.Children.Add(new Button { Content = b, MinWidth = 94, Height = 23, Padding = new Thickness(6, 0), IsEnabled = false, HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center });
+                Grid.SetRow(bar, 2);
                 dock.Children.Add(bar);
             }
-            dock.Children.Add(TableView(t));
+            var table = TableView(t);
+            Grid.SetRow(table, 1);
+            dock.Children.Add(table);
             return MaxWidth(dock, 924);
         }
 

@@ -92,7 +92,7 @@ namespace XenModel.Linux.Tests
                 var pool = XenAdmin.Core.Helpers.GetPool(c);
                 System.Console.WriteLine($"{host}: pool={pool?.Name() ?? "-"} coordinator={c.Hostname} hosts={string.Join(",", hosts.Select(h => h.Name()))} vms={vms.Count} srs={c.Cache.SRs.Length}");
                 // every real VM must be somewhere in the tree, exactly once
-                var flat = Flatten(tree).Where(n => n.XenObject is VM).Select(n => n.XenObject.opaque_ref).ToList();
+                var flat = Flatten(tree).Where(n => n.XenObject is VM v && ResourceTree.IsRealVm(v)).Select(n => n.XenObject.opaque_ref).ToList();
                 CollectionAssert.AreEquivalent(vms.Select(v => v.opaque_ref).ToList(), flat);
                 if (hosts.Length > 1)
                     Assert.IsNotNull(pool, "multi-host connection should show a pool");

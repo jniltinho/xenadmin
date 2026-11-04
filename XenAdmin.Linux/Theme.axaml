@@ -12,7 +12,7 @@
   <Style Selector="Button.tool:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="#E5F1FB"/><Setter Property="BorderBrush" Value="#0078D7"/>
   </Style>
-  <Style Selector="Button.tool:disabled"><Setter Property="Opacity" Value="0.45"/></Style>
+  <Style Selector="Button.tool:disabled /template/ ContentPresenter"><Setter Property="Foreground" Value="#9A9A9A"/></Style>
   <Style Selector="Button.tool:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent"/></Style>
 
   <Style Selector="Button.nav">
@@ -20,6 +20,10 @@
     <Setter Property="CornerRadius" Value="0"/><Setter Property="Padding" Value="4,3"/><Setter Property="Height" Value="31"/>
   </Style>
   <Style Selector="Button.nav:disabled"><Setter Property="Opacity" Value="0.55"/></Style>
+  <Style Selector="Button.nav.active /template/ ContentPresenter">
+    <Setter Property="Background"><LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%"><GradientStop Color="#F6F6F6" Offset="0"/><GradientStop Color="#D4D4D4" Offset="1"/></LinearGradientBrush></Setter>
+    <Setter Property="BorderBrush" Value="#8C8C8C"/><Setter Property="BorderThickness" Value="1"/>
+  </Style>
   <Style Selector="Button.nav:disabled /template/ ContentPresenter"><Setter Property="Background" Value="#F0F0F0"/></Style>
 
   <Style Selector="TreeView.nav TreeViewItem">
