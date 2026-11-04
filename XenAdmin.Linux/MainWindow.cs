@@ -44,7 +44,7 @@ namespace XenAdmin.Linux
         private readonly Button _back, _forward, _addServer, _newPool, _newStorage, _newVm, _pause;
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
-        private MenuItem _connectMenu, _disconnectMenu, _removeMenu;
+        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _vmProps;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -259,10 +259,12 @@ namespace XenAdmin.Linux
                     Top("_File", Item("_Add...", async () => await AddServer()), "-", Item("E_xit", Close, "Alt+F4")),
                     Top("_View", Item("_Infrastructure", () => { _showEvents = false; UpdateContent(); }),
                         Item("_Notifications", () => { _showEvents = true; UpdateContent(); })),
-                    Top("_Pool", Item("New Pool..."), Item("Properties")),
-                    Top("_Server", Item("_Add...", async () => await AddServer()), "-", _connectMenu, _disconnectMenu, _removeMenu),
+                    Top("_Pool", Item("New Pool..."), "-", _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool))),
+                    Top("_Server", Item("_Add...", async () => await AddServer()), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
+                        _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host))),
                     Top("V_M", Item("New VM..."), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
-                        _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot]),
+                        _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
+                        _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM))),
                     Top("S_torage", Item("New SR...")),
                     Top("_Templates", Item("New VM from Template...")),
                     Top("T_ools", Item("Server Status Report...")),
@@ -448,6 +450,9 @@ namespace XenAdmin.Linux
             _connectMenu.IsEnabled = c != null && !c.IsConnected && !c.InProgress;
             _disconnectMenu.IsEnabled = c != null && (c.IsConnected || c.InProgress);
             _removeMenu.IsEnabled = c != null;
+            _poolProps.IsEnabled = o is Pool && CanEditProperties(o);
+            _hostProps.IsEnabled = o is Host && CanEditProperties(o);
+            _vmProps.IsEnabled = o is VM && CanEditProperties(o);
 
             if (_showEvents)
             {
@@ -466,10 +471,13 @@ namespace XenAdmin.Linux
             if (o == null)
             {
                 _titleBand.Content = Views.TitleBand(node.Icon, node.Name, null);
-                SetTabs("conn:" + c?.HostnameWithPort, () => new[] { Tab("General", Body("General",
+                // GeneralTabPage.GenerateDisconnectedHostBox
+                SetTabs("conn:" + c?.HostnameWithPort, () => new[] { Tab("General", Body("Connection General Properties",
                     Views.Sections(new[] { new Section { Title = "General", Expanded = true }
-                        .Add("Name", c?.Hostname).Add("Address", c?.HostnameWithPort).Add("User name", c?.Username)
-                        .Add("Status", c == null ? "" : c.IsConnected ? "Connected" : c.InProgress ? "Connecting..." : "Disconnected") }))) });
+                        .Add(FriendlyNameManager.GetFriendlyName("Label-host.name_label"), (c as XenConnection)?.Name ?? c?.Hostname)
+                        .Add(FriendlyNameManager.GetFriendlyName("Label-host.address"), c?.Hostname) },
+                        null))),
+                    new TabItem { Header = "Search", IsEnabled = false } });
                 return;
             }
 
@@ -519,7 +527,7 @@ namespace XenAdmin.Linux
         {
             switch (tab)
             {
-                case "General": return Body(Details.TabTitle(o, tab), Views.Sections(Details.General(o)));
+                case "General": return Body(Details.TabTitle(o, tab), Views.Sections(Details.General(o), CanEditProperties(o) ? () => ShowProperties(o) : null));
                 case "Memory": return Body("Memory", Views.Sections(Details.Memory(o)));
                 case "Storage":
                     var st = Details.Storage(o);
@@ -600,7 +608,46 @@ namespace XenAdmin.Linux
             {
                 items.Add(Item(n.XenObject is Pool ? Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU_POOL : Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU, () => Disconnect(c)));
             }
+            if (CanEditProperties(n.XenObject))
+            {
+                if (items.Count > 0) items.Add(new Separator());
+                items.Add(Item("P&roperties", () => ShowProperties(n.XenObject)));
+            }
             return items;
+        }
+
+        // ---------- Properties (PropertiesCommand) ----------
+
+        private static bool CanEditProperties(IXenObject o) =>
+            o != null && o.Connection != null && o.Connection.IsConnected && !o.Locked && (o is VM || o is Host || o is Pool || o is SR);
+
+        private async void ShowProperties(IXenObject o)
+        {
+            if (!CanEditProperties(o)) return;
+            var dialog = new PropertiesDialog(o);
+            await dialog.ShowDialog(this);
+            var action = dialog.Action;
+            if (action == null) return;
+            var index = _events.Count;
+            _events.Add($"{action.Title}: starting...");
+            void Update(ActionBase a) => Dispatcher.UIThread.Post(() =>
+            {
+                _events[index] = a.IsCompleted
+                    ? $"{a.Title}: {(a.Succeeded ? "completed" : "failed - " + a.Exception?.Message)}"
+                    : $"{a.Title}: {a.PercentComplete}% {a.Description}";
+                SetStatus(_events[index]);
+            });
+            action.Changed += Update;
+            action.Completed += a =>
+            {
+                o.Locked = false;
+                Update(a);
+                Dispatcher.UIThread.Post(() => { _tabsSignature = null; UpdateContent(); });
+                if (!a.Succeeded && a.Exception != null)
+                    Dispatcher.UIThread.Post(async () => await Dialogs.Info(this, "XCP-ng Center", $"{a.Title}\n\n{a.Exception.Message}"));
+            };
+            o.Locked = true;
+            action.RunAsync();
         }
 
         // ---------- VM operations ----------

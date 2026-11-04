@@ -21,6 +21,11 @@
 	<ItemGroup>
 		<!-- VNC protocol shared with the WinForms app, compiled unchanged (see VncShims.cs) -->
 		<Compile Include="..\XenAdmin\VNC\VNCStream.cs;..\XenAdmin\VNC\MyStream.cs;..\XenAdmin\VNC\VNCException.cs;..\XenAdmin\VNC\IVNCGraphicsClient.cs" Link="Vnc\%(Filename)%(Extension)" />
+		<!-- XenModel-only action used by the Properties dialog (folders and tags) -->
+		<Compile Include="..\XenAdmin\Actions\GUIActions\GeneralEditPageAction.cs" Link="Actions\%(Filename)%(Extension)" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="XenModel.Linux.Tests" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\XenModel\XenModel.csproj" />

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Security;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using XenAdmin.Actions.VMActions;
@@ -74,6 +75,15 @@ namespace XenModel.Linux.Tests
             Assert.AreEqual(1, f.Children[0].Children.Count);
             Assert.IsNull(ResourceTree.Filter(root, "nothing"));
             Assert.AreSame(root, ResourceTree.Filter(root, " "));
+        }
+
+        [TestMethod]
+        public void TopologiesMatchWinForms()
+        {
+            CollectionAssert.AreEqual(new[] { (4L, 1L), (2L, 2L), (1L, 4L) }, CpuPage.ValidTopologies(4, 0));
+            CollectionAssert.AreEqual(new[] { (6L, 1L), (3L, 2L) }, CpuPage.ValidTopologies(6, 2), "limited by cores per socket");
+            Assert.AreEqual(0, CpuPage.ValidTopologies(7, 1).Count(t => t.Sockets > VM.MAX_SOCKETS), "never more sockets than allowed");
+            Assert.AreEqual("Hard Disk", BootPage.DeviceName('C'));
         }
 
         [TestMethod]

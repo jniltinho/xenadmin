@@ -38,6 +38,82 @@ namespace XenModel.Linux.Tests
             return vm;
         }
 
+        /// <summary>
+        /// Saves properties the way PropertiesDialog does (SaveChangesAction on a clone + page actions)
+        /// and checks the result through the cache, then destroys the VM.
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void PropertiesRoundTripOnThrowawayVm()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-props");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template);
+
+                var copy = (VM)vm.Clone();
+                copy.name_label = VmName + "-renamed";
+                copy.name_description = "edited by the Linux Properties dialog test";
+                copy.SetAutoPowerOn(true);
+                copy.SetBootOrder("DC");
+                copy.SetVcpuWeight(1024);
+                copy.SetCoresPerSocket(2);
+                var actions = new System.Collections.Generic.List<AsyncAction>
+                {
+                    new SaveChangesAction(copy, true, vm),
+                    new XenAdmin.Actions.GeneralEditPageAction(vm, copy, "/linux-test", new System.Collections.Generic.List<string> { "linux", "test" }, true),
+                    new XenAdmin.Actions
+.ChangeVCPUSettingsAction(copy, 2, 2)
+                };
+                var all = new MultipleAction(c, "Update properties", "Updating", "Updated", actions);
+                vm.Locked = true; // as PropertiesDialog/ShowProperties do: SaveChanges requires the original locked
+                Run(all);
+                vm.Locked = false;
+                Assert.IsTrue(all.Succeeded, all.Exception?.ToString());
+
+                vm = WaitFor(c, vmRef, v => v.name_label == VmName + "-renamed" && v.VCPUs_max == 2 && v.VCPUs_at_startup == 2 && v.Path == "/linux-test");
+                System.Console.WriteLine($"name={vm.name_label} vcpus={vm.VCPUs_max}/{vm.VCPUs_at_startup} path='{vm.Path}' folder='{(vm.other_config.TryGetValue("folder", out var f) ? f : null)}' tags={string.Join(",", vm.tags)} boot={vm.GetBootOrder()} weight={vm.GetVcpuWeight()} cores={vm.GetCoresPerSocket()} auto={vm.GetAutoPowerOn()}");
+                Assert.AreEqual("edited by the Linux Properties dialog test", vm.name_description);
+                Assert.IsTrue(vm.GetAutoPowerOn());
+                Assert.AreEqual("DC", vm.GetBootOrder().ToUpper());
+                Assert.AreEqual(1024, vm.GetVcpuWeight());
+                Assert.AreEqual(2, vm.GetCoresPerSocket());
+                CollectionAssert.AreEquivalent(new[] { "linux", "test" }, XenAdmin.Model.Tags.GetTags(vm));
+                CollectionAssert.AreEquivalent(new[] { (2L, 1L), (1L, 2L) }, XenAdmin.Linux.CpuPage.ValidTopologies(2, vm.MaxCoresPerSocket()));
+            }
+            finally
+            {
+                if (vmRef != null)
+                {
+                    try { XenAdmin.Model.Folders.Unfolder(session, c.Resolve(new XenRef<VM>(vmRef))); } catch { }
+                    VM.destroy(session, vmRef);
+                }
+                c.EndConnect();
+            }
+        }
+
+        private static string CreateThrowawayVm(XenAdmin.Network.XenConnection c, Session session, string name)
+        {
+            foreach (var old in c.Cache.VMs.Where(v => v.name_label.StartsWith(VmName) && !v.is_a_template))
+            {
+                if (old.power_state != vm_power_state.Halted) VM.hard_shutdown(session, old.opaque_ref);
+                VM.destroy(session, old.opaque_ref);
+            }
+            var template = c.Cache.VMs.First(v => v.is_a_template && v.name_label == "Other install media");
+            var vmRef = VM.clone(session, template.opaque_ref, name).opaque_ref;
+            VM.set_is_a_template(session, vmRef, false);
+            const long mem = 256L * 1024 * 1024;
+            VM.set_memory_limits(session, vmRef, mem, mem, mem, mem);
+            VM.set_VCPUs_max(session, vmRef, 1);
+            VM.set_VCPUs_at_startup(session, vmRef, 1);
+            return vmRef;
+        }
+
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void PowerCycleThrowawayVm()
         {

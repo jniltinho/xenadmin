@@ -68,7 +68,7 @@ namespace XenAdmin.Linux
         }
 
         /// <summary>Collapsible property sections with "Expand all / Collapse all" and a selectable row, like PDSection.</summary>
-        public static Control Sections(IReadOnlyList<Section> sections)
+        public static Control Sections(IReadOnlyList<Section> sections, Action properties = null)
         {
             var panel = new StackPanel { Margin = new Thickness(12, 10, 12, 12), Spacing = 10 };
             var expanders = new List<Action<bool>>();
@@ -78,7 +78,10 @@ namespace XenAdmin.Linux
             links.Children.Add(LinkText("Collapse all", () => expanders.ForEach(e => e(false))));
             DockPanel.SetDock(links, Dock.Right);
             top.Children.Add(links);
-            top.Children.Add(new Button { Content = "Properties", IsEnabled = false, Padding = new Thickness(8, 1), HorizontalAlignment = HorizontalAlignment.Left });
+            var props = new Button { Content = "Properties", IsEnabled = properties != null, Padding = new Thickness(8, 1), HorizontalAlignment = HorizontalAlignment.Left };
+            if (properties != null)
+                props.Click += (_, _) => properties();
+            top.Children.Add(props);
             panel.Children.Add(top);
 
             Border selected = null;

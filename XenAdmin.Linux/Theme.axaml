@@ -1,8 +1,94 @@
 <!-- Styles that bring the Fluent controls closer to the WinForms look of XCP-ng Center. -->
 <Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <!-- Windows 11 check box / radio button: 13px, blue when checked -->
+    <ControlTheme x:Key="{x:Type CheckBox}" TargetType="CheckBox">
+      <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="Black"/>
+      <Setter Property="Padding" Value="5,0,0,0"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/><Setter Property="Cursor" Value="Arrow"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid ColumnDefinitions="Auto,*" Background="{TemplateBinding Background}">
+            <Border Name="box" Width="13" Height="13" BorderThickness="1" BorderBrush="#333333" Background="White" VerticalAlignment="Center">
+              <Path Name="glyph" Data="M 1.5,5.5 L 4.5,8.5 L 9.5,2.5" Stroke="White" StrokeThickness="1.6" IsVisible="False"/>
+            </Border>
+            <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Margin="{TemplateBinding Padding}"
+                              Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+      <Style Selector="^:checked /template/ Border#box"><Setter Property="Background" Value="#0078D7"/><Setter Property="BorderBrush" Value="#0078D7"/></Style>
+      <Style Selector="^:checked /template/ Path#glyph"><Setter Property="IsVisible" Value="True"/></Style>
+      <Style Selector="^:pointerover /template/ Border#box"><Setter Property="BorderBrush" Value="#0078D7"/></Style>
+      <Style Selector="^:disabled"><Setter Property="Opacity" Value="0.55"/></Style>
+    </ControlTheme>
+    <ControlTheme x:Key="{x:Type RadioButton}" TargetType="RadioButton">
+      <Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="Black"/>
+      <Setter Property="Padding" Value="5,0,0,0"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FontSize" Value="12"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Grid ColumnDefinitions="Auto,*" Background="{TemplateBinding Background}">
+            <Ellipse Name="ring" Width="13" Height="13" Stroke="#333333" StrokeThickness="1" Fill="White" VerticalAlignment="Center"/>
+            <Ellipse Name="dot" Width="5" Height="5" Fill="White" IsVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Margin="{TemplateBinding Padding}"
+                              Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+          </Grid>
+        </ControlTemplate>
+      </Setter>
+      <Style Selector="^:checked /template/ Ellipse#ring"><Setter Property="Fill" Value="#0078D7"/><Setter Property="Stroke" Value="#0078D7"/></Style>
+      <Style Selector="^:checked /template/ Ellipse#dot"><Setter Property="IsVisible" Value="True"/></Style>
+      <Style Selector="^:pointerover /template/ Ellipse#ring"><Setter Property="Stroke" Value="#0078D7"/></Style>
+      <Style Selector="^:disabled"><Setter Property="Opacity" Value="0.55"/></Style>
+    </ControlTheme>
+  </Styles.Resources>
   <Style Selector="Window"><Setter Property="FontSize" Value="12"/></Style>
   <Style Selector="MenuItem"><Setter Property="FontSize" Value="12"/><Setter Property="Padding" Value="8,3"/></Style>
   <Style Selector="Menu > MenuItem"><Setter Property="Padding" Value="7,2"/></Style>
+
+  <!-- WinForms (Windows 10/11) push buttons: 75x23, light grey, 1px border, centered text,
+       blue border on hover and on the default (AcceptButton) button -->
+  <Style Selector="Button:not(.tool):not(.nav)">
+    <Setter Property="Background" Value="#E1E1E1"/><Setter Property="BorderBrush" Value="#ADADAD"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="0"/>
+    <Setter Property="Padding" Value="8,2"/><Setter Property="MinHeight" Value="23"/><Setter Property="MinWidth" Value="75"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Foreground" Value="Black"/><Setter Property="FontSize" Value="12"/>
+  </Style>
+  <Style Selector="Button[IsDefault=True]:not(.tool):not(.nav)"><Setter Property="BorderBrush" Value="#0078D7"/></Style>
+  <Style Selector="Button:not(.tool):not(.nav):pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#E5F1FB"/><Setter Property="BorderBrush" Value="#0078D7"/><Setter Property="Foreground" Value="Black"/>
+  </Style>
+  <Style Selector="Button:not(.tool):not(.nav):pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#CCE4F7"/><Setter Property="BorderBrush" Value="#005499"/>
+  </Style>
+  <Style Selector="Button:not(.tool):not(.nav):disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#BFBFBF"/><Setter Property="Foreground" Value="#838383"/>
+  </Style>
+
+  <!-- WinForms TextBox/ComboBox/CheckBox metrics: 23px fields, square corners, 13px check boxes -->
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="23"/><Setter Property="Padding" Value="4,2"/><Setter Property="CornerRadius" Value="0"/>
+    <Setter Property="BorderBrush" Value="#7A7A7A"/><Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="12"/>
+  </Style>
+  <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement"><Setter Property="BorderBrush" Value="#0078D7"/></Style>
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="#0078D7"/><Setter Property="BorderThickness" Value="1"/>
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="23"/><Setter Property="Height" Value="23"/><Setter Property="Padding" Value="4,0,0,0"/>
+    <Setter Property="CornerRadius" Value="0"/><Setter Property="Background" Value="#E1E1E1"/>
+    <Setter Property="BorderBrush" Value="#ADADAD"/><Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="12"/>
+  </Style>
+  <Style Selector="ComboBox:pointerover /template/ Border#Background">
+    <Setter Property="Background" Value="#E5F1FB"/><Setter Property="BorderBrush" Value="#0078D7"/>
+  </Style>
+  <Style Selector="ComboBox:disabled /template/ Border#Background">
+    <Setter Property="Background" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#BFBFBF"/>
+  </Style>
+  <!-- boot order CheckedListBox -->
+  <Style Selector="ListBox.checked ListBoxItem"><Setter Property="Padding" Value="3,1"/><Setter Property="MinHeight" Value="0"/></Style>
 
   <Style Selector="Button.tool">
     <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/>
@@ -54,6 +140,11 @@
   </Style>
   <Style Selector="TabItem"><Setter Property="Foreground" Value="Black"/></Style>
   <Style Selector="TabItem:disabled"><Setter Property="Foreground" Value="#A0A0A0"/></Style>
+
+  <!-- Properties dialog page list (VerticalTabs) -->
+  <Style Selector="ListBox.props ListBoxItem"><Setter Property="Padding" Value="6,4"/><Setter Property="MinHeight" Value="0"/></Style>
+  <Style Selector="ListBox.props ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#0078D7"/></Style>
+  <Style Selector="ListBox.props ListBoxItem:selected TextBlock"><Setter Property="Foreground" Value="White"/></Style>
 
   <Style Selector="TabControl"><Setter Property="Padding" Value="0"/></Style>
   <Style Selector="TabItem">

@@ -60,7 +60,10 @@
 - [x] 7.2 Árvore: pool/host/VM/SR via `Home()`, SR de tools oculto, templates de usuário, `+/−`, expansão por nó, nome do pool para servidor desconectado
 - [x] 7.3 Eventos: duplo clique (conectar/iniciar/retomar), menu de contexto com os comandos e textos originais, diálogos "Connecting to…" e "Connect to Server", confirmações de operações forçadas, aba lembrada por objeto
 - [x] 7.4 Abas na ordem original; as não portadas aparecem desabilitadas
-- [ ] 7.5 Diálogo Properties (nome, descrição, tags, pasta, CPU/memória, opções de boot)
+- [x] 7.5 Diálogo Properties: páginas General (nome, descrição, pasta via "Change Folder", tags via "Edit Tags", IQN do host), CPU (vCPUs, topologia, prioridade) e Boot Options (autostart, ordem de boot HVM, dispositivo/parâmetros PV), salvando como o original (`SaveChangesAction` no clone + actions das páginas em `MultipleAction`, objeto travado); teste de integração de escrita no 110
+- [ ] 7.5b Páginas restantes do Properties (Custom Fields, Start Options/HA, Alerts, Home Server, USB, Advanced, Multipathing, Log Destination) — hoje listadas desabilitadas
+- [x] 7.5c Controles com o visual do WinForms: botões 75×23 (borda azul no padrão), TextBox/ComboBox 23 px, checkbox/radio de 13 px; "Connect to Server" com grupo "User login credentials"
+- [x] 7.5d `Folders.InitFolders()` na inicialização (mantém `IXenObject.Path`; sem isso pastas apareciam como <None>)
 - [ ] 7.6 Abas Performance (RRD), Snapshots, Search, NICs, GPU, USB, console do host
 - [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e de disco/DVD (Add, Attach, Detach, Move, Delete, criar DVD)
 - [ ] 7.8 Wizards: New VM, New SR, New Pool, Import/Export

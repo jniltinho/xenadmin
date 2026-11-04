@@ -46,8 +46,12 @@ namespace XenModel.Linux.Tests
         public static void Init(TestContext _)
         {
             XenAdminConfigManager.Provider ??= new LinuxConfigProvider();
-            Sync ??= new ThreadSynchronizer();
-            InvokeHelper.Initialize(Sync);
+            if (Sync == null)
+            {
+                Sync = new ThreadSynchronizer();
+                InvokeHelper.Initialize(Sync);
+                Sync.Invoke(new Action(XenAdmin.Model.Folders.InitFolders), null);
+            }
 #pragma warning disable SYSLIB0014
             // lab hosts use self-signed certificates; the app uses CertificateTrust instead
             System.Net.ServicePointManager.ServerCertificateValidationCallback = (_, _, _, _) => true;

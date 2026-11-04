@@ -27,6 +27,8 @@ namespace XenAdmin.Linux
                 ServicePointManager.ServerCertificateValidationCallback = trust.Validate;
 #pragma warning restore SYSLIB0014
                 InvokeHelper.Initialize(new DispatcherSynchronizer());
+                // keeps IXenObject.Path in step with other_config["folder"], as WinForms MainWindow does
+                XenAdmin.Model.Folders.InitFolders();
                 ConsoleView.Trust = trust;
                 desktop.MainWindow = new MainWindow(config, trust);
             }
