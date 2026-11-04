@@ -56,6 +56,7 @@
     <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/>
     <Setter Property="Foreground" Value="Black"/><Setter Property="FontSize" Value="12"/>
   </Style>
+  <Style Selector="Button.tall"><Setter Property="MinHeight" Value="27"/><Setter Property="Padding" Value="14,2"/></Style>
   <Style Selector="Button[IsDefault=True]:not(.tool):not(.nav)"><Setter Property="BorderBrush" Value="#0078D7"/></Style>
   <Style Selector="Button:not(.tool):not(.nav):pointerover /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="#E5F1FB"/><Setter Property="BorderBrush" Value="#0078D7"/><Setter Property="Foreground" Value="Black"/>

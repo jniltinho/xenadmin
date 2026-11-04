@@ -34,7 +34,13 @@ namespace XenAdmin.Linux
         private readonly Button _view = new Button { Content = "View  ▾" };
         private readonly StackPanel _details = new StackPanel { Width = 262, Margin = new Thickness(6, 0, 0, 0) };
         private readonly TextBlock _created = new TextBlock { Opacity = 0.7 };
+        private readonly TextBlock _name = new TextBlock { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeight.SemiBold };
+        private readonly TextBlock _size = new TextBlock();
         private readonly TextBlock _desc = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        private readonly Image _scheduleIcon = Views.Icon("000_Info3_h32bit_16");
+        private readonly TextBlock _scheduleText = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 230 };
+        private readonly StackPanel _schedule = new StackPanel { Margin = new Thickness(6, 0, 0, 10), Spacing = 2, VerticalAlignment = VerticalAlignment.Bottom };
+        private ContentControl _rightHost;
         private readonly TextBlock _type = new TextBlock();
         private readonly TextBlock _tags = new TextBlock { TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock _folder = new TextBlock();
@@ -70,7 +76,10 @@ namespace XenAdmin.Linux
             var toolbar = new DockPanel { Margin = new Thickness(12, 12, 12, 8) };
             var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             foreach (var b in new[] { _take, _revert, _actions, _delete, _view })
+            {
+                b.Classes.Add("tall"); // this toolbar uses taller buttons than dialogs, as in SnapshotsPage
                 left.Children.Add(b);
+            }
             var hide = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Cursor = new Cursor(StandardCursorType.Hand), VerticalAlignment = VerticalAlignment.Center };
             var chevron = Views.Icon("PDChevronRight", 18);
             hide.Children.Add(chevron);
@@ -78,9 +87,10 @@ namespace XenAdmin.Linux
             hide.Children.Add(hideText);
             hide.PointerPressed += (_, _) =>
             {
-                _details.IsVisible = !_details.IsVisible;
-                hideText.Text = _details.IsVisible ? "Hide Details" : "Show Details";
-                chevron.Source = Images.Get(_details.IsVisible ? "PDChevronRight" : "PDChevronLeft");
+                // collapse the whole right column so the list takes the space
+                _rightHost.IsVisible = !_rightHost.IsVisible;
+                hideText.Text = _rightHost.IsVisible ? "Hide Details" : "Show Details";
+                chevron.Source = Images.Get(_rightHost.IsVisible ? "PDChevronRight" : "PDChevronLeft");
             };
             DockPanel.SetDock(hide, Dock.Right);
             toolbar.Children.Add(hide);
@@ -98,8 +108,10 @@ namespace XenAdmin.Linux
                 fields.Children.Add(l); fields.Children.Add(value);
                 r++;
             }
+            Field("Name:", _name);
             Field("Description:", _desc);
             Field("Type:", _type);
+            Field("Size:", _size);
             Field("Tags:", _tags);
             Field("Folder:", _folder);
             var box = new StackPanel { Margin = new Thickness(8, 4, 8, 10) };
@@ -109,20 +121,19 @@ namespace XenAdmin.Linux
             box.Children.Add(new Border { Height = 18 });
             box.Children.Add(_props);
             _details.Children.Add(new Border { BorderBrush = Brush.Parse("#DCDCDC"), BorderThickness = new Thickness(1), Child = box });
-            var schedule = new StackPanel { Margin = new Thickness(6, 0, 0, 10), Spacing = 2, VerticalAlignment = VerticalAlignment.Bottom };
             var info = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            info.Children.Add(Views.Icon("000_Info3_h32bit_16"));
-            info.Children.Add(new TextBlock { Text = "This VM is not currently part of a snapshot schedule", TextWrapping = TextWrapping.Wrap, MaxWidth = 230 });
-            schedule.Children.Add(info);
-            var link = Views.LinkText("View snapshot schedules", null);
+            info.Children.Add(_scheduleIcon);
+            info.Children.Add(_scheduleText);
+            _schedule.Children.Add(info);
+            var link = Views.LinkText(Messages.VIEW_VMSS_POLICIES, null);
             link.TextDecorations = TextDecorations.Underline;
             link.Margin = new Thickness(22, 0, 0, 0);
-            schedule.Children.Add(link);
+            _schedule.Children.Add(link);
             var right = new DockPanel();
-            DockPanel.SetDock(schedule, Dock.Bottom);
-            right.Children.Add(schedule);
+            DockPanel.SetDock(_schedule, Dock.Bottom);
+            right.Children.Add(_schedule);
             right.Children.Add(_details);
-            var rightHost = new ContentControl { Content = right, Margin = new Thickness(0, 0, 12, 12) };
+            var rightHost = _rightHost = new ContentControl { Content = right, Margin = new Thickness(0, 0, 12, 12) };
 
             var listBox = new Border
             {
@@ -181,7 +192,7 @@ namespace XenAdmin.Linux
                 _rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                 var values = new[]
                 {
-                    TypeText(s), s.name_label, (s.snapshot_time.ToLocalTime() + s.Connection.ServerTimeOffset).ToString(Messages.DATEFORMAT_DMY_HM),
+                    TypeText(s), s.name_label, (s.snapshot_time.ToLocalTime() + s.Connection.ServerTimeOffset).ToString(Messages.DATEFORMAT_DMY_HMS),
                     Util.DiskSizeString(Size(s)), string.Join(", ", Tags.GetTags(s) ?? Array.Empty<string>()),
                     string.IsNullOrEmpty(s.Description()) ? Messages.NONE : s.Description()
                 };
@@ -219,13 +230,27 @@ namespace XenAdmin.Linux
             _take.IsEnabled = snapshotAllowed && !_vm.Locked;
             _revert.IsEnabled = s != null && s.allowed_operations.Contains(vm_operations.revert);
             _delete.IsEnabled = s != null && s.allowed_operations.Contains(vm_operations.destroy);
-            _actions.IsEnabled = true;
+            _actions.IsEnabled = s != null;
             _props.IsEnabled = s != null;
-            _created.Text = s == null ? "Created on" : string.Format("Created on {0}", (s.snapshot_time.ToLocalTime() + s.Connection.ServerTimeOffset).ToString(Messages.DATEFORMAT_DMY_HM));
+            _created.Text = s == null ? "Created on" : string.Format("Created on {0}", (s.snapshot_time.ToLocalTime() + s.Connection.ServerTimeOffset).ToString(Messages.DATEFORMAT_DMY_HMS));
+            _name.Text = s?.name_label ?? "";
+            _size.Text = s == null ? "" : Util.DiskSizeString(Size(s));
+            RefreshSchedule();
             _desc.Text = s == null ? "" : string.IsNullOrEmpty(s.Description()) ? Messages.NONE : s.Description();
             _type.Text = s == null ? "" : TypeText(s);
             _tags.Text = s == null ? "" : (Tags.GetTags(s) is { Length: > 0 } t ? string.Join(", ", t) : Messages.NONE);
             _folder.Text = s == null ? "" : string.IsNullOrEmpty(s.Path) ? Messages.NONE : s.Path;
+        }
+
+        /// <summary>SnapshotsPage.RefreshVMSSPanel.</summary>
+        private void RefreshSchedule()
+        {
+            _schedule.IsVisible = Helpers.FalconOrGreater(_vm.Connection);
+            var forbidden = Helpers.FeatureForbidden(_vm.Connection, Host.RestrictVMSnapshotSchedule);
+            var vmss = _vm.Connection.Resolve(_vm.snapshot_schedule);
+            var inSchedule = vmss != null && !forbidden;
+            _scheduleText.Text = inSchedule ? string.Format(Messages.THIS_VM_IS_IN_VMSS, vmss.Name()) : Messages.THIS_VM_IS_NOT_IN_VMSS;
+            _scheduleIcon.Source = Images.Get(inSchedule ? "000_Tick_h32bit_16" : "000_Info3_h32bit_16");
         }
 
         private ContextMenu ActionsMenu()

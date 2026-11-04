@@ -22,6 +22,7 @@ namespace XenAdmin.Linux
         private static MetricUpdater _metrics;
         private readonly IReadOnlyList<IXenConnection> _connections;
         private readonly Grid _grid = new Grid();
+        private readonly HashSet<string> _collapsed = new HashSet<string>();
         private static readonly string[] Columns = { "Name", Messages.OVERVIEW_CPU_USAGE, Messages.OVERVIEW_MEMORY_USAGE, "Disks\n(avg / max KBs)", "Network\n(avg / max KBs)", "Address", "Uptime" };
         private static readonly double[] Widths = { 250, 115, 125, 120, 120, 120, 170 };
 
@@ -149,30 +150,47 @@ namespace XenAdmin.Linux
             {
                 var h = new Border
                 {
-                    BorderBrush = Brush.Parse("#E3E3E3"), BorderThickness = new Thickness(0, 0, 1, 1), Padding = new Thickness(4, 6), Height = 46,
+                    BorderBrush = Brush.Parse("#E3E3E3"), BorderThickness = new Thickness(0, 0, 1, 1), Padding = new Thickness(4, 0), Height = 38,
                     Child = new TextBlock { Text = Columns[c], FontWeight = FontWeight.SemiBold, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 }
                 };
                 Grid.SetColumn(h, c);
                 _grid.Children.Add(h);
             }
             var row = 1;
-            foreach (var r in Rows())
+            var all = Rows().ToList();
+            int skipDeeperThan = -1;
+            for (int i = 0; i < all.Count; i++)
             {
+                var r = all[i];
+                if (skipDeeperThan >= 0 && r.Depth > skipDeeperThan)
+                    continue; // inside a collapsed node
+                skipDeeperThan = -1;
+                var hasChildren = i + 1 < all.Count && all[i + 1].Depth > r.Depth;
+                var key = r.Object.opaque_ref;
+                var collapsed = _collapsed.Contains(key);
+                if (hasChildren && collapsed)
+                    skipDeeperThan = r.Depth;
                 _grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(4 + r.Depth * 25, 2, 0, 2) };
+                var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(4 + r.Depth * 25, 0, 0, 0) };
+                // QueryPanel +/- expander, 12px before the icon
+                var expander = new Image { Width = 9, Height = 9, Margin = new Thickness(0, 0, 3, 0), VerticalAlignment = VerticalAlignment.Center,
+                    Source = hasChildren ? Images.Get(collapsed ? "tree_plus" : "tree_minus") : null, Cursor = hasChildren ? new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand) : null };
+                if (hasChildren)
+                    expander.PointerPressed += (_, _) => { if (!_collapsed.Remove(key)) _collapsed.Add(key); Refresh(); };
+                name.Children.Add(expander);
                 name.Children.Add(Views.Icon(Images.IconFor(r.Object)));
                 var lines = new StackPanel();
                 lines.Children.Add(new TextBlock { Text = r.Object.Name(), TextTrimming = TextTrimming.CharacterEllipsis });
                 var desc = r.Object.Description();
                 if (!string.IsNullOrEmpty(desc))
-                    lines.Children.Add(new TextBlock { Text = desc, Opacity = 0.6, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = Widths[0] - 40 - r.Depth * 25 });
+                    lines.Children.Add(new TextBlock { Text = desc, Opacity = 0.6, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = Widths[0] - 52 - r.Depth * 25, Margin = new Thickness(0, -2, 0, 0) });
                 name.Children.Add(lines);
                 Grid.SetRow(name, row);
                 _grid.Children.Add(name);
                 var values = Values(r.Object);
                 for (int c = 0; c < values.Length; c++)
                 {
-                    var cell = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(4, 2) };
+                    var cell = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(4, 0) };
                     if (values[c].Bar >= 0)
                         cell.Children.Add(Bar(values[c].Bar));
                     cell.Children.Add(new TextBlock { Text = values[c].Text ?? "", HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = Widths[c + 1] - 8 });
