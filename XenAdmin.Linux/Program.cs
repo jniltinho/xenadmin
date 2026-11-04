@@ -12,7 +12,9 @@ namespace XenAdmin.Linux
         public override void Initialize()
         {
             Styles.Add(new FluentTheme());
-            RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Default;
+            // the WinForms app has a single light look
+            RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+            Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://xcp-ng-center/")) { Source = new Uri("avares://xcp-ng-center/Theme.axaml") });
         }
 
         public override void OnFrameworkInitializationCompleted()
@@ -25,6 +27,7 @@ namespace XenAdmin.Linux
                 ServicePointManager.ServerCertificateValidationCallback = trust.Validate;
 #pragma warning restore SYSLIB0014
                 InvokeHelper.Initialize(new DispatcherSynchronizer());
+                ConsoleView.Trust = trust;
                 desktop.MainWindow = new MainWindow(config, trust);
             }
             base.OnFrameworkInitializationCompleted();

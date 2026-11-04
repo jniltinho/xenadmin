@@ -27,13 +27,13 @@ namespace XenAdmin.Linux
             return p;
         }
 
-        public static async Task<bool> Confirm(Window owner, string title, string message, string okText = "OK")
+        public static async Task<bool> Confirm(Window owner, string title, string message, string okText = "OK", string cancelText = "Cancel")
         {
-            var ok = new Button { Content = okText, IsDefault = true };
-            var cancel = new Button { Content = "Cancelar", IsCancel = true };
+            var ok = new Button { Content = M(okText), IsDefault = true, MinWidth = 75 };
+            var cancel = new Button { Content = M(cancelText), IsCancel = true, MinWidth = 75 };
             var panel = new StackPanel();
             panel.Children.Add(new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
-            panel.Children.Add(Buttons(cancel, ok));
+            panel.Children.Add(Buttons(ok, cancel));
             var w = Frame(title, panel);
             ok.Click += (_, _) => w.Close(true);
             cancel.Click += (_, _) => w.Close(false);
@@ -59,31 +59,39 @@ namespace XenAdmin.Linux
             public string Password;
         }
 
-        public static async Task<ServerInput> AddServer(Window owner, string host = "", string user = "root")
+        /// <summary>WinForms access keys use '&amp;', Avalonia uses '_'.</summary>
+        public static string M(string text) => (text ?? "").Replace("&", "_");
+
+        /// <summary>AddServerDialog: "Add New Server", or "Connect to Server" for a known, disconnected server.</summary>
+        public static async Task<ServerInput> AddServer(Window owner, string host = "", string user = "root", bool connectMode = false)
         {
-            var hostBox = new TextBox { Text = host, Watermark = "servidor ou servidor:porta" };
+            var hostBox = new TextBox { Text = host, IsReadOnly = connectMode };
             var userBox = new TextBox { Text = user };
             var passBox = new TextBox { PasswordChar = '•' };
-            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.IndianRed, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-            var ok = new Button { Content = "Conectar", IsDefault = true };
-            var cancel = new Button { Content = "Cancelar", IsCancel = true };
-            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"), RowSpacing = 8, ColumnSpacing = 8 };
+            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+            var ok = new Button { Content = M(connectMode ? Messages.CONNECT : Messages.ADD), IsDefault = true, MinWidth = 75 };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true, MinWidth = 75 };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"), RowSpacing = 8, ColumnSpacing = 8 };
             void Row(int r, string label, Control c)
             {
-                var l = new Label { Content = label, Target = c, VerticalAlignment = VerticalAlignment.Center };
+                var l = new Label { Content = M(label), Target = c, VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetRow(l, r); Grid.SetRow(c, r); Grid.SetColumn(c, 1);
                 grid.Children.Add(l); grid.Children.Add(c);
             }
-            Row(0, "_Servidor:", hostBox);
-            Row(1, "_Usuário:", userBox);
-            Row(2, "_Senha:", passBox);
-            var note = new TextBlock { Text = "A senha não é gravada em disco.", Opacity = 0.7 };
-            Grid.SetRow(note, 3); Grid.SetColumnSpan(note, 2); grid.Children.Add(note);
-            Grid.SetRow(error, 4); Grid.SetColumnSpan(error, 2); grid.Children.Add(error);
-            var panel = new StackPanel();
+            Row(0, "&Server:", hostBox);
+            Row(1, "&Username:", userBox);
+            Row(2, "&Password:", passBox);
+            Grid.SetRow(error, 3); Grid.SetColumnSpan(error, 2); grid.Children.Add(error);
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = connectMode ? Messages.CONNECT_TO_SERVER_BLURB
+                    : "Enter the host name or IP address of the server you want to add and your user login credentials for that server.",
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap
+            });
             panel.Children.Add(grid);
-            panel.Children.Add(Buttons(cancel, ok));
-            var w = Frame("Adicionar servidor", panel);
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame(connectMode ? Messages.CONNECT_TO_SERVER : "Add New Server", panel);
             ServerInput result = null;
             ok.Click += (_, _) =>
             {
@@ -91,23 +99,36 @@ namespace XenAdmin.Linux
                 var port = 443;
                 var idx = text.LastIndexOf(':');
                 if (idx > 0 && int.TryParse(text[(idx + 1)..], out var p)) { port = p; text = text[..idx]; }
-                if (text.Length == 0 || port < 1 || port > 65535) { error.Text = "Informe um servidor válido."; return; }
-                if (string.IsNullOrWhiteSpace(userBox.Text)) { error.Text = "Informe o usuário."; return; }
+                if (text.Length == 0 || port < 1 || port > 65535) { error.Text = "Enter a valid server name or address."; return; }
+                if (string.IsNullOrWhiteSpace(userBox.Text)) { error.Text = "Enter a user name."; return; }
                 result = new ServerInput { Host = text, Port = port, User = userBox.Text.Trim(), Password = passBox.Text ?? "" };
                 w.Close();
             };
             cancel.Click += (_, _) => w.Close();
-            w.Opened += (_, _) => (string.IsNullOrEmpty(host) ? hostBox : passBox).Focus();
+            w.Opened += (_, _) => (connectMode || !string.IsNullOrEmpty(host) ? passBox : hostBox).Focus();
             await w.ShowDialog(owner);
             return result;
+        }
+
+        /// <summary>ConnectingToServerDialog: shown while a connection is in progress; Cancel ends it.</summary>
+        public static Window Connecting(Window owner, string host, System.Action cancel)
+        {
+            var c = new Button { Content = M(Messages.CANCEL), IsCancel = true, MinWidth = 75 };
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(new TextBlock { Text = string.Format(Messages.LABEL_ATTEMPT, host) });
+            panel.Children.Add(Buttons(c));
+            var w = Frame(string.Format(Messages.CONNECTING_NOTICE_TITLE, host), panel, 380);
+            c.Click += (_, _) => { cancel(); w.Close(); };
+            w.Show(owner);
+            return w;
         }
 
         public static Task<bool> TrustCertificate(Window owner, string hostKey, string fingerprint, string oldFingerprint)
         {
             var msg = oldFingerprint == null
-                ? $"O certificado de {hostKey} não é confiável pelo sistema.\n\nSHA-256:\n{Pretty(fingerprint)}\n\nConfie somente se a impressão digital conferir com a do servidor (xe host-param-get param-name=certificates… ou console do host)."
-                : $"ATENÇÃO: o certificado de {hostKey} MUDOU.\n\nAnterior:\n{Pretty(oldFingerprint)}\n\nNovo:\n{Pretty(fingerprint)}\n\nIsso pode indicar um ataque. Aceite apenas se o certificado foi trocado de propósito.";
-            return Confirm(owner, oldFingerprint == null ? "Certificado não confiável" : "Certificado alterado", msg, "Confiar e conectar");
+                ? $"The certificate presented by {hostKey} is not trusted.\n\nSHA-256 fingerprint:\n{Pretty(fingerprint)}\n\nOnly continue if this matches the fingerprint of the server's certificate."
+                : $"WARNING: the certificate presented by {hostKey} has CHANGED.\n\nPrevious:\n{Pretty(oldFingerprint)}\n\nNew:\n{Pretty(fingerprint)}\n\nThis could indicate an attack. Only continue if the certificate was replaced on purpose.";
+            return Confirm(owner, oldFingerprint == null ? "Unknown Certificate" : "Certificate Changed", msg, "Trust and Connect");
         }
 
         private static string Pretty(string hex)

@@ -57,17 +57,19 @@ namespace XenAdmin.Linux
         /// <summary>Callback for ServicePointManager/HttpWebRequest (sender is the request).</summary>
         public bool Validate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors)
         {
+            var hostKey = HostKey(sender);
+            return hostKey == null ? cert != null && errors == SslPolicyErrors.None : ValidateHost(hostKey, cert, errors);
+        }
+
+        /// <summary>Same policy for raw TLS streams (console tunnels), where there is no request object.</summary>
+        public bool ValidateHost(string hostKey, X509Certificate cert, SslPolicyErrors errors)
+        {
             if (cert == null)
                 return false;
-            var hostKey = HostKey(sender);
-            if (hostKey == null)
-                return errors == SslPolicyErrors.None;
-
             var fp = Fingerprint(cert);
             string old;
             lock (_config)
                 _config.Fingerprints.TryGetValue(hostKey, out old);
-
             if (Evaluate(hostKey, fp, errors) == TrustDecision.Trusted)
             {
                 if (old == null)

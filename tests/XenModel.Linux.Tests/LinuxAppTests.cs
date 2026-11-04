@@ -77,6 +77,26 @@ namespace XenModel.Linux.Tests
         }
 
         [TestMethod]
+        public void TabsMatchWindowsOrder()
+        {
+            CollectionAssert.AreEqual(new[] { "General", "Memory", "Storage", "Networking", "Console", "Performance", "Snapshots", "Search" }, Details.Tabs(new VM()));
+            Assert.IsFalse(Details.NotPorted(new VM(), "Console"));
+            Assert.IsTrue(Details.NotPorted(new Host(), "Console"));
+            Assert.IsTrue(Details.NotPorted(new VM(), "Snapshots"));
+        }
+
+        [TestMethod]
+        public void TreeExpansionSurvivesRebuild()
+        {
+            var a = new TreeNode { Name = "pool-x" };
+            Assert.IsFalse(a.IsExpanded);
+            a.IsExpanded = true;
+            Assert.IsTrue(new TreeNode { Name = "pool-x" }.IsExpanded, "state is kept by key, not by node instance");
+            a.IsExpanded = false;
+            Assert.IsTrue(new TreeNode { IsRoot = true }.IsExpanded, "root starts expanded");
+        }
+
+        [TestMethod]
         public void OperationsFollowAllowedOperations()
         {
             var vm = new VM { allowed_operations = new List<vm_operations> { vm_operations.start } };

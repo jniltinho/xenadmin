@@ -41,10 +41,10 @@ dist: image
 
 appimage: dist
 	$(RUN) '\
-	  app=_output/AppDir; rm -rf $$app; mkdir -p $$app/usr/bin $$app/usr/share/icons/hicolor/48x48/apps; \
+	  app=_output/AppDir; rm -rf $$app; mkdir -p $$app/usr/bin $$app/usr/share/icons/hicolor/256x256/apps; \
 	  cp $(DIST)/$(NAME)/xcp-ng-center $$app/usr/bin/; \
 	  cp XenAdmin.Linux/packaging/AppRun XenAdmin.Linux/packaging/xcp-ng-center.desktop XenAdmin.Linux/packaging/xcp-ng-center.png $$app/; \
-	  cp XenAdmin.Linux/packaging/xcp-ng-center.png $$app/usr/share/icons/hicolor/48x48/apps/; \
+	  cp XenAdmin.Linux/packaging/xcp-ng-center.png $$app/usr/share/icons/hicolor/256x256/apps/; \
 	  desktop-file-validate $$app/xcp-ng-center.desktop; \
 	  ARCH=x86_64 appimagetool --no-appstream --runtime-file /usr/local/share/appimage-runtime-x86_64 \
 	    $$app $(DIST)/xcp-ng-center-$(VERSION)-x86_64.AppImage; \

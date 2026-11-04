@@ -1,0 +1,63 @@
+<!-- Styles that bring the Fluent controls closer to the WinForms look of XCP-ng Center. -->
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="Window"><Setter Property="FontSize" Value="12"/></Style>
+  <Style Selector="MenuItem"><Setter Property="FontSize" Value="12"/><Setter Property="Padding" Value="8,3"/></Style>
+  <Style Selector="Menu > MenuItem"><Setter Property="Padding" Value="7,2"/></Style>
+
+  <Style Selector="Button.tool">
+    <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="Transparent"/><Setter Property="Padding" Value="3,1"/>
+    <Setter Property="CornerRadius" Value="0"/><Setter Property="Margin" Value="1,0"/>
+  </Style>
+  <Style Selector="Button.tool:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#E5F1FB"/><Setter Property="BorderBrush" Value="#0078D7"/>
+  </Style>
+  <Style Selector="Button.tool:disabled"><Setter Property="Opacity" Value="0.45"/></Style>
+  <Style Selector="Button.tool:disabled /template/ ContentPresenter"><Setter Property="Background" Value="Transparent"/></Style>
+
+  <Style Selector="Button.nav">
+    <Setter Property="Background" Value="#F0F0F0"/><Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius" Value="0"/><Setter Property="Padding" Value="4,3"/><Setter Property="Height" Value="31"/>
+  </Style>
+  <Style Selector="Button.nav:disabled"><Setter Property="Opacity" Value="0.55"/></Style>
+  <Style Selector="Button.nav:disabled /template/ ContentPresenter"><Setter Property="Background" Value="#F0F0F0"/></Style>
+
+  <Style Selector="TreeView.nav TreeViewItem">
+    <Setter Property="MinHeight" Value="18"/><Setter Property="Padding" Value="0"/>
+  </Style>
+  <Style Selector="TreeView.nav TreeViewItem /template/ Border#PART_LayoutRoot">
+    <Setter Property="MinHeight" Value="18"/><Setter Property="CornerRadius" Value="0"/>
+  </Style>
+  <Style Selector="TreeView.nav TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+    <Setter Property="Background" Value="#0078D7"/>
+  </Style>
+  <Style Selector="TreeView.nav TreeViewItem:selected /template/ ContentPresenter#PART_HeaderPresenter">
+    <Setter Property="Foreground" Value="White"/>
+  </Style>
+
+  <!-- WinForms tree +/- expanders -->
+  <Style Selector="TreeView.nav TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="Transparent" Width="16" Height="18">
+          <Image Name="glyph" Width="9" Height="9" Source="avares://xcp-ng-center/Images/tree_plus.png"/>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="TreeView.nav TreeViewItem /template/ ToggleButton#PART_ExpandCollapseChevron:checked /template/ Image#glyph">
+    <Setter Property="Source" Value="avares://xcp-ng-center/Images/tree_minus.png"/>
+  </Style>
+  <Style Selector="TabItem"><Setter Property="Foreground" Value="Black"/></Style>
+  <Style Selector="TabItem:disabled"><Setter Property="Foreground" Value="#A0A0A0"/></Style>
+
+  <Style Selector="TabControl"><Setter Property="Padding" Value="0"/></Style>
+  <Style Selector="TabItem">
+    <Setter Property="FontSize" Value="12"/><Setter Property="MinHeight" Value="22"/><Setter Property="Padding" Value="10,2"/>
+    <Setter Property="Margin" Value="0,2,1,0"/><Setter Property="Background" Value="#E8E8E8"/>
+    <Setter Property="BorderBrush" Value="#ACACAC"/><Setter Property="BorderThickness" Value="1,1,1,0"/>
+  </Style>
+  <Style Selector="TabItem:selected"><Setter Property="Background" Value="White"/></Style>
+  <Style Selector="TabItem /template/ Border#PART_SelectedPipe"><Setter Property="IsVisible" Value="False"/></Style>
+  <Style Selector="TabItem:selected /template/ Border#PART_SelectedPipe"><Setter Property="IsVisible" Value="False"/></Style>
+</Styles>

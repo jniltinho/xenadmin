@@ -19,9 +19,16 @@
 		<PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.2" />
 	</ItemGroup>
 	<ItemGroup>
+		<!-- VNC protocol shared with the WinForms app, compiled unchanged (see VncShims.cs) -->
+		<Compile Include="..\XenAdmin\VNC\VNCStream.cs;..\XenAdmin\VNC\MyStream.cs;..\XenAdmin\VNC\VNCException.cs;..\XenAdmin\VNC\IVNCGraphicsClient.cs" Link="Vnc\%(Filename)%(Extension)" />
+	</ItemGroup>
+	<ItemGroup>
 		<ProjectReference Include="..\XenModel\XenModel.csproj" />
 	</ItemGroup>
 	<ItemGroup>
-		<AvaloniaResource Include="..\branding-xcp-ng\Images\AppIcon.ico" Link="Assets\AppIcon.ico" />
+		<AvaloniaResource Include="packaging\xcp-ng-center.png" Link="Assets\xcp-ng-center.png" />
+		<AvaloniaResource Include="..\branding-xcp-ng\Images\xcp-ng-logo1glossy-1.png" Link="Assets\home-logo.png" />
+		<!-- the WinForms app's own icons, shared as-is -->
+		<AvaloniaResource Include="..\XenAdmin\Images\*.png" Link="Images\%(Filename)%(Extension)" />
 	</ItemGroup>
 </Project>

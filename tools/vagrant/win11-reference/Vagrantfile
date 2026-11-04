@@ -1,0 +1,26 @@
+# Windows 11 VM running the official XCP-ng Center (WinForms) as the UI reference
+# for the Linux port. Screenshots are taken from the host with VBoxManage.
+#   vagrant up                       # boots and installs XCP-ng Center v25.04
+#   XCP_PASS=... ./capture.sh <host> # connects and saves screenshots to _output/reference/
+Vagrant.configure("2") do |config|
+  config.vm.box = "gusztavvargadr/windows-11"
+  config.vm.communicator = "winrm"
+  config.vm.boot_timeout = 1200
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "xcpng-center-win11-reference"
+    vb.gui = false
+    vb.memory = 8192
+    vb.cpus = 4
+    vb.customize ["modifyvm", :id, "--vram", "128", "--graphicscontroller", "vboxsvga", "--clipboard-mode", "disabled"]
+  end
+  config.vm.provision "shell", privileged: true, inline: <<-PS
+    $ErrorActionPreference = "Stop"
+    $dir = "C:\\xcpng"
+    if (-not (Test-Path "$dir\\app")) {
+      New-Item -ItemType Directory -Force $dir | Out-Null
+      Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/xcp-ng/xenadmin/releases/download/v25.04/XCP-ng.Center.zip" -OutFile "$dir\\XCP-ng.Center.zip"
+      Expand-Archive -Force "$dir\\XCP-ng.Center.zip" "$dir\\app"
+    }
+    Get-ChildItem -Recurse "$dir\\app" -Filter *.exe | Select-Object FullName
+  PS
+end

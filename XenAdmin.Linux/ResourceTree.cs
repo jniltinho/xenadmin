@@ -10,82 +10,74 @@ namespace XenAdmin.Linux
     public class TreeNode
     {
         public string Name { get; set; }
-        /// <summary>Status colour of the bullet drawn before the name.</summary>
-        public string Color { get; set; } = "#808080";
-        /// <summary>Kind and state, for the dimmed suffix and screen readers.</summary>
-        public string Kind { get; set; }
+        /// <summary>File name (no extension) of the 16px icon from XenAdmin/Images.</summary>
+        public string Icon { get; set; }
         public IXenObject XenObject { get; set; }
         public IXenConnection Connection { get; set; }
+        public bool IsRoot { get; set; }
         public List<TreeNode> Children { get; } = new List<TreeNode>();
-        public string Label => $"{Name} ({Kind})";
-        public string Key => XenObject?.opaque_ref ?? Connection?.HostnameWithPort ?? Name;
+        /// <summary>Expanded nodes, kept by key across tree rebuilds (only the root starts expanded, as in WinForms).</summary>
+        public static readonly HashSet<string> ExpandedKeys = new HashSet<string> { "<root>" };
+        public bool IsExpanded
+        {
+            get => ExpandedKeys.Contains(Key);
+            set { if (value) ExpandedKeys.Add(Key); else ExpandedKeys.Remove(Key); }
+        }
+        public string Key => IsRoot ? "<root>" : XenObject?.opaque_ref ?? Connection?.HostnameWithPort ?? Name;
     }
 
-    /// <summary>Builds the server → pool → host → VM/SR hierarchy from a connection cache.</summary>
+    /// <summary>Infrastructure view, laid out like the WinForms navigation tree.</summary>
     public static class ResourceTree
     {
+        public const string RootName = "XCP-ng Center";
+
         public static bool IsRealVm(VM vm) =>
             !vm.is_a_template && !vm.is_a_snapshot && !vm.is_control_domain && vm.Show(false);
 
-        public const string Green = "#2E9E44", Gray = "#8A8A8A", Orange = "#E08A00", Red = "#C62828", Blue = "#1E6FD9";
+        public static bool IsShownSr(SR sr) => sr.Show(false) && !sr.IsToolsSR();
 
-        public static string PowerColor(vm_power_state state) => state switch
-        {
-            vm_power_state.Running => Green,
-            vm_power_state.Suspended => Orange,
-            vm_power_state.Paused => Orange,
-            _ => Gray
-        };
+        private static TreeNode Node(IXenObject o, string name = null) =>
+            new TreeNode { XenObject = o, Connection = o.Connection, Name = name ?? o.Name(), Icon = Images.IconFor(o) };
 
-        public static string PowerText(vm_power_state state) => state switch
+        public static TreeNode Root(IEnumerable<IXenConnection> connections)
         {
-            vm_power_state.Running => "em execução",
-            vm_power_state.Suspended => "suspensa",
-            vm_power_state.Paused => "pausada",
-            _ => "desligada"
-        };
+            var root = new TreeNode { Name = RootName, Icon = Images.Home, IsRoot = true };
+            root.Children.AddRange(connections.Select(Build).OrderBy(n => n.Name, StringComparer.CurrentCultureIgnoreCase));
+            return root;
+        }
 
         public static TreeNode Build(IXenConnection connection)
         {
-            var root = new TreeNode { Connection = connection, Name = connection.Hostname, Color = connection.IsConnected ? Blue : Gray, Kind = "servidor" };
             if (!connection.IsConnected || !connection.CacheIsPopulated)
-            {
-                root.Kind = connection.IsConnected || connection.InProgress ? "conectando…" : "desconectado";
-                return root;
-            }
+                return new TreeNode { Connection = connection, Name = connection.Hostname, Icon = Images.IconFor(connection) };
 
             var pool = Helpers.GetPool(connection);
-            var top = root;
+            var hosts = connection.Cache.Hosts.OrderBy(h => h.Name(), StringComparer.CurrentCultureIgnoreCase).ToList();
+            TreeNode top;
+            var hostNodes = new Dictionary<string, TreeNode>();
             if (pool != null)
             {
-                top = new TreeNode { Connection = connection, XenObject = pool, Name = pool.Name(), Color = Blue, Kind = "pool" };
-                root.Children.Add(top);
+                top = Node(pool);
+                foreach (var host in hosts)
+                    top.Children.Add(hostNodes[host.opaque_ref] = Node(host));
             }
-            root.Name = pool?.Name() ?? connection.Cache.Hosts.FirstOrDefault()?.Name() ?? connection.Hostname;
-
-            var hostNodes = new Dictionary<string, TreeNode>();
-            foreach (var host in connection.Cache.Hosts.OrderBy(h => h.Name(), StringComparer.CurrentCultureIgnoreCase))
+            else
             {
-                var node = new TreeNode { Connection = connection, XenObject = host, Name = host.Name(), Color = host.IsLive() ? Green : Red, Kind = host.IsLive() ? "host" : "host inativo" };
-                hostNodes[host.opaque_ref] = node;
-                top.Children.Add(node);
+                var host = hosts.FirstOrDefault();
+                if (host == null)
+                    return new TreeNode { Connection = connection, Name = connection.Hostname, Icon = Images.IconFor(connection) };
+                top = hostNodes[host.opaque_ref] = Node(host);
             }
-            // a lone host without pool: VMs and SRs go straight under it
-            var defaultParent = pool == null && hostNodes.Count == 1 ? hostNodes.Values.First() : top;
 
+            TreeNode ParentFor(Host home) =>
+                home != null && hostNodes.TryGetValue(home.opaque_ref, out var n) ? n : top;
+
+            // under each host: its VMs first, then its storage (as in the WinForms tree)
             foreach (var vm in connection.Cache.VMs.Where(IsRealVm).OrderBy(v => v.Name(), StringComparer.CurrentCultureIgnoreCase))
-            {
-                var parent = vm.resident_on != null && hostNodes.TryGetValue(vm.resident_on.opaque_ref, out var h) ? h : defaultParent;
-                parent.Children.Add(new TreeNode { Connection = connection, XenObject = vm, Name = vm.Name(), Color = PowerColor(vm.power_state), Kind = "VM " + PowerText(vm.power_state) });
-            }
-
-            foreach (var sr in connection.Cache.SRs.Where(s => s.Show(false)).OrderBy(s => s.Name(), StringComparer.CurrentCultureIgnoreCase))
-            {
-                var home = sr.Home();
-                var parent = home != null && hostNodes.TryGetValue(home.opaque_ref, out var h) ? h : defaultParent;
-                parent.Children.Add(new TreeNode { Connection = connection, XenObject = sr, Name = sr.Name(), Color = "#6D4C9F", Kind = "storage" });
-            }
-            return root;
+                ParentFor(vm.Home()).Children.Add(Node(vm));
+            foreach (var sr in connection.Cache.SRs.Where(IsShownSr).OrderBy(s => s.NameWithoutHost(), StringComparer.CurrentCultureIgnoreCase))
+                ParentFor(sr.Home()).Children.Add(Node(sr, sr.NameWithoutHost()));
+            return top;
         }
 
         /// <summary>Keeps nodes whose name contains the text (case-insensitive) and their ancestors.</summary>
@@ -94,53 +86,13 @@ namespace XenAdmin.Linux
             if (string.IsNullOrWhiteSpace(text))
                 return node;
             var kids = node.Children.Select(c => Filter(c, text)).Where(c => c != null).ToList();
-            if (kids.Count == 0 && node.Name.IndexOf(text.Trim(), StringComparison.CurrentCultureIgnoreCase) < 0)
+            if (kids.Count == 0 && !node.IsRoot && node.Name.IndexOf(text.Trim(), StringComparison.CurrentCultureIgnoreCase) < 0)
                 return null;
-            var copy = new TreeNode { Name = node.Name, Color = node.Color, Kind = node.Kind, XenObject = node.XenObject, Connection = node.Connection };
+            var copy = new TreeNode { Name = node.Name, Icon = node.Icon, XenObject = node.XenObject, Connection = node.Connection, IsRoot = node.IsRoot };
             copy.Children.AddRange(kids);
             return copy;
         }
 
-        public static IEnumerable<(string, string)> Properties(IXenObject o)
-        {
-            switch (o)
-            {
-                case VM vm:
-                    yield return ("Nome", vm.Name());
-                    yield return ("Descrição", vm.Description());
-                    yield return ("UUID", vm.uuid);
-                    yield return ("Estado", vm.power_state.ToString());
-                    yield return ("Memória", Util.MemorySizeStringSuitableUnits(vm.memory_dynamic_max, true));
-                    yield return ("vCPUs", vm.VCPUs_at_startup.ToString());
-                    yield return ("Host", vm.Connection?.Resolve(vm.resident_on)?.Name() ?? "—");
-                    break;
-                case Host host:
-                    yield return ("Nome", host.Name());
-                    yield return ("Descrição", host.Description());
-                    yield return ("UUID", host.uuid);
-                    yield return ("Endereço", host.address);
-                    yield return ("Versão", host.ProductVersionText());
-                    yield return ("Ativo", host.IsLive() ? "sim" : "não");
-                    var metrics = host.Connection?.Resolve(host.metrics);
-                    if (metrics != null)
-                        yield return ("Memória livre/total", $"{Util.MemorySizeStringSuitableUnits(metrics.memory_free, true)} / {Util.MemorySizeStringSuitableUnits(metrics.memory_total, true)}");
-                    break;
-                case SR sr:
-                    yield return ("Nome", sr.Name());
-                    yield return ("Descrição", sr.Description());
-                    yield return ("UUID", sr.uuid);
-                    yield return ("Tipo", sr.type);
-                    yield return ("Compartilhado", sr.shared ? "sim" : "não");
-                    yield return ("Uso", $"{Util.DiskSizeString(sr.physical_utilisation)} / {Util.DiskSizeString(sr.physical_size)}");
-                    break;
-                case Pool pool:
-                    yield return ("Nome", pool.Name());
-                    yield return ("Descrição", pool.Description());
-                    yield return ("UUID", pool.uuid);
-                    yield return ("Coordenador", pool.Connection?.Resolve(pool.master)?.Name() ?? "—");
-                    yield return ("HA", pool.ha_enabled ? "ativo" : "inativo");
-                    break;
-            }
-        }
+        public static IEnumerable<TreeNode> Flatten(TreeNode n) => new[] { n }.Concat(n.Children.SelectMany(Flatten));
     }
 }

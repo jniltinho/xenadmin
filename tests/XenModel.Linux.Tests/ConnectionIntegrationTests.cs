@@ -84,6 +84,8 @@ namespace XenModel.Linux.Tests
             try
             {
                 var tree = ResourceTree.Build(c);
+                // the tools ISO SR is hidden, like in the WinForms tree
+                Assert.IsFalse(Flatten(tree).Any(n => n.XenObject is SR sr && sr.IsToolsSR()));
                 var hosts = c.Cache.Hosts;
                 Assert.IsTrue(hosts.Length > 0);
                 var vms = c.Cache.VMs.Where(ResourceTree.IsRealVm).ToList();
@@ -97,7 +99,15 @@ namespace XenModel.Linux.Tests
                 foreach (var vm in vms.Where(v => v.power_state == vm_power_state.Running))
                     Assert.IsNotNull(c.Resolve(vm.resident_on), $"running VM {vm.Name()} without resident host");
                 foreach (var o in new IXenObject[] { hosts[0], vms.FirstOrDefault(), c.Cache.SRs.FirstOrDefault(), pool }.Where(o => o != null))
-                    Assert.IsTrue(ResourceTree.Properties(o).Any());
+                {
+                    Assert.IsTrue(Details.General(o).Any(sec => sec.Rows.Count > 0), "General tab empty for " + o.GetType().Name);
+                    foreach (var tab in Details.Tabs(o).Where(t => !Details.NotPorted(o, t)))
+                    {
+                        if (tab == "Storage") Assert.IsNotNull(Details.Storage(o));
+                        if (tab == "Networking") Assert.IsNotNull(Details.Networking(o));
+                        if (tab == "Memory") Details.Memory(o);
+                    }
+                }
             }
             finally
             {
