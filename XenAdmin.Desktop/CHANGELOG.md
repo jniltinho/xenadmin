@@ -1,0 +1,35 @@
+# Changelog — XCP-ng Center desktop (Linux)
+
+All notable changes to the cross-platform desktop app (`XenAdmin.Desktop`). Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
+versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `CHANGELOG.md` at the repository root.
+
+## [Unreleased]
+
+### Added
+- XCP-ng Center layout: menus, toolbar, navigation tree with the original icons and events (double-click connects or starts).
+- VNC console tab, VM General/Storage/Snapshots/Search tabs, tab remembered per object.
+- Properties dialog (General, CPU, Boot Options) with WinForms-style controls.
+- VM Storage actions: new, attach, activate, deactivate, detach and delete disks; DVD drive and ISO.
+- New VM wizard, Copy VM (fast clone / full copy) and Delete VM.
+- Create New Pool dialog (coordinator, members with the join rules of the Windows app).
+- Nested XCP-ng lab in VirtualBox (`tools/vagrant/xcp-ng-lab`) for pool and write tests.
+
+### Changed
+- Projects reorganised for future macOS, FreeBSD and Windows (non-WinForms) ports: `XenAdmin.Desktop.Core` (UI-free logic,
+  platform seam) and `XenAdmin.Desktop` (Avalonia).
+- Settings directory follows the platform (XDG, `~/Library/Application Support`, `%APPDATA%`).
+- One TLS trust policy for XenAPI and the console tunnel; pool members trusted through the coordinator.
+
+### Fixed
+- Full copy no longer falls back to a fast clone when no storage is selected.
+- Hidden storage repositories are never picked as the default for new disks.
+
+## [0.1.0] — 2026-11-04
+
+**First preview: connect to servers and pools, live resource tree and VM power operations.**
+
+### Added
+- Add, connect and disconnect servers and pools; trust-on-first-use certificates.
+- Live tree of pools, hosts, VMs and storage with a details panel.
+- VM start, shutdown, reboot, suspend and resume, with their force variants.
+- Self-contained Linux build, AppImage and GitHub release workflow.

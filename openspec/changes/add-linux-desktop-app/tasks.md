@@ -2,7 +2,7 @@
 
 - [x] 1.1 Multi-target `net481;net10.0` em CommandLib, XenCenterLib, XenOvfApi e XenModel, com referências .NET Framework condicionadas a `net481`
 - [x] 1.2 Substituir `JavaScriptSerializer` por `Newtonsoft.Json` em `Host.cs` e `TokenManager.cs`
-- [x] 1.3 Projeto `tests/XenModel.Linux.Tests` (MSTest) com testes unitários e de integração (login + listar hosts/VMs)
+- [x] 1.3 Projeto `tests/XenAdmin.Desktop.Tests` (MSTest) com testes unitários e de integração (login + listar hosts/VMs)
 - [x] 1.4 `tools/linux/container.sh build|test` usando `dotnet/sdk:10.0`; `.env` ignorado e `.env.example` versionado
 - [x] 1.5 Verificar que `XenModel -f net481` compila no container (reference assemblies)
 - [x] 1.6 Adicionar o build `net481` do núcleo ao `container.sh` (`container.sh build-win`) para checagem contínua
@@ -20,7 +20,7 @@
 
 ## 3. App Avalonia: conexão e árvore
 
-- [x] 3.1 Criar `XenAdmin.Linux` (Avalonia 11.3, `net10.0`), com `CA1416` como erro; fora do `XenAdmin.sln` (msbuild.exe compila só `net481`)
+- [x] 3.1 Criar `XenAdmin.Desktop` (Avalonia 11.3, `net10.0`), com `CA1416` como erro; fora do `XenAdmin.sln` (msbuild.exe compila só `net481`)
 - [x] 3.2 Diálogo Adicionar Servidor, login, `HOST_IS_SLAVE`, erros de rede/autenticação
 - [x] 3.3 Árvore pool/host/VM/SR a partir do cache do `XenConnection`, com atualização por eventos e reconexão
 - [x] 3.4 Painel de propriedades somente leitura e busca por nome
@@ -69,6 +69,15 @@
 - [x] 7.7a Aba Storage da VM: criar drive de DVD, trocar/ejetar ISO, Add (New Disk), Attach Disk, Activate/Deactivate, Detach, Delete, Properties do disco, com as regras de habilitação dos comandos originais; teste de escrita no 110
 - [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e Move de disco
 - [x] 7.8a Wizard New VM (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish → `CreateVMAction`), Copy VM (fast clone / full copy) e Delete VM (discos e snapshots); teste no 110: criar (Debian 11, 512 MB, disco 64 MB) → iniciar → reboot → desligar → clone → copy → apagar tudo
-- [ ] 7.8 Wizards: New SR, New Pool, Import/Export
+- [x] 7.8b Create New Pool (coordenador, membros com as razões de `PoolJoinRules`, avisos de CPU/licença/AD, `CreatePoolAction`); teste no lab: forma o pool, confere e ejeta o membro
+- [x] 7.8c Lab de 2 hosts XCP-ng 8.3 aninhados no VirtualBox (`tools/vagrant/xcp-ng-lab`), instalação automática por answerfile
+- [ ] 7.8 Wizards: New SR (NFS, SMB), Import/Export; migração de VM entre hosts do pool; console RDP
 - [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)
 - [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico
+
+## 8. Modularização para outros sistemas
+
+- [x] 8.1 Renomear `XenAdmin.Linux` → `XenAdmin.Desktop` e `tests/XenModel.Linux.Tests` → `tests/XenAdmin.Desktop.Tests`
+- [x] 8.2 `XenAdmin.Desktop.Core` sem UI: árvore, detalhes, regras dos comandos, defaults do New VM, certificados e configuração; UI só consulta
+- [x] 8.3 Seam `IPlatformServices` (diretório de configuração por SO, cofre de senhas) com testes por plataforma
+- [ ] 8.4 Publicar e empacotar para macOS (`osx-arm64`, `.app`), FreeBSD e Windows (`win-x64`) — fora do escopo atual

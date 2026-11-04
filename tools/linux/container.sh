@@ -8,10 +8,10 @@ cd "$(dirname "$0")/../.."
 cmd=${1:-build}; [ $# -gt 0 ] && shift
 envfile=""; [ -f .env ] && envfile="--env-file .env"
 # forward shell overrides only when set: a bare "-e VAR" would unset the .env value
-for v in XCP_HOST XCP_USER XCP_PASS XCP_RO_HOST XCP_ALLOW_WRITE; do eval "[ -n \"\${$v+x}\" ]" && envfile="$envfile -e $v"; done
+for v in XCP_HOST XCP_USER XCP_PASS XCP_RO_HOST XCP_ALLOW_WRITE XCP_LAB_HOSTS; do eval "[ -n \"\${$v+x}\" ]" && envfile="$envfile -e $v"; done
 case $cmd in
-  build) run="dotnet build tests/XenModel.Linux.Tests -f net10.0 $*" ;;
-  test)  run="dotnet test tests/XenModel.Linux.Tests --logger 'console;verbosity=normal' $*" ;;
+  build) run="dotnet build tests/XenAdmin.Desktop.Tests -f net10.0 $*" ;;
+  test)  run="dotnet test tests/XenAdmin.Desktop.Tests --logger 'console;verbosity=normal' $*" ;;
   build-win)
     refs=/src/_output/nuget/microsoft.netframework.referenceassemblies.net481/1.0.3/build/.NETFramework/v4.8.1
     run="[ -d $refs ] || (mkdir -p /tmp/r && cd /tmp/r && dotnet new classlib -o . >/dev/null && dotnet add package Microsoft.NETFramework.ReferenceAssemblies.net481 --version 1.0.3 >/dev/null); dotnet build XenModel/XenModel.csproj -f net481 -p:FrameworkPathOverride=$refs $*" ;;

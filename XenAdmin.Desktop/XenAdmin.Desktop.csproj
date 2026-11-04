@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>disable</Nullable>
+		<AssemblyName>xcp-ng-center</AssemblyName>
+		<RootNamespace>XenAdmin.Desktop</RootNamespace>
+		<Title>XCP-ng Center</Title>
+		<Description>XCP-ng Center desktop app (Avalonia): Linux today; macOS, FreeBSD and Windows through the same UI</Description>
+		<ApplicationIcon>..\branding-xcp-ng\Images\AppIcon.ico</ApplicationIcon>
+		<!-- the app itself must not call Windows-only APIs -->
+		<WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
+		<InvariantGlobalization>false</InvariantGlobalization>
+	</PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="Avalonia" Version="11.3.2" />
+		<PackageReference Include="Avalonia.Desktop" Version="11.3.2" />
+		<PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
+		<PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.2" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- VNC protocol shared with the WinForms app, compiled unchanged (see VncShims.cs) -->
+		<Compile Include="..\XenAdmin\VNC\VNCStream.cs;..\XenAdmin\VNC\MyStream.cs;..\XenAdmin\VNC\VNCException.cs;..\XenAdmin\VNC\IVNCGraphicsClient.cs" Link="Vnc\%(Filename)%(Extension)" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="XenAdmin.Desktop.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\XenAdmin.Desktop.Core\XenAdmin.Desktop.Core.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+		<AvaloniaResource Include="packaging\xcp-ng-center.png" Link="Assets\xcp-ng-center.png" />
+		<AvaloniaResource Include="..\branding-xcp-ng\Images\xcp-ng-logo1glossy-1.png" Link="Assets\home-logo.png" />
+		<!-- the WinForms app's own icons, shared as-is -->
+		<AvaloniaResource Include="..\XenAdmin\Images\*.png" Link="Images\%(Filename)%(Extension)" />
+	</ItemGroup>
+</Project>

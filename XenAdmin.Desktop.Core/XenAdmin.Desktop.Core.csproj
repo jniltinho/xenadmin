@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!--
+	  UI-free logic of the cross-platform desktop app: tree, details, rules of the commands,
+	  wizard defaults, certificate trust, settings and the platform seam (IPlatformServices).
+	  It must not reference Avalonia or any OS-specific API, so every front end and port can reuse it.
+	-->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>disable</Nullable>
+		<RootNamespace>XenAdmin.Desktop</RootNamespace>
+		<Title>XCP-ng Center desktop core</Title>
+		<Description>Platform-neutral logic of the XCP-ng Center desktop app</Description>
+		<WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- XenModel-only action used by the Properties dialog (folders and tags) -->
+		<Compile Include="..\XenAdmin\Actions\GUIActions\GeneralEditPageAction.cs" Link="Actions\%(Filename)%(Extension)" />
+	</ItemGroup>
+	<ItemGroup>
+		<InternalsVisibleTo Include="xcp-ng-center" />
+		<InternalsVisibleTo Include="XenAdmin.Desktop.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\XenModel\XenModel.csproj" />
+	</ItemGroup>
+</Project>

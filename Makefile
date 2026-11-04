@@ -1,4 +1,4 @@
-# Linux desktop app (XenAdmin.Linux). Every target runs inside the build container;
+# Linux desktop app (XenAdmin.Desktop). Every target runs inside the build container;
 # only docker and make are needed on the host. Outputs go to dist/.
 #   make dist        self-contained single-file build + .tar.gz
 #   make appimage    AppImage from the dist build
@@ -20,7 +20,7 @@ image:
 	docker build -q -t $(IMAGE) tools/linux
 
 build: image
-	$(RUN) 'dotnet build XenAdmin.Linux/XenAdmin.Linux.csproj; chown -R $(UID_GID) /src'
+	$(RUN) 'dotnet build XenAdmin.Desktop/XenAdmin.Desktop.csproj; chown -R $(UID_GID) /src'
 
 test:
 	tools/linux/container.sh test
@@ -31,20 +31,21 @@ test-win:
 dist: image
 	$(RUN) '\
 	  rm -rf $(DIST)/$(NAME); \
-	  dotnet publish XenAdmin.Linux/XenAdmin.Linux.csproj -c Release -r $(RID) --self-contained \
+	  dotnet publish XenAdmin.Desktop/XenAdmin.Desktop.csproj -c Release -r $(RID) --self-contained \
 	    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
 	    -p:Version=$(VERSION) -p:DebugType=none -o $(DIST)/$(NAME); \
-	  cp XenAdmin.Linux/packaging/xcp-ng-center.desktop XenAdmin.Linux/packaging/xcp-ng-center.png $(DIST)/$(NAME)/; \
+	  cp XenAdmin.Desktop/packaging/xcp-ng-center.desktop XenAdmin.Desktop/packaging/xcp-ng-center.png $(DIST)/$(NAME)/; \
 	  tar -czf $(DIST)/$(NAME).tar.gz -C $(DIST) $(NAME); \
 	  chown -R $(UID_GID) /src'
 	@echo "-> $(DIST)/$(NAME)/xcp-ng-center"
 
 appimage: dist
+	@[ "$(RID)" = linux-x64 ] || { echo "appimage packages linux-x64 only (RID=$(RID))" >&2; exit 1; }
 	$(RUN) '\
 	  app=_output/AppDir; rm -rf $$app; mkdir -p $$app/usr/bin $$app/usr/share/icons/hicolor/256x256/apps; \
 	  cp $(DIST)/$(NAME)/xcp-ng-center $$app/usr/bin/; \
-	  cp XenAdmin.Linux/packaging/AppRun XenAdmin.Linux/packaging/xcp-ng-center.desktop XenAdmin.Linux/packaging/xcp-ng-center.png $$app/; \
-	  cp XenAdmin.Linux/packaging/xcp-ng-center.png $$app/usr/share/icons/hicolor/256x256/apps/; \
+	  cp XenAdmin.Desktop/packaging/AppRun XenAdmin.Desktop/packaging/xcp-ng-center.desktop XenAdmin.Desktop/packaging/xcp-ng-center.png $$app/; \
+	  cp XenAdmin.Desktop/packaging/xcp-ng-center.png $$app/usr/share/icons/hicolor/256x256/apps/; \
 	  desktop-file-validate $$app/xcp-ng-center.desktop; \
 	  ARCH=x86_64 appimagetool --no-appstream --runtime-file /usr/local/share/appimage-runtime-x86_64 \
 	    $$app $(DIST)/xcp-ng-center-$(VERSION)-x86_64.AppImage; \

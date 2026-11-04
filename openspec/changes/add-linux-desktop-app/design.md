@@ -64,16 +64,23 @@ Restrições: manter o WinForms/Windows intacto; .NET 8 sai de suporte em 10/11/
 - Veto na própria Action (o pré-check sozinho tem corrida, pois a Action revalida a agilidade em `VMStartAction.cs:79-87`): propriedade `AllowHaUnprotect` (padrão `true`, Windows inalterado, sem mexer nos 12+ chamadores WinForms). O Linux usa `false` e a Action relança a `Failure` do `assert_agile` sem chamar `HAUnprotectVMAction`.
 
 ### D6c. msbuild.exe compila só `net481`
-- Os 4 projetos de núcleo usam `TargetFrameworks` condicionado a `$(MSBuildRuntimeType)`: Visual Studio/msbuild.exe (CI Windows existente) continuam compilando apenas `net481`; o `dotnet` CLI compila `net481;net10.0`. `XenAdmin.Linux` fica fora do `XenAdmin.sln` pelo mesmo motivo.
+- Os 4 projetos de núcleo usam `TargetFrameworks` condicionado a `$(MSBuildRuntimeType)`: Visual Studio/msbuild.exe (CI Windows existente) continuam compilando apenas `net481`; o `dotnet` CLI compila `net481;net10.0`. `XenAdmin.Desktop` fica fora do `XenAdmin.sln` pelo mesmo motivo.
 
 ### D7. Build/teste em container
 - `tools/linux/container.sh build|test|build-win` roda `mcr.microsoft.com/dotnet/sdk:10.0` como root e faz `chown` no final (rodar como UID do host quebra o mutex de migração do NuGet). Cache NuGet em `_output/nuget` (já ignorado).
 - Testes MSTest; integração marcada com `TestCategory=Integration` e `Assert.Inconclusive` sem `XCP_HOST`.
 - Publicação: `make dist|appimage|smoke` usa a imagem `tools/linux/Dockerfile` (SDK 10 + appimagetool 1.9.1 + runtime 20251108 fixados); `dotnet publish -r linux-x64 --self-contained -p:PublishSingleFile=true`. Smoke em `ubuntu:22.04` limpo com Xvfb.
 
+### D8. Módulos separados por camada, prontos para macOS, FreeBSD e Windows sem WinForms
+- `XenAdmin.Desktop.Core` (`net10.0`, sem Avalonia, `CA1416` como erro): árvore, detalhes, regras de habilitação dos comandos (`VmOperations`, `VmRules`, `StorageRules`), defaults do wizard New VM, colunas do Search, nomes de ícones, confiança de certificados e configuração. Testável sem UI.
+- `XenAdmin.Desktop` (Avalonia, assembly `xcp-ng-center`): só janelas, diálogos e o console; não decide regras, consulta o Core.
+- Seam de SO: o contrato `IPlatformServices` fica em `XenAdmin.Desktop.Core/Platform` e os adaptadores em `XenAdmin.Desktop/Platform` (escolhidos no startup): diretório de configuração (XDG no Linux/FreeBSD, `~/Library/Application Support` no macOS, `%APPDATA%\xcp-ng-center` no Windows, separado do app WinForms) e cofre de senhas (`ISecretStore`; hoje `NoSecretStore`, a D5 entra aqui por SO). Escolha via `OperatingSystem.IsX()`; testes injetam a plataforma.
+- Empacotamento por SO fica fora do código: `XenAdmin.Desktop/packaging/` (AppImage hoje); macOS e Windows adicionam RID (`osx-arm64`, `win-x64`) e seu pacote (`.app`/`.dmg`, MSIX/zip) sem tocar nas camadas; FreeBSD precisa também do runtime do port da comunidade e de nativos SkiaSharp/HarfBuzz compilados para FreeBSD (os pacotes NuGet não trazem).
+- Alternativa descartada: um projeto de UI por SO — duplicaria telas que o Avalonia já desenha igual nas três plataformas.
+
 ## Risks / Trade-offs
 
-- [~490 avisos CA1416 no núcleo `net10.0`] → caminhos Windows-only podem ser alcançados por Actions não previstas. Compilar não prova portabilidade. Mitigação: o app Linux só usa uma lista explícita de Actions, e **cada uma** tem teste de integração obrigatório via `XenConnection` + cache (sucesso e falha/RBAC); `CA1416` como erro no `XenAdmin.Linux` só cobre o código do app, não o corpo das bibliotecas.
+- [~490 avisos CA1416 no núcleo `net10.0`] → caminhos Windows-only podem ser alcançados por Actions não previstas. Compilar não prova portabilidade. Mitigação: o app Linux só usa uma lista explícita de Actions, e **cada uma** tem teste de integração obrigatório via `XenConnection` + cache (sucesso e falha/RBAC); `CA1416` como erro no `XenAdmin.Desktop` só cobre o código do app, não o corpo das bibliotecas.
 - [`CookComputing.XmlRPCv2` e `SharpZipLib 0.85` são pacotes .NET Framework (NU1701)] → XCM/conversão e alguns exports não funcionam no Linux. Mitigação: fora do MVP; trocar SharpZipLib por versão 1.x quando export entrar.
 - [Mudança `JavaScriptSerializer` → `Newtonsoft.Json` afeta o Windows] → semântica equivalente para os dois usos (dicionário de strings e DTO com propriedades simples). Mitigação: teste unitário de desserialização do `FileServiceToken`.
 - [Wayland] → Avalonia roda via XWayland; captura de teclado do console pode ter limitações em Wayland nativo. Mitigação: documentar; testar em GNOME/KDE.
@@ -83,7 +90,7 @@ Restrições: manter o WinForms/Windows intacto; .NET 8 sai de suporte em 10/11/
 
 ## Migration Plan
 
-Aditivo: o app Windows não muda e continua sendo o padrão. O app Linux é distribuído como artefato separado. Rollback = remover `XenAdmin.Linux/` e voltar `TargetFramework` para `net481` nos 4 projetos (o diff do núcleo é pequeno).
+Aditivo: o app Windows não muda e continua sendo o padrão. O app Linux é distribuído como artefato separado. Rollback = remover `XenAdmin.Desktop/` e voltar `TargetFramework` para `net481` nos 4 projetos (o diff do núcleo é pequeno).
 
 ## Open Questions
 
