@@ -54,6 +54,11 @@ namespace XenAdmin.Actions.VMActions
         }
         #region Helpers
 
+        /// <summary>
+        /// When false, a VM that is HA-protected but not agile fails to start instead of being silently unprotected.
+        /// </summary>
+        public bool AllowHaUnprotect { get; set; } = true;
+
         public abstract bool IsStart { get; }
 
         protected abstract void DoAction(int start, int end);
@@ -83,7 +88,9 @@ namespace XenAdmin.Actions.VMActions
                         // VM is not agile, but it is 'Protected' by HA. This is an inconsistent state (see CA-20820).
                         // Warn the user about this and ask if they want to fix it.
                         log.Debug("VM is not agile, but protected", exn);
-                        _WarningDialogHAInvalidConfig(VM,IsStart);
+                        if (!AllowHaUnprotect)
+                            throw;
+                        _WarningDialogHAInvalidConfig?.Invoke(VM, IsStart);
                         new HAUnprotectVMAction(VM).RunSync(Session);
                     }
                 }
@@ -92,7 +99,7 @@ namespace XenAdmin.Actions.VMActions
             }
             catch (Failure f)
             {
-                _StartDiagnosisForm(this, f);
+                _StartDiagnosisForm?.Invoke(this, f);
                 throw;
             }
         }

@@ -43,3 +43,7 @@ ServiceFabricBackup/
 vim.exe.stackdump
 
 installer-xcp-ng/Web1033/DISK1/
+
+# local secrets
+.env
+dist

@@ -1,0 +1,54 @@
+## 1. Núcleo portável (prova de conceito já feita nesta branch)
+
+- [x] 1.1 Multi-target `net481;net10.0` em CommandLib, XenCenterLib, XenOvfApi e XenModel, com referências .NET Framework condicionadas a `net481`
+- [x] 1.2 Substituir `JavaScriptSerializer` por `Newtonsoft.Json` em `Host.cs` e `TokenManager.cs`
+- [x] 1.3 Projeto `tests/XenModel.Linux.Tests` (MSTest) com testes unitários e de integração (login + listar hosts/VMs)
+- [x] 1.4 `tools/linux/container.sh build|test` usando `dotnet/sdk:10.0`; `.env` ignorado e `.env.example` versionado
+- [x] 1.5 Verificar que `XenModel -f net481` compila no container (reference assemblies)
+- [x] 1.6 Adicionar o build `net481` do núcleo ao `container.sh` (`container.sh build-win`) para checagem contínua
+- [x] 1.7 Corrigir `container.sh` para não anular valores do `.env` com `-e VAR` vazio
+
+## 2. Abstrações de plataforma
+
+- [x] 2.1 `IXenAdminConfigProvider` Linux com JSON em `$XDG_CONFIG_HOME/xcp-ng-center/` (servidores, usuários, impressões digitais)
+- [x] 2.2 Adaptador `ISynchronizeInvoke` sobre `Dispatcher.UIThread` para `InvokeHelper.Initialize`
+- [x] 2.3 Validador de certificado para todas as sessões XAPI via `ServicePointManager.ServerCertificateValidationCallback` (fallback que o `JsonRpc` já usa), cobrindo reconexão, `HOST_IS_SLAVE` e sessões derivadas sem mudar o `XenConnection`
+- [x] 2.4 Política TOFU (pin tem precedência sobre a cadeia do sistema) com testes unitários: primeiro contato, pin confere, pin diverge com cadeia confiável
+- [ ] 2.5 Passar o validador para `HTTP.CONNECT` (hoje aceita qualquer certificado), com padrão que preserve o comportamento atual do Windows até revisão
+- [x] 2.4b Callback TLS não bloqueante: certificado rejeitado fica pendente, a UI pergunta e reconecta (bloquear no handshake causava `408 Request Timeout` do XAPI)
+- [ ] 2.6 Armazenamento de senha via Secret Service com detecção em runtime e teste do caminho "indisponível" (MVP atual: senha nunca é gravada)
+
+## 3. App Avalonia: conexão e árvore
+
+- [x] 3.1 Criar `XenAdmin.Linux` (Avalonia 11.3, `net10.0`), com `CA1416` como erro; fora do `XenAdmin.sln` (msbuild.exe compila só `net481`)
+- [x] 3.2 Diálogo Adicionar Servidor, login, `HOST_IS_SLAVE`, erros de rede/autenticação
+- [x] 3.3 Árvore pool/host/VM/SR a partir do cache do `XenConnection`, com atualização por eventos e reconexão
+- [x] 3.4 Painel de propriedades somente leitura e busca por nome
+- [x] 3.5 Teste de integração: conectar via `XenConnection` (não `Session` direta), aguardar cache e verificar hosts/VMs, incluindo queda e reconexão
+
+## 4. Ciclo de vida de VM
+
+- [x] 4.1 Comandos start/shutdown/reboot/suspend/resume/force-* habilitados por `allowed_operations`, reusando as Actions do XenModel com callbacks Linux não nulos
+- [x] 4.1b Veto de HA na `VMStartAbstractAction` via propriedade `AllowHaUnprotect` (padrão `true` = Windows inalterado; Linux usa `false` e a Action falha sem `HAUnprotectVMAction`); callbacks nulos tolerados; teste unitário
+- [ ] 4.1c Pré-check de HA na UI Linux apenas para desabilitar o comando cedo
+- [x] 4.2 Confirmação para operações forçadas; painel de tarefas com progresso e erros (`Failure` legível)
+- [~] 4.3 Matriz de integração (gate de release, `XCP_ALLOW_WRITE=1`): feito com VM descartável sem disco — start, force reboot, force shutdown (sucesso) e suspend sem guest tools (falha esperada). Pendente: clean shutdown/reboot e suspend/resume com uma VM com guest tools
+- [ ] 4.4 Testes unitários: regras de habilitação por `allowed_operations`, confirmação de operações forçadas, e exibição de `RBAC_PERMISSION_DENIED`/`HOST_NOT_ENOUGH_FREE_MEMORY` com `Failure` simulada
+
+## 5. Console VNC (marco 2)
+
+- [ ] 5.0 Teste de regressão do console no Windows (manual documentado ou automatizado) antes de mexer no WinForms
+- [ ] 5.1 Extrair `VNCStream`/`MyStream`/`VNCException` para `XenAdmin.Vnc` multi-target; trocar `Win32.QueryPerformance*` por `Stopwatch`
+- [ ] 5.1b Novo contrato de framebuffer por buffer de pixels no lugar de `Bitmap` em `IVNCGraphicsClient`, substituindo `GraphicsUtils` (GDI)
+- [ ] 5.2 Adaptador WinForms (`Bitmap`) para o novo contrato e WinForms consumindo `XenAdmin.Vnc`; repetir o teste 5.0
+- [ ] 5.3 Renderizador Avalonia (`WriteableBitmap`) com escala proporcional e conversão de coordenadas do mouse
+- [ ] 5.4 Teclado por keysym X11, Ctrl+Alt+Del, teste com layout ABNT2
+- [ ] 5.5 Teste de integração: abrir túnel CONNECT para uma VM em execução e receber o primeiro framebuffer update
+
+## 6. Empacotamento
+
+- [x] 6.1 `dotnet publish -r linux-x64 --self-contained` em container gerando `.tar.gz`
+- [x] 6.2 AppImage via `appimagetool` em container, com `.desktop` e ícone
+- [x] 6.3 Smoke test: executar o artefato em container Ubuntu 22.04 limpo com `xvfb-run` e verificar que a janela abre
+- [x] 6.4 Workflow `.github/workflows/linux.yml` (via `make`): testes, build `net481`, AppImage, smoke e release em tags `linux-v*`
+- [x] 6.5 README: build em container, `.env`, limitações conhecidas (Wayland, XCM, export)

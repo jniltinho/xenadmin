@@ -1,6 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFramework>net481</TargetFramework>
+		<!-- msbuild.exe/Visual Studio builds the Windows app only; the dotnet CLI also builds net10.0 for Linux -->
+		<TargetFrameworks Condition="'$(MSBuildRuntimeType)' == 'Full'">net481</TargetFrameworks>
+		<TargetFrameworks Condition="'$(MSBuildRuntimeType)' != 'Full'">net481;net10.0</TargetFrameworks>
 		<Title>XenModel</Title>
 		<Description>XCP-ng Center library</Description>
 		<RootNamespace>XenAdmin</RootNamespace>
@@ -20,7 +22,7 @@
 		<ProjectReference Include="..\CommandLib\CommandLib.csproj" />
 		<ProjectReference Include="..\XenOvfApi\XenOvfApi.csproj" />
 	</ItemGroup>
-	<ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'net481'">
 		<Reference Include="System.Web" />
 		<Reference Include="System.Web.Extensions" />
 	</ItemGroup>
@@ -63,5 +65,8 @@
 	    <Generator>PublicResXFileCodeGenerator</Generator>
 	    <LastGenOutput>UnitStrings.Designer.cs</LastGenOutput>
 	  </EmbeddedResource>
+	</ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+		<PackageReference Include="System.Drawing.Common" Version="10.0.0" />
 	</ItemGroup>
 </Project>

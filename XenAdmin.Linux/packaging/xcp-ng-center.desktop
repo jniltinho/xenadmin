@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=XCP-ng Center
+GenericName=Virtualization Manager
+Comment=Manage XCP-ng and XenServer hosts, pools and VMs
+Exec=xcp-ng-center %U
+Icon=xcp-ng-center
+Terminal=false
+Categories=System;Emulator;
+Keywords=xcp-ng;xen;xenserver;virtualization;vm;
+StartupWMClass=xcp-ng-center
