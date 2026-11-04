@@ -390,8 +390,10 @@ namespace XenAdmin.Linux
                     _devices.Add((c, box));
                 }
                 RefreshOrder();
-                var up = new Button { Content = Dialogs.M("Move &Up"), MinWidth = 82 };
-                var down = new Button { Content = Dialogs.M("Move &Down"), MinWidth = 82 };
+                var up = new Button { Content = Dialogs.M("Move &Up"), MinWidth = 82, IsEnabled = false };
+                var down = new Button { Content = Dialogs.M("Move &Down"), MinWidth = 82, IsEnabled = false };
+                void Toggle() { up.IsEnabled = _order.SelectedIndex > 0; down.IsEnabled = _order.SelectedIndex >= 0 && _order.SelectedIndex < _devices.Count - 1; }
+                _order.SelectionChanged += (_, _) => Toggle();
                 up.Click += (_, _) => Move(-1);
                 down.Click += (_, _) => Move(1);
                 var buttons = new StackPanel { Spacing = 6 };
@@ -402,6 +404,8 @@ namespace XenAdmin.Linux
                 row.Children.Add(_order);
                 row.Children.Add(buttons);
                 panel.Children.Add(row);
+                // Convert to PV is shown but not ported yet
+                panel.Children.Add(new Button { Content = "Convert to PV", IsEnabled = false, Width = 132, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 30, 0, 0) });
             }
             else
             {

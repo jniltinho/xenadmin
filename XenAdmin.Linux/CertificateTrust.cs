@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
@@ -24,6 +25,15 @@ namespace XenAdmin.Linux
         /// </summary>
         public System.Collections.Concurrent.ConcurrentDictionary<string, (string Fingerprint, string Old)> Pending { get; } =
             new System.Collections.Concurrent.ConcurrentDictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Fingerprints that an already-authenticated XAPI session reports for a "host:port"
+        /// (pool members' host certificates). Used only when nothing is pinned yet.
+        /// </summary>
+        public Func<string, System.Collections.Generic.IEnumerable<string>> VouchedFingerprints { get; set; }
+
+        /// <summary>Hex without separators, upper case (XAPI uses "AA:BB:..").</summary>
+        public static string Normalize(string fingerprint) => (fingerprint ?? "").Replace(":", "").Trim().ToUpperInvariant();
 
         public CertificateTrust(AppConfig config)
         {
@@ -70,7 +80,10 @@ namespace XenAdmin.Linux
             string old;
             lock (_config)
                 _config.Fingerprints.TryGetValue(hostKey, out old);
-            if (Evaluate(hostKey, fp, errors) == TrustDecision.Trusted)
+            var decision = Evaluate(hostKey, fp, errors);
+            if (decision == TrustDecision.Prompt && IsVouched(hostKey, cert))
+                decision = TrustDecision.Trusted;
+            if (decision == TrustDecision.Trusted)
             {
                 if (old == null)
                     Pin(hostKey, fp);
@@ -78,6 +91,15 @@ namespace XenAdmin.Linux
             }
             Pending[hostKey] = (fp, old);
             return false;
+        }
+
+        private bool IsVouched(string hostKey, X509Certificate cert)
+        {
+            var known = VouchedFingerprints?.Invoke(hostKey)?.Select(Normalize).ToList();
+            if (known == null || known.Count == 0)
+                return false;
+            var raw = cert.GetRawCertData();
+            return known.Contains(Convert.ToHexString(SHA256.HashData(raw))) || known.Contains(Convert.ToHexString(SHA1.HashData(raw)));
         }
 
         private static string HostKey(object sender)

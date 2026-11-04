@@ -97,6 +97,55 @@ namespace XenModel.Linux.Tests
             }
         }
 
+        /// <summary>Take snapshot, revert, delete — the Snapshots tab actions — on a throwaway VM.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void SnapshotTakeRevertDelete()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-snap");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template);
+                Assert.IsTrue(vm.allowed_operations.Contains(vm_operations.snapshot));
+
+                var take = new VMSnapshotCreateAction(vm, "linux-test-snapshot", "taken by the Linux Snapshots tab test", SnapshotType.DISK, null);
+                Run(take);
+                Assert.IsTrue(take.Succeeded, take.Exception?.ToString());
+                // the description is set after the snapshot task completes, so wait for it too
+                vm = WaitFor(c, vmRef, v => v.snapshots.Count == 1 && c.Resolve(v.snapshots[0])?.name_description == "taken by the Linux Snapshots tab test");
+                var snap = c.Resolve(vm.snapshots[0]);
+                Assert.AreEqual("linux-test-snapshot", snap.name_label);
+                Assert.AreEqual("taken by the Linux Snapshots tab test", snap.name_description);
+                Assert.AreEqual(XenAdmin.Linux.SnapshotsView.TypeText(snap), XenAdmin.Messages.DISKS_ONLY);
+                Assert.IsTrue(XenAdmin.Linux.SnapshotsView.Size(snap) >= 0);
+                System.Console.WriteLine($"snapshot {snap.name_label} size={XenAdmin.Linux.SnapshotsView.Size(snap)} allowed={string.Join(",", snap.allowed_operations)}");
+
+                var revert = new VMSnapshotRevertAction(snap);
+                Run(revert);
+                Assert.IsTrue(revert.Succeeded, revert.Exception?.ToString());
+
+                var delete = new VMSnapshotDeleteAction(snap);
+                Run(delete);
+                Assert.IsTrue(delete.Succeeded, delete.Exception?.ToString());
+                WaitFor(c, vmRef, v => v.snapshots.Count == 0);
+            }
+            finally
+            {
+                if (vmRef != null)
+                {
+                    foreach (var s in VM.get_snapshots(session, vmRef))
+                        try { VM.destroy(session, s.opaque_ref); } catch { }
+                    VM.destroy(session, vmRef);
+                }
+                c.EndConnect();
+            }
+        }
+
         private static string CreateThrowawayVm(XenAdmin.Network.XenConnection c, Session session, string name)
         {
             foreach (var old in c.Cache.VMs.Where(v => v.name_label.StartsWith(VmName) && !v.is_a_template))

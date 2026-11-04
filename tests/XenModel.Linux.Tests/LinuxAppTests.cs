@@ -49,6 +49,23 @@ namespace XenModel.Linux.Tests
         }
 
         [TestMethod]
+        public void PoolMemberCertificateVouchedByXapi()
+        {
+            using var key = System.Security.Cryptography.RSA.Create(2048);
+            var req = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=member", key, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+            using var cert = req.CreateSelfSigned(DateTimeOffset.Now.AddDays(-1), DateTimeOffset.Now.AddDays(1));
+            var fp = CertificateTrust.Fingerprint(cert);
+            var xapiStyle = string.Join(":", Enumerable.Range(0, fp.Length / 2).Select(i => fp.Substring(i * 2, 2)));
+            var trust = new CertificateTrust(TempConfig()) { VouchedFingerprints = h => h == "member:443" ? new[] { xapiStyle } : null };
+
+            Assert.IsTrue(trust.ValidateHost("member:443", cert, SslPolicyErrors.RemoteCertificateChainErrors), "XAPI-reported fingerprint is trusted");
+            Assert.IsFalse(trust.ValidateHost("other:443", cert, SslPolicyErrors.RemoteCertificateChainErrors), "unknown host still needs the user");
+            trust.Pin("pinned:443", "00");
+            trust.VouchedFingerprints = _ => new[] { xapiStyle };
+            Assert.IsFalse(trust.ValidateHost("pinned:443", cert, SslPolicyErrors.None), "a stored pin always wins over the vouch");
+        }
+
+        [TestMethod]
         public void ConfigRoundTripHasNoPassword()
         {
             var cfg = TempConfig();
@@ -92,7 +109,11 @@ namespace XenModel.Linux.Tests
             CollectionAssert.AreEqual(new[] { "General", "Memory", "Storage", "Networking", "Console", "Performance", "Snapshots", "Search" }, Details.Tabs(new VM()));
             Assert.IsFalse(Details.NotPorted(new VM(), "Console"));
             Assert.IsTrue(Details.NotPorted(new Host(), "Console"));
-            Assert.IsTrue(Details.NotPorted(new VM(), "Snapshots"));
+            Assert.IsFalse(Details.NotPorted(new VM(), "Snapshots"));
+            Assert.IsFalse(Details.NotPorted(new VM(), "Search"));
+            Assert.IsTrue(Details.NotPorted(new SR(), "Search"));
+            Assert.IsTrue(Details.NotPorted(new VM(), "Performance"));
+            CollectionAssert.AreEqual(new[] { "-", "-", "-", "-", "-", "-" }, SearchView.Values(new Pool()).Select(v => v.Text).ToArray());
         }
 
         [TestMethod]

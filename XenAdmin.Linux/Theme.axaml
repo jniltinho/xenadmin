@@ -78,14 +78,14 @@
   </Style>
   <Style Selector="ComboBox">
     <Setter Property="MinHeight" Value="23"/><Setter Property="Height" Value="23"/><Setter Property="Padding" Value="4,0,0,0"/>
-    <Setter Property="CornerRadius" Value="0"/><Setter Property="Background" Value="#E1E1E1"/>
+    <Setter Property="CornerRadius" Value="0"/><Setter Property="Background" Value="White"/>
     <Setter Property="BorderBrush" Value="#ADADAD"/><Setter Property="BorderThickness" Value="1"/><Setter Property="FontSize" Value="12"/>
   </Style>
   <Style Selector="ComboBox:pointerover /template/ Border#Background">
     <Setter Property="Background" Value="#E5F1FB"/><Setter Property="BorderBrush" Value="#0078D7"/>
   </Style>
   <Style Selector="ComboBox:disabled /template/ Border#Background">
-    <Setter Property="Background" Value="#CCCCCC"/><Setter Property="BorderBrush" Value="#BFBFBF"/>
+    <Setter Property="Background" Value="#F4F4F4"/><Setter Property="BorderBrush" Value="#CCCCCC"/>
   </Style>
   <!-- boot order CheckedListBox -->
   <Style Selector="ListBox.checked ListBoxItem"><Setter Property="Padding" Value="3,1"/><Setter Property="MinHeight" Value="0"/></Style>
@@ -142,6 +142,8 @@
   <Style Selector="TabItem:disabled"><Setter Property="Foreground" Value="#A0A0A0"/></Style>
 
   <!-- Properties dialog page list (VerticalTabs) -->
+  <Style Selector="ListBox.props"><Setter Property="Background" Value="White"/></Style>
+  <Style Selector="ListBox.checked"><Setter Property="Background" Value="White"/></Style>
   <Style Selector="ListBox.props ListBoxItem"><Setter Property="Padding" Value="6,4"/><Setter Property="MinHeight" Value="0"/></Style>
   <Style Selector="ListBox.props ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#0078D7"/></Style>
   <Style Selector="ListBox.props ListBoxItem:selected TextBlock"><Setter Property="Foreground" Value="White"/></Style>

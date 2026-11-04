@@ -14,7 +14,7 @@
 - [x] 2.2 Adaptador `ISynchronizeInvoke` sobre `Dispatcher.UIThread` para `InvokeHelper.Initialize`
 - [x] 2.3 Validador de certificado para todas as sessões XAPI via `ServicePointManager.ServerCertificateValidationCallback` (fallback que o `JsonRpc` já usa), cobrindo reconexão, `HOST_IS_SLAVE` e sessões derivadas sem mudar o `XenConnection`
 - [x] 2.4 Política TOFU (pin tem precedência sobre a cadeia do sistema) com testes unitários: primeiro contato, pin confere, pin diverge com cadeia confiável
-- [ ] 2.5 Passar o validador para `HTTP.CONNECT` (hoje aceita qualquer certificado), com padrão que preserve o comportamento atual do Windows até revisão
+- [x] 2.5 Gancho opcional `XenAPI.HTTP.ServerCertificateValidator` (nulo = comportamento atual do Windows); no Linux aplica o TOFU a túneis de console e downloads RRD, e aceita hosts membros cujo certificado o XAPI autenticado informa (`host.certificates`)
 - [x] 2.4b Callback TLS não bloqueante: certificado rejeitado fica pendente, a UI pergunta e reconecta (bloquear no handshake causava `408 Request Timeout` do XAPI)
 - [ ] 2.6 Armazenamento de senha via Secret Service com detecção em runtime e teste do caminho "indisponível" (MVP atual: senha nunca é gravada)
 
@@ -64,7 +64,8 @@
 - [ ] 7.5b Páginas restantes do Properties (Custom Fields, Start Options/HA, Alerts, Home Server, USB, Advanced, Multipathing, Log Destination) — hoje listadas desabilitadas
 - [x] 7.5c Controles com o visual do WinForms: botões 75×23 (borda azul no padrão), TextBox/ComboBox 23 px, checkbox/radio de 13 px; "Connect to Server" com grupo "User login credentials"
 - [x] 7.5d `Folders.InitFolders()` na inicialização (mantém `IXenObject.Path`; sem isso pastas apareciam como <None>)
-- [ ] 7.6 Abas Performance (RRD), Snapshots, Search, NICs, GPU, USB, console do host
+- [x] 7.6a Aba Snapshots (lista, Take Snapshot/Revert/Delete/Properties, detalhes) e aba Search (overview pool→hosts→VMs→templates com métricas ao vivo do `MetricUpdater`); testes: snapshot→revert→delete no 110 e métricas RRD no pool .236
+- [ ] 7.6 Abas Performance (gráficos RRD), NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável (New/Edit/Saved Searches, colunas)
 - [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e de disco/DVD (Add, Attach, Detach, Move, Delete, criar DVD)
 - [ ] 7.8 Wizards: New VM, New SR, New Pool, Import/Export
 - [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)

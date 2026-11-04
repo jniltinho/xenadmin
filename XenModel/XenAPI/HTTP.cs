@@ -276,14 +276,11 @@ namespace XenAPI
             return uri.Scheme == "https" || uri.Port == DEFAULT_HTTPS_PORT;
         }
 
-        private static bool ValidateServerCertificate(
-              object sender,
-              X509Certificate certificate,
-              X509Chain chain,
-              SslPolicyErrors sslPolicyErrors)
-        {
-            return true;
-        }
+        /// <summary>
+        /// Optional check of the server certificate for every HTTP/CONNECT stream ("host:port", certificate, errors).
+        /// Null keeps the historical behaviour of accepting any certificate.
+        /// </summary>
+        public static Func<string, X509Certificate, SslPolicyErrors, bool> ServerCertificateValidator;
 
         /// <summary>
         /// Returns a secure MD5 hash of the given input string.
@@ -481,8 +478,9 @@ namespace XenAPI
 
                 if (UseSSL(uri))
                 {
+                    var hostKey = string.Format("{0}:{1}", uri.Host, uri.Port);
                     SslStream sslStream = new SslStream(stream, false,
-                        new RemoteCertificateValidationCallback(ValidateServerCertificate), null);
+                        (sender, cert, chain, errors) => ServerCertificateValidator == null || ServerCertificateValidator(hostKey, cert, errors), null);
                     sslStream.AuthenticateAsClient("", null, SslProtocols.Tls | SslProtocols.Tls11 | SslProtocols.Tls12, true);
 
                     stream = sslStream;

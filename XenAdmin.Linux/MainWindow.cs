@@ -465,7 +465,10 @@ namespace XenAdmin.Linux
             if (node == null || node.IsRoot)
             {
                 _titleBand.Content = Views.TitleBand("Logo", ResourceTree.RootName, null);
-                SetTabs("home", () => new[] { Tab("Home", Views.HomePage(async () => await AddServer())), new TabItem { Header = "Search", IsEnabled = false } });
+                SetTabs("home", () => new[] { Tab("Home", Views.HomePage(async () => await AddServer())),
+                    Tab("Search", Body(SearchView.Title(null), new SearchView(_connections))) });
+                if (_tabs.Items.OfType<TabItem>().FirstOrDefault(t => (string)t.Header == "Search")?.Content is Panel home)
+                    home.Children.OfType<ILiveView>().FirstOrDefault()?.Refresh();
                 return;
             }
             if (o == null)
@@ -485,18 +488,21 @@ namespace XenAdmin.Linux
             // rebuild the tab bodies on every refresh so values stay live, but keep the selected tab
             var sig = o.opaque_ref;
             _lastTab.TryGetValue(sig, out var current);
-            var items = Details.Tabs(o).Select(t => Details.NotPorted(o, t)
-                ? new TabItem { Header = t, IsEnabled = false }
-                : Tab(t, TabBody(o, t))).ToList();
             if (_tabsSignature == sig)
             {
-                foreach (var item in items)
+                foreach (var existing in _tabs.Items.OfType<TabItem>().Where(i => i.IsEnabled && (string)i.Header != "Console"))
                 {
-                    var existing = _tabs.Items.OfType<TabItem>().FirstOrDefault(i => (string)i.Header == (string)item.Header);
-                    if (existing != null && existing.IsEnabled && (string)existing.Header != "Console") existing.Content = item.Content;
+                    // stateful tabs (selection, live metrics) refresh themselves; the rest are rebuilt
+                    if (existing.Content is Panel p && p.Children.OfType<ILiveView>().FirstOrDefault() is ILiveView live)
+                        live.Refresh();
+                    else
+                        existing.Content = TabBody(o, (string)existing.Header);
                 }
                 return;
             }
+            var items = Details.Tabs(o).Select(t => Details.NotPorted(o, t)
+                ? new TabItem { Header = t, IsEnabled = false }
+                : Tab(t, TabBody(o, t))).ToList();
             _tabsSignature = sig;
             _tabs.ItemsSource = items;
             _tabs.SelectedItem = items.FirstOrDefault(i => (string)i.Header == current && i.IsEnabled) ?? items.First();
@@ -544,6 +550,10 @@ namespace XenAdmin.Linux
                         : Views.GridPage(nt, null, "Add Network...", "Properties", "Remove Network"));
                 case "Console":
                     return ConsoleView.For(o as VM);
+                case "Snapshots":
+                    return Body("Virtual Machine Snapshots", new SnapshotsView((VM)o, RunTracked, ShowProperties));
+                case "Search":
+                    return Body(SearchView.Title(o.Connection), new SearchView(new[] { o.Connection }));
             }
             return new TextBlock();
         }
@@ -626,8 +636,16 @@ namespace XenAdmin.Linux
             if (!CanEditProperties(o)) return;
             var dialog = new PropertiesDialog(o);
             await dialog.ShowDialog(this);
-            var action = dialog.Action;
-            if (action == null) return;
+            if (dialog.Action == null) return;
+            o.Locked = true; // SaveChangesAction requires the original locked
+            RunTracked(dialog.Action, o);
+        }
+
+        /// <summary>Runs an action, mirroring its progress in Notifications/status and reporting failures.</summary>
+        private void RunTracked(AsyncAction action) => RunTracked(action, null);
+
+        private void RunTracked(AsyncAction action, IXenObject unlockWhenDone)
+        {
             var index = _events.Count;
             _events.Add($"{action.Title}: starting...");
             void Update(ActionBase a) => Dispatcher.UIThread.Post(() =>
@@ -640,13 +658,12 @@ namespace XenAdmin.Linux
             action.Changed += Update;
             action.Completed += a =>
             {
-                o.Locked = false;
+                if (unlockWhenDone != null) unlockWhenDone.Locked = false;
                 Update(a);
                 Dispatcher.UIThread.Post(() => { _tabsSignature = null; UpdateContent(); });
                 if (!a.Succeeded && a.Exception != null)
                     Dispatcher.UIThread.Post(async () => await Dialogs.Info(this, "XCP-ng Center", $"{a.Title}\n\n{a.Exception.Message}"));
             };
-            o.Locked = true;
             action.RunAsync();
         }
 

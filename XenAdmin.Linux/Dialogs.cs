@@ -210,6 +210,89 @@ namespace XenAdmin.Linux
             return result;
         }
 
+        /// <summary>WarningDialog with an optional check box (RevertToSnapshotCommand).</summary>
+        public static async Task<(bool Yes, bool Checked)> ConfirmWithCheckbox(Window owner, string title, string message, string checkboxText, bool isChecked)
+        {
+            var yes = new Button { Content = M(Messages.YES), IsDefault = true };
+            var no = new Button { Content = M(Messages.NO), IsCancel = true };
+            var box = new CheckBox { Content = M(checkboxText ?? ""), IsChecked = isChecked, IsVisible = checkboxText != null };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            row.Children.Add(Views.Icon("000_WarningAlert_h32bit_32", 32));
+            row.Children.Add(new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxWidth = 360, VerticalAlignment = VerticalAlignment.Center });
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(row);
+            panel.Children.Add(box);
+            panel.Children.Add(Buttons(yes, no));
+            var w = Frame(title, panel, 460);
+            var result = false;
+            yes.Click += (_, _) => { result = true; w.Close(); };
+            no.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return (result, box.IsChecked == true);
+        }
+
+        /// <summary>VmSnapshotDialog ("Take Snapshot"): name, description and snapshot mode; returns the action to run.</summary>
+        public static async Task<XenAdmin.Actions.VMSnapshotCreateAction> TakeSnapshot(Window owner, XenAPI.VM vm)
+        {
+            var name = new TextBox();
+            var description = new TextBox { AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Height = 60 };
+            var disk = new RadioButton { Content = M("&Snapshot the virtual machine's disks"), GroupName = "mode", IsChecked = true, IsEnabled = vm.allowed_operations.Contains(XenAPI.vm_operations.snapshot) };
+            var quiesceAvailable = !XenAdmin.Core.Helpers.QuebecOrGreater(vm.Connection);
+            var quiesce = new CheckBox
+            {
+                Content = M("&Quiesce the VM before taking the snapshot (Windows only)"), Margin = new Thickness(22, 0, 0, 0), IsVisible = quiesceAvailable,
+                IsEnabled = quiesceAvailable && vm.allowed_operations.Contains(XenAPI.vm_operations.snapshot_with_quiesce) && !XenAdmin.Core.Helpers.FeatureForbidden(vm, XenAPI.Host.RestrictVss)
+            };
+            var memory = new RadioButton
+            {
+                Content = M("Sn&apshot the virtual machine's disks and memory"), GroupName = "mode",
+                IsEnabled = vm.allowed_operations.Contains(XenAPI.vm_operations.checkpoint) && !XenAdmin.Core.Helpers.FeatureForbidden(vm, XenAPI.Host.RestrictCheckpoint)
+            };
+            if (!disk.IsEnabled) { disk.IsChecked = false; memory.IsChecked = memory.IsEnabled; }
+            string MemoryInfo() =>
+                XenAdmin.Core.Helpers.FeatureForbidden(vm, XenAPI.Host.RestrictCheckpoint) ? Messages.FIELD_DISABLED
+                : vm.power_state != XenAPI.vm_power_state.Running ? Messages.INFO_DISKMEMORY_MODE_POWER_STATE
+                : !vm.GetVirtualizationStatus(out _).HasFlag(XenAPI.VM.VirtualizationStatus.IoDriversInstalled)
+                    ? (vm.HasNewVirtualizationStates() ? Messages.INFO_DISKMEMORY_MODE_NO_IO_DRIVERS : string.Format(Messages.INFO_DISKMEMORY_MODE_NO_TOOLS, XenAdmin.Core.BrandManager.VmTools))
+                : Messages.INFO_DISKMEMORY_MODE_MISC;
+            var memoryInfo = new TextBlock { Text = MemoryInfo(), TextWrapping = Avalonia.Media.TextWrapping.Wrap, Opacity = 0.75, Margin = new Thickness(22, 0, 0, 0), IsVisible = !memory.IsEnabled };
+            var ok = new Button { Content = M("&Take Snapshot"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            void Update() => ok.IsEnabled = !string.IsNullOrWhiteSpace(name.Text) && (disk.IsEnabled || quiesce.IsEnabled || memory.IsEnabled);
+            name.TextChanged += (_, _) => Update();
+            Update();
+
+            var fields = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto"), RowSpacing = 8, ColumnSpacing = 10 };
+            var ln = new Label { Content = M("&Name:"), Target = name, Padding = new Thickness(0, 4, 0, 0) };
+            var ld = new Label { Content = M("&Description:"), Target = description, Padding = new Thickness(0, 4, 0, 0) };
+            Grid.SetColumn(name, 1); Grid.SetRow(ld, 1); Grid.SetRow(description, 1); Grid.SetColumn(description, 1);
+            fields.Children.Add(ln); fields.Children.Add(name); fields.Children.Add(ld); fields.Children.Add(description);
+            var mode = new StackPanel { Spacing = 6 };
+            mode.Children.Add(new TextBlock { Text = "Snapshot mode" });
+            mode.Children.Add(disk);
+            mode.Children.Add(quiesce);
+            mode.Children.Add(memory);
+            mode.Children.Add(memoryInfo);
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(fields);
+            panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#DCDCDC"), BorderThickness = new Thickness(1), Padding = new Thickness(8, 4, 8, 8), Child = mode });
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame("Take Snapshot", panel, 480);
+            XenAdmin.Actions.VMSnapshotCreateAction result = null;
+            ok.Click += (_, _) =>
+            {
+                var type = quiesce.IsChecked == true && quiesce.IsEnabled ? XenAdmin.Actions.SnapshotType.QUIESCED_DISK
+                    : disk.IsChecked == true ? XenAdmin.Actions.SnapshotType.DISK : XenAdmin.Actions.SnapshotType.DISK_AND_MEMORY;
+                // no console screenshot provider yet: the snapshot is saved without the VNC thumbnail
+                result = new XenAdmin.Actions.VMSnapshotCreateAction(vm, name.Text.Trim(), description.Text ?? "", type, null);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            w.Opened += (_, _) => name.Focus();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         public static Task<bool> TrustCertificate(Window owner, string hostKey, string fingerprint, string oldFingerprint)
         {
             var msg = oldFingerprint == null

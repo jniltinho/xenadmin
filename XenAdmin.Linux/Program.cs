@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -25,6 +26,19 @@ namespace XenAdmin.Linux
                 var trust = new CertificateTrust(config);
 #pragma warning disable SYSLIB0014 // XenAPI's JsonRpc falls back to this global callback, as on Windows
                 ServicePointManager.ServerCertificateValidationCallback = trust.Validate;
+                // console tunnels and RRD downloads (XenAPI.HTTP) use the same policy
+                XenAPI.HTTP.ServerCertificateValidator = trust.ValidateHost;
+                // pool members: trust the host certificate the authenticated coordinator reports
+                trust.VouchedFingerprints = hostKey =>
+                {
+                    var address = hostKey.Substring(0, hostKey.LastIndexOf(':'));
+                    return ConnectionsManager.XenConnectionsCopy.Where(c => c.IsConnected)
+                        .SelectMany(c => c.Cache.Hosts.Where(h => h.address == address)
+                            .SelectMany(h => c.ResolveAll(h.certificates))
+                            .Where(cert => cert.type == XenAPI.certificate_type.host)
+                            .Select(cert => cert.fingerprint))
+                        .ToList();
+                };
 #pragma warning restore SYSLIB0014
                 InvokeHelper.Initialize(new DispatcherSynchronizer());
                 // keeps IXenObject.Path in step with other_config["folder"], as WinForms MainWindow does

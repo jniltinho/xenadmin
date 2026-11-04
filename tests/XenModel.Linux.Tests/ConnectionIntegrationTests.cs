@@ -126,5 +126,40 @@ namespace XenModel.Linux.Tests
 
         [TestMethod, TestCategory("Integration")]
         public void PoolReadOnly() => ReadOnlyChecks("XCP_RO_HOST");
+
+        /// <summary>Search tab metrics: MetricUpdater downloads RRD updates and the XenModel formatters use them.</summary>
+        [TestMethod, TestCategory("Integration")]
+        public void SearchOverviewMetricsReadOnly()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_RO_HOST") ?? Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host))
+                Assert.Inconclusive("XCP_RO_HOST/XCP_HOST not set");
+            var c = Connect(host);
+            try
+            {
+                var metrics = new XenAdmin.XenSearch.MetricUpdater();
+                XenAdmin.XenSearch.PropertyAccessorHelper.MetricUpdater = metrics;
+                var hosts = c.Cache.Hosts;
+                var running = c.Cache.VMs.Where(ResourceTree.IsRealVm).Where(v => v.power_state == vm_power_state.Running).ToList();
+                // must run on the UI thread, as in SearchView (attached handler)
+                Sync.Invoke(new Action(() => metrics.SetXenObjects(hosts.Cast<IXenObject>().Concat(running).ToArray())), null);
+                metrics.UpdateMetricsOnce();
+                var h = hosts[0];
+                var values = SearchView.Values(h);
+                System.Console.WriteLine($"{h.Name()}: cpu='{values[0].Text}' ({values[0].Bar}%) mem='{values[1].Text}' net='{values[3].Text}' uptime='{values[5].Text}'");
+                StringAssert.Contains(values[0].Text, "CPU", "host CPU usage comes from RRD metrics");
+                Assert.AreNotEqual("-", values[1].Text);
+                if (running.Count > 0)
+                {
+                    var v = SearchView.Values(running[0]);
+                    System.Console.WriteLine($"{running[0].Name()}: cpu='{v[0].Text}' mem='{v[1].Text}' disks='{v[2].Text}' ip='{v[4].Text}' uptime='{v[5].Text}'");
+                    StringAssert.Contains(v[0].Text, "CPU");
+                }
+            }
+            finally
+            {
+                c.EndConnect();
+            }
+        }
     }
 }
