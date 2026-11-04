@@ -539,7 +539,7 @@ namespace XenAdmin.Linux
                     var st = Details.Storage(o);
                     return Body(st.Title, o switch
                     {
-                        VM _ => Views.GridPage(st, "Click here to create a DVD drive", "Add...", "Attach Disk...", "Deactivate", "Move...", "Detach", "Delete", "Properties"),
+                        VM vmStorage => new VmStorageView(vmStorage, RunTracked, ShowProperties),
                         SR _ => Views.GridPage(st, null, "Add...", "Rescan", "Move...", "Delete", "Properties"),
                         _ => Views.GridPage(st, null, "New SR...", "Reclaim freed space", "Properties")
                     });
@@ -629,7 +629,7 @@ namespace XenAdmin.Linux
         // ---------- Properties (PropertiesCommand) ----------
 
         private static bool CanEditProperties(IXenObject o) =>
-            o != null && o.Connection != null && o.Connection.IsConnected && !o.Locked && (o is VM || o is Host || o is Pool || o is SR);
+            o != null && o.Connection != null && o.Connection.IsConnected && !o.Locked && (o is VM || o is Host || o is Pool || o is SR || o is VDI);
 
         private async void ShowProperties(IXenObject o)
         {

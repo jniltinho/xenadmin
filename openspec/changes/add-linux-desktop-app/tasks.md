@@ -66,7 +66,8 @@
 - [x] 7.5d `Folders.InitFolders()` na inicialização (mantém `IXenObject.Path`; sem isso pastas apareciam como <None>)
 - [x] 7.6a Aba Snapshots (lista, Take Snapshot/Revert/Delete/Properties, detalhes) e aba Search (overview pool→hosts→VMs→templates com métricas ao vivo do `MetricUpdater`); testes: snapshot→revert→delete no 110 e métricas RRD no pool .236
 - [ ] 7.6 Abas Performance (gráficos RRD), NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável (New/Edit/Saved Searches, colunas)
-- [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e de disco/DVD (Add, Attach, Detach, Move, Delete, criar DVD)
+- [x] 7.7a Aba Storage da VM: criar drive de DVD, trocar/ejetar ISO, Add (New Disk), Attach Disk, Activate/Deactivate, Detach, Delete, Properties do disco, com as regras de habilitação dos comandos originais; teste de escrita no 110
+- [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e Move de disco
 - [ ] 7.8 Wizards: New VM, New SR, New Pool, Import/Export
 - [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)
 - [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico

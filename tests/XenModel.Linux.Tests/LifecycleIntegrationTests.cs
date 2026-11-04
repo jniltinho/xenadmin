@@ -146,6 +146,87 @@ namespace XenModel.Linux.Tests
             }
         }
 
+        /// <summary>Storage tab: DVD drive + ISO + eject, add disk, detach, re-attach, delete.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void StorageTabDiskAndDvd()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null, vdiRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-disk");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template);
+
+                // DVD drive
+                Run(new CreateCdDriveAction(vm));
+                vm = WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).Any(b => b.IsCDROM()));
+                var cd = c.ResolveAll(vm.VBDs).First(b => b.IsCDROM());
+                var iso = c.Cache.SRs.Where(sr => sr.content_type == SR.Content_Type_ISO).SelectMany(sr => c.ResolveAll(sr.VDIs)).FirstOrDefault();
+                if (iso != null)
+                {
+                    var insert = new ChangeVMISOAction(c, vm, iso, cd);
+                    Run(insert);
+                    Assert.IsTrue(insert.Succeeded, insert.Exception?.ToString());
+                    WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).Any(b => b.IsCDROM() && !b.empty && b.VDI.opaque_ref == iso.opaque_ref));
+                    var eject = new ChangeVMISOAction(c, vm, null, c.ResolveAll(vm.VBDs).First(b => b.IsCDROM()));
+                    Run(eject);
+                    Assert.IsTrue(eject.Succeeded, eject.Exception?.ToString());
+                    WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).Any(b => b.IsCDROM() && b.empty));
+                    System.Console.WriteLine($"DVD: inserted and ejected '{iso.Name()}'");
+                }
+
+                // add a 64 MB disk the way the Add Virtual Disk dialog does
+                var home = vm.Home() ?? c.Cache.Hosts[0];
+                var sr0 = c.Cache.SRs.First(sr => sr.SupportsVdiCreate() && !sr.IsBroken(false) && sr.content_type != SR.Content_Type_ISO && sr.CanBeSeenFrom(home) && !sr.IsToolsSR());
+                var vdi = new VDI { Connection = c, SR = new XenRef<SR>(sr0), virtual_size = 64L * 1024 * 1024, name_label = "linux-test-disk", name_description = "", type = vdi_type.user };
+                vdi.SetVmHint(vm.uuid);
+                var vbd = new VBD { Connection = c, device = "", empty = false, type = vbd_type.Disk, mode = vbd_mode.RW, unpluggable = true };
+                vbd.SetIsOwner(true);
+                var add = new MultipleAction(c, "Add disk", "", "", new System.Collections.Generic.List<AsyncAction> { new CreateDiskAction(vdi, vbd, vm), new VbdCreateAndPlugAction(vm, vbd, vdi.Name(), false) }, false, false, true);
+                Run(add);
+                Assert.IsTrue(add.Succeeded, add.Exception?.ToString());
+                vm = WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).Any(b => b.type == vbd_type.Disk && c.Resolve(b.VDI)?.name_label == "linux-test-disk"));
+                var disk = c.ResolveAll(vm.VBDs).Select(b => c.Resolve(b.VDI)).First(v => v?.name_label == "linux-test-disk");
+                vdiRef = disk.opaque_ref;
+                var diskVbd = c.ResolveAll(vm.VBDs).First(b => b.VDI.opaque_ref == vdiRef);
+                Assert.IsFalse(XenAdmin.Linux.VmStorageView.CanActivate(vm, diskVbd), "halted VM: nothing to plug");
+                Assert.IsTrue(XenAdmin.Linux.VmStorageView.CanDetach(vm, disk));
+                Assert.IsTrue(XenAdmin.Linux.VmStorageView.CanDelete(disk), "unattached user disk on a halted VM can be deleted");
+                System.Console.WriteLine($"disk {disk.Name()} {disk.SizeText()} on {sr0.Name()} as {diskVbd.userdevice}");
+
+                // detach, then attach again as the Attach Disk dialog does
+                var detach = new DetachVirtualDiskAction(disk, vm, true);
+                Run(detach);
+                Assert.IsTrue(detach.Succeeded, detach.Exception?.ToString());
+                vm = WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).All(b => b.VDI.opaque_ref != vdiRef));
+                var ud = VM.get_allowed_VBD_devices(session, vmRef)[0];
+                var again = new VBD { VDI = new XenRef<VDI>(vdiRef), VM = new XenRef<VM>(vmRef), bootable = ud == "0", device = "", empty = false, userdevice = ud, type = vbd_type.Disk, mode = vbd_mode.RW, unpluggable = true };
+                var attach = new VbdCreateAndPlugAction(vm, again, disk.Name(), false);
+                Run(attach);
+                Assert.IsTrue(attach.Succeeded, attach.Exception?.ToString());
+                WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).Any(b => b.VDI.opaque_ref == vdiRef));
+
+                var destroy = new DestroyDiskAction(c.Resolve(new XenRef<VDI>(vdiRef)));
+                Run(destroy);
+                Assert.IsTrue(destroy.Succeeded, destroy.Exception?.ToString());
+                WaitFor(c, vmRef, v => c.ResolveAll(v.VBDs).All(b => b.VDI.opaque_ref != vdiRef));
+                Assert.IsNull(c.Resolve(new XenRef<VDI>(vdiRef)) is VDI gone && !gone.managed ? null : c.Resolve(new XenRef<VDI>(vdiRef)), "disk destroyed");
+                vdiRef = null;
+            }
+            finally
+            {
+                if (vdiRef != null)
+                    try { VDI.destroy(session, vdiRef); } catch { }
+                if (vmRef != null)
+                    VM.destroy(session, vmRef);
+                c.EndConnect();
+            }
+        }
+
         private static string CreateThrowawayVm(XenAdmin.Network.XenConnection c, Session session, string name)
         {
             foreach (var old in c.Cache.VMs.Where(v => v.name_label.StartsWith(VmName) && !v.is_a_template))
