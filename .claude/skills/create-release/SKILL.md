@@ -24,7 +24,7 @@ Release only when the user asks for it.
 ```bash
 gh auth status                                  # logged in, with access to jniltinho/xenadmin
 REPO=jniltinho/xenadmin
-BRANCH=feature/linux-desktop                    # the desktop line, until it is merged into development
+BRANCH=main                                     # the default branch (the desktop line was merged into it)
 LAST=$(git describe --tags --abbrev=0 --match 'linux-v*' 2>/dev/null || git rev-list --max-parents=0 HEAD)
 ```
 
