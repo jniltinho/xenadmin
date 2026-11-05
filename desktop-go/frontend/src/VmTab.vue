@@ -59,6 +59,17 @@ function submitAdd() {
   run(`Adding virtual disk '${a.name.trim()}'`, async () => { notice.value = await api.addDisk(props.server, props.vm, a.name.trim(), a.description, a.sr, bytes); });
 }
 
+// Attach Disk (AttachDiskDialog): an unattached disk, optionally read-only
+const attach = ref<{ disks: { vdi: string; text: string }[]; vdi: string; readOnly: boolean } | null>(null);
+async function openAttach() {
+  try { attach.value = { disks: (await api.attachableDisks(props.server, props.vm)) ?? [], vdi: "", readOnly: false }; } catch (e) { emit("status", String(e), true); }
+}
+function submitAttach() {
+  const a = attach.value!;
+  attach.value = null;
+  run("Attaching the disk", async () => { notice.value = await api.attachDisk(props.server, props.vm, a.vdi, a.readOnly); });
+}
+
 // Detach and Delete ask the C# questions first
 const ask = ref<(Confirm & { resolve: (ok: boolean) => void }) | null>(null);
 async function confirm(del: boolean, system: boolean) {
@@ -97,6 +108,7 @@ onMounted(load);
     <DetailsTable v-if="table" :table="table" :selected="picked" :plain="kind === 'memory'" @select="picked = $event" />
     <div v-if="kind === 'storage'" class="flex gap-2 px-3">
       <button class="btn" :disabled="busy" @click="openAdd">Add...</button>
+      <button class="btn" :disabled="busy" @click="openAttach">Attach Disk...</button>
       <button class="btn" :disabled="busy || !disk || !(disk.attached ? disk.can_deactivate : disk.can_activate)" @click="toggle">
         {{ disk && !disk.attached ? "Activate" : "Deactivate" }}
       </button>
@@ -127,6 +139,24 @@ onMounted(load);
           </div>
         </div>
       </form>
+    </div>
+
+    <div v-if="attach" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
+      <div class="w-[34rem] border border-neutral-500 bg-white shadow-lg">
+        <div class="bg-band-dark px-3 py-1 font-semibold text-white">Attach Disk</div>
+        <div class="space-y-2 p-3">
+          <p>{{ attach.disks.length ? "Select the virtual disk you want to attach to this VM." : "There are no unattached virtual disks available to this VM." }}</p>
+          <div class="h-56 overflow-auto border border-line">
+            <div v-for="d in attach.disks" :key="d.vdi" class="cursor-default px-1 py-0.5" :class="attach.vdi === d.vdi ? 'bg-select text-white' : 'hover:bg-neutral-100'"
+                 @click="attach!.vdi = d.vdi">{{ d.text }}</div>
+          </div>
+          <label class="flex items-center gap-2"><input v-model="attach.readOnly" type="checkbox" />Attach as read-only</label>
+          <div class="flex justify-end gap-2 pt-1">
+            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="!attach.vdi" @click="submitAttach">Attach</button>
+            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="attach = null">Cancel</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-if="ask" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">

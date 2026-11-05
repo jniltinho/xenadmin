@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- The main window laid out as the C# app: menus, the toolbar with its power-button rules, Back/Forward, the tree's
+  search box, the navigation pane (Objects view), Home and Search tabs of the root, saved servers shown disconnected
+  with Connect (password focused), Disconnect and Remove.
+- VM Properties: General, CPU (vCPUs, topology, priority, hotplug and its licence) and Home Server.
+- `make appimage`; every build is amd64 only.
 - Storage tab: Add Virtual Disk (unique name, the SRs the VM's server can use, the default SR), Detach and Delete with
   the C# rules and questions (StorageRules.CanDetach/CanDelete, DetachVirtualDiskAction, DestroyDiskAction).
 - Memory, Storage and Networking tabs of a VM (the C# Details tables): Activate/Deactivate a disk, create a DVD drive

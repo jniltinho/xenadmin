@@ -75,6 +75,20 @@ func diskSize(bytes int) string {
 	return fmt.Sprintf("%.1f %s", v, units[i])
 }
 
+// PoolName is the connection's name in the tree (Pool.Name: the pool's name, else its coordinator's).
+func PoolName(c *xapi.Connection) string {
+	pools, _ := xenapi.Pool.GetAllRecords(c.Session)
+	for _, p := range pools {
+		if p.NameLabel != "" {
+			return p.NameLabel
+		}
+		if h, err := xenapi.Host.GetNameLabel(c.Session, p.Master); err == nil {
+			return h
+		}
+	}
+	return ""
+}
+
 // location is XenObject.LocationString for the connection: "in 'pool'" or "on 'server'".
 func location(s *xenapi.Session) string {
 	pools, _ := xenapi.Pool.GetAllRecords(s)
@@ -279,6 +293,53 @@ func NewDiskOptions(c *xapi.Connection, vmUUID string) (NewDisk, error) {
 func srShown(sr xenapi.SRRecord) bool {
 	return !strings.HasPrefix(sr.NameLabel, "__gui__") && sr.Type != "local" && sr.Type != "tmpfs" &&
 		(sr.IntroducedBy == "" || sr.IntroducedBy == nullRef) && sr.OtherConfig["HideFromXenCenter"] != "true"
+}
+
+// AttachableDisks is AttachDiskDialog's list: the disks on SRs shown and seen from the VM's server (no ISO nor tools
+// SR), not snapshots, not attached to this VM, and either sharable or attached to no VM.
+func AttachableDisks(c *xapi.Connection, vmUUID string) ([]ISO, error) {
+	s := c.Session
+	ref, err := xenapi.VM.GetByUUID(s, vmUUID)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	vm, err := xenapi.VM.GetRecord(s, ref)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	attached := map[xenapi.VDIRef]bool{}
+	for _, b := range vm.VBDs {
+		if vdi, err := xenapi.VBD.GetVDI(s, b); err == nil {
+			attached[vdi] = true
+		}
+	}
+	home := vmHome(s, vm)
+	srs, err := xenapi.SR.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	vdis, err := xenapi.VDI.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	type row struct{ name, text, uuid string }
+	var rows []row
+	for vr, v := range vdis {
+		sr, ok := srs[v.SR]
+		if !ok || !srShown(sr) || sr.ContentType == "iso" || sr.IsToolsSr || (home != "" && !seenFrom(s, sr, home)) {
+			continue
+		}
+		if !v.Managed || v.Missing || v.IsASnapshot || v.OtherConfig["HideFromXenCenter"] == "true" || attached[vr] || (!v.Sharable && len(v.VBDs) > 0) {
+			continue
+		}
+		rows = append(rows, row{v.NameLabel, fmt.Sprintf("%s  (%s)  —  %s", v.NameLabel, diskSize(v.VirtualSize), sr.NameLabel), v.UUID})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+	out := []ISO{}
+	for _, r := range rows {
+		out = append(out, ISO{VDI: r.uuid, Text: r.text})
+	}
+	return out, nil
 }
 
 // broken is SR.IsBroken: no PBD, a local SR with more than one, a shared SR without one per server, or one unplugged.

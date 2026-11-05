@@ -141,6 +141,19 @@ func (s *Settings) AddServer(srv Server) error {
 // Path is the settings file.
 func (s *Settings) Path() string { return s.path }
 
+// RemoveServer takes a server (and its pinned certificate) off the list: the C# app's Forget/Remove server.
+func (s *Settings) RemoveServer(host string, port int) error {
+	return s.update(func(t *Settings) {
+		kept := t.Servers[:0]
+		for _, e := range t.Servers {
+			if !(strings.EqualFold(e.Host, host) && e.Port == port) {
+				kept = append(kept, e)
+			}
+		}
+		t.Servers = kept
+	})
+}
+
 // ServerList is a copy of the servers (the window reads it while the CLI or MCP may add one).
 func (s *Settings) ServerList() []Server {
 	s.mu.Lock()

@@ -99,7 +99,8 @@ func (w *Workspace) Connect(address, user, password string) ConnectResult {
 	w.conns[key] = conn
 	w.mu.Unlock()
 	w.logout(old)
-	if err := w.settings.AddServer(config.Server{Host: conn.Host, Port: conn.Port, User: user}); err != nil {
+	// the name stays in the list, so a disconnected server keeps it in the tree (as the C# app's saved servers)
+	if err := w.settings.AddServer(config.Server{Host: conn.Host, Port: conn.Port, User: user, Name: app.PoolName(conn)}); err != nil {
 		return ConnectResult{Connected: true, Key: key, Error: err.Error()}
 	}
 	return ConnectResult{Connected: true, Key: key}
@@ -112,6 +113,27 @@ func (w *Workspace) Trust(key, fingerprint string) error {
 		return errors.New("this certificate is not the one expected for this server: it is not trusted from the window")
 	}
 	return w.settings.PinNew(key, trust.Normalize(fingerprint))
+}
+
+// Forget disconnects a server and removes it from the list (the certificate pin stays, as in the C# app).
+func (w *Workspace) Forget(key string) error {
+	host, port, err := xapi.ParseAddress(key)
+	if err != nil {
+		return err
+	}
+	w.Disconnect(key)
+	return w.settings.RemoveServer(host, port)
+}
+
+// Properties reads a VM for its Properties dialog.
+func (w *Workspace) Properties(key, vmUUID string) (out app.VMProperties, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadVMProperties(c, vmUUID); return err })
+	return out, err
+}
+
+// SaveProperties applies the Properties dialog's changes.
+func (w *Workspace) SaveProperties(key, vmUUID string, changes ops.VMChanges) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SaveVMProperties(c, vmUUID, changes) })
 }
 
 // Disconnect logs out of a server. In-flight calls on it finish first, so no console ticket is issued after the
@@ -324,6 +346,18 @@ func (w *Workspace) AddDisk(key, vmUUID, name, description, srUUID string, size 
 		notice, err = ops.AddDisk(c, vmUUID, name, description, srUUID, size)
 		return err
 	})
+	return notice, err
+}
+
+// AttachableDisks lists the disks the Attach Disk dialog offers.
+func (w *Workspace) AttachableDisks(key, vmUUID string) (out []app.ISO, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.AttachableDisks(c, vmUUID); return err })
+	return out, err
+}
+
+// AttachDisk attaches an existing disk to the VM; the notice says when the VM needs a restart first.
+func (w *Workspace) AttachDisk(key, vmUUID, vdiUUID string, readOnly bool) (notice string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { notice, err = ops.AttachDisk(c, vmUUID, vdiUUID, readOnly); return err })
 	return notice, err
 }
 

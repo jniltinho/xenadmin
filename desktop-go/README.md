@@ -14,7 +14,10 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
 - Connection: `host[:port]` and IPv6 addresses (80 and 8080 refused: plain HTTP), TLS 1.2+, no HTTP redirects,
   certificate trust on first use with SHA-256 pins (a changed certificate is refused), `--trust-fingerprint` for
   unattended use, the pool coordinator redirect (`HOST_IS_SLAVE`). Passwords never reach logs, errors or files.
-- Window (Wails v3, GTK 4 + WebKitGTK 6.0 on Linux): Add New Server with the certificate question, the tree (pool,
+- Window (Wails v3, GTK 4 + WebKitGTK 6.0 on Linux) laid out as the C# app: its menus and toolbar (Back, Forward,
+  Add New Server, the power buttons), the tree with its search box, the navigation pane, the Home and Search tabs of
+  the root, saved servers shown disconnected (Connect, Disconnect, Remove), a VM's Properties (General, CPU, Home
+  Server); Add New Server with the certificate question, the tree (pool,
   hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app; VM Start, Shut Down,
   Reboot, Suspend, Resume and the forced ones from the toolbar, the VM menu and the context menu, enabled by the VM's
   allowed operations and with the C# confirmations; Notifications > Alerts with the C# texts, Dismiss, Dismiss
@@ -48,14 +51,17 @@ Settings (servers and certificate fingerprints, no passwords) live in `settings.
 make check     # gofmt, go vet (app and SDK), tests
 make cli       # static CLI/MCP binaries for Linux, macOS (arm64, amd64) and Windows in dist/
 make linux     # the desktop app for Linux (builds the frontend first, node:24 + Ubuntu 24.04 GTK/WebKit images)
+make appimage  # the desktop app as an x86_64 AppImage (uses the system's GTK 4 and WebKitGTK 6.0)
 make windows   # the desktop app for Windows (WebView2; no CGO)
-make macos     # "XCP-ng Center (Go).app" for Apple Silicon and Intel, zipped (cross-built, see below)
+make macos     # "XCP-ng Center (Go).app" for Intel Macs (Apple Silicon: Rosetta 2), zipped (cross-built, see below)
+
+Every build is amd64 only.
 ```
 
 ### macOS
 
-`make macos` cross-builds the app on Linux with Wails' CGO-free backend (`-tags purego`, experimental in Wails 3.1):
-one binary per CPU inside the bundle and a launcher that picks it, like the C# app's macOS zip. It is unsigned and not
+`make macos` cross-builds the app on Linux with Wails' CGO-free backend (`-tags purego`, experimental in Wails 3.1),
+amd64 only (Apple Silicon Macs run it with Rosetta 2). It is unsigned and not
 yet tried on a Mac: after downloading, `xattr -dr com.apple.quarantine "XCP-ng Center (Go).app"`. On a Mac, the
 native build is `cd frontend && npm ci && npm run build && cd .. && CGO_ENABLED=1 go build .` (Xcode command line
 tools), then sign and notarize before a release that claims macOS support.

@@ -154,6 +154,33 @@ func TestLabDiskLifecycle(t *testing.T) {
 		if err := ops.DetachDisk(c, d.VBD); err != nil {
 			t.Fatal(err)
 		}
+		// the detached disk is offered by Attach Disk, and attaches again, then goes for good (read-only is refused by XAPI for HVM guests)
+		choices, err := AttachableDisks(c, vm.UUID)
+		found := false
+		for _, ch := range choices {
+			found = found || ch.VDI == d.VDI
+		}
+		if err != nil || !found {
+			t.Fatalf("the detached disk is not offered: %v %v", choices, err)
+		}
+		if _, err := ops.AttachDisk(c, vm.UUID, d.VDI, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ops.AttachDisk(c, vm.UUID, d.VDI, false); err == nil {
+			t.Fatal("the same disk attached twice")
+		}
+		st, _ = ListVMStorage(c, vm.UUID)
+		for _, x := range st.Disks {
+			if x.VDI == d.VDI {
+				d = x
+			}
+		}
+		if d.Attached {
+			_ = ops.SetDiskActive(c, d.VBD, false)
+		}
+		if err := ops.DetachDisk(c, d.VBD); err != nil {
+			t.Fatal(err)
+		}
 		vdi, err := xenapi.VDI.GetByUUID(c.Session, d.VDI)
 		if err != nil {
 			t.Fatalf("the detached disk is gone: %v", err)
@@ -162,6 +189,44 @@ func TestLabDiskLifecycle(t *testing.T) {
 			t.Fatal("the detached disk still has a VBD")
 		}
 		if err := xenapi.VDI.Destroy(c.Session, vdi); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatalf("no VM named %q", name)
+}
+
+// TestLabProperties reads the throwaway VM's Properties and changes its description and home server, then restores
+// them.
+func TestLabProperties(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	vms, _ := ListObjects(c, "vms")
+	for _, vm := range vms {
+		if vm.Name != name {
+			continue
+		}
+		p, err := ReadVMProperties(c, vm.UUID)
+		if err != nil || len(p.VCPUChoices) == 0 || len(p.Servers) == 0 {
+			t.Fatalf("%+v %v", p, err)
+		}
+		desc, home := "go lab test", p.Servers[0].UUID
+		if err := ops.SaveVMProperties(c, vm.UUID, ops.VMChanges{Description: &desc, HomeServer: &home}); err != nil {
+			t.Fatal(err)
+		}
+		q, _ := ReadVMProperties(c, vm.UUID)
+		if q.Description != desc || q.HomeServer != home {
+			t.Fatalf("saved %+v", q)
+		}
+		// a running VM keeps its vCPU weight and topology (only a halted one changes them)
+		prio := q.Priority + 1
+		if err := ops.SaveVMProperties(c, vm.UUID, ops.VMChanges{Priority: &prio}); err == nil && q.Running {
+			t.Fatal("vCPU priority changed on a running VM")
+		}
+		if err := ops.SaveVMProperties(c, vm.UUID, ops.VMChanges{Description: &p.Description, HomeServer: &p.HomeServer}); err != nil {
 			t.Fatal(err)
 		}
 		return

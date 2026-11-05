@@ -272,3 +272,58 @@ func DeleteDisk(c *xapi.Connection, vmUUID, vbdUUID string) error {
 	}
 	return xapi.Sanitize(wait(s)(xenapi.VDI.AsyncDestroy(s, ref)))
 }
+
+// AttachDisk is AttachDiskDialog + VbdCreateAndPlugAction: an existing disk on the first free position (bootable only
+// at position 0), read-only when asked, owned by the VM when no other VM has it; refused when the disk is now attached
+// to this VM, or to another one and not sharable.
+func AttachDisk(c *xapi.Connection, vmUUID, vdiUUID string, readOnly bool) (notice string, err error) {
+	s := c.Session
+	vm, err := xenapi.VM.GetByUUID(s, vmUUID)
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	vdi, err := xenapi.VDI.GetByUUID(s, vdiUUID)
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	rec, err := xenapi.VDI.GetRecord(s, vdi)
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	for _, b := range rec.VBDs {
+		owner, err := xenapi.VBD.GetVM(s, b)
+		if err != nil {
+			return "", xapi.Sanitize(err)
+		}
+		if owner == vm || !rec.Sharable {
+			return "", errors.New("this disk is already attached: refresh and choose another")
+		}
+	}
+	devices, err := xenapi.VM.GetAllowedVBDDevices(s, vm)
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	if len(devices) == 0 {
+		return "", errors.New("this VM already has the maximum number of virtual disks")
+	}
+	mode := xenapi.VbdModeRW
+	if readOnly {
+		mode = xenapi.VbdModeRO
+	}
+	other := map[string]string{}
+	if len(rec.VBDs) == 0 {
+		other["owner"] = "true"
+	}
+	ref, err := xenapi.VBD.Create(s, xenapi.VBDRecord{VM: vm, VDI: vdi, Userdevice: devices[0], Bootable: devices[0] == "0", Mode: mode,
+		Type: xenapi.VbdTypeDisk, Unpluggable: true, OtherConfig: other, QosAlgorithmParams: map[string]string{}})
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	if allowed, _ := xenapi.VBD.GetAllowedOperations(s, ref); contains(allowed, xenapi.VbdOperationsPlug) {
+		return "", xapi.Sanitize(wait(s)(xenapi.VBD.AsyncPlug(s, ref)))
+	}
+	if state, _ := xenapi.VM.GetPowerState(s, vm); state != xenapi.VMPowerStateHalted {
+		return messages.Get("NEWDISKWIZARD_MESSAGE"), nil
+	}
+	return "", nil
+}

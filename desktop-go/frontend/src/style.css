@@ -31,6 +31,13 @@
   .tab:hover:not(.active) { @apply text-neutral-900; background: linear-gradient(#ffffff, #ececec); border-color: #b0b0b0; }
   /* the selected one: white, open at the bottom into its page, the accent line drawn inside its top border */
   .tab.active { @apply z-10 border-b-white bg-white pt-2 text-neutral-900; background: #fff; box-shadow: inset 0 3px 0 var(--color-accent); }
+  /* the toolbar's buttons: a 24 px icon and its label, flat until hovered */
+  .tool { @apply flex items-center gap-1 px-1.5 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400 disabled:hover:bg-transparent; }
+  .tool img { @apply h-6 w-6; }
+  .tool:disabled img { @apply opacity-40 grayscale; }
+  .toolsep { @apply mx-1 h-6 w-px bg-neutral-300; }
+  /* the navigation pane's selected button: raised, as the C# app */
+  .navactive { @apply border border-neutral-400 bg-gradient-to-b from-white to-neutral-200 font-semibold; }
   .btn { @apply border border-neutral-400 bg-white px-3 py-0.5 hover:bg-neutral-100 disabled:text-neutral-400 disabled:hover:bg-white; }
   .tab:focus-visible { @apply outline-1 outline-offset-[-4px] outline-dotted outline-neutral-500; }
 }

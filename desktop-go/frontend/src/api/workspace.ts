@@ -16,6 +16,10 @@ export interface Disk { vbd: string; attached: boolean; can_activate: boolean; c
 export interface NewDisk { name: string; srs: { uuid: string; text: string }[]; default_sr: string }
 export interface VMStorage { table: Table; disks: Disk[];
   dvd?: string; dvd_name?: string; can_add_dvd: boolean; iso: string; isos: { vdi: string; text: string }[] }
+export interface VMProperties { name: string; description: string; halted: boolean; running: boolean; hotplug: boolean; vcpus_max: number;
+  vcpus_at_startup: number; cores_per_socket: number; priority: number; min_vcpus: number; max_physical: number;
+  vcpu_choices: { vcpus: number; topologies: { sockets: number; cores: number; text: string }[] }[];
+  home_server: string; servers: { uuid: string; name: string; live: boolean }[]; can_have_none: boolean }
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
@@ -31,12 +35,17 @@ export const api = {
   dismissConfirmation: (count: number, all: boolean) => call<Confirm>("DismissConfirmation", count, all),
   hostQuestion: (key: string, uuid: string, op: string) => call<HostQuestion>("HostQuestion", key, uuid, op),
   hostCommand: (key: string, uuid: string, op: string, restore: boolean) => call<void>("HostCommand", key, uuid, op, restore),
+  properties: (key: string, vm: string) => call<VMProperties>("Properties", key, vm),
+  saveProperties: (key: string, vm: string, changes: Record<string, unknown>) => call<void>("SaveProperties", key, vm, changes),
+  forget: (key: string) => call<void>("Forget", key),
   storage: (key: string, vm: string) => call<VMStorage>("Storage", key, vm),
   networking: (key: string, vm: string) => call<Table>("Networking", key, vm),
   memory: (key: string, vm: string) => call<Table>("Memory", key, vm),
   setDiskActive: (key: string, vbd: string, active: boolean) => call<void>("SetDiskActive", key, vbd, active),
   newDiskOptions: (key: string, vm: string) => call<NewDisk>("NewDiskOptions", key, vm),
   addDisk: (key: string, vm: string, name: string, description: string, sr: string, size: number) => call<string>("AddDisk", key, vm, name, description, sr, size),
+  attachableDisks: (key: string, vm: string) => call<{ vdi: string; text: string }[] | null>("AttachableDisks", key, vm),
+  attachDisk: (key: string, vm: string, vdi: string, readOnly: boolean) => call<string>("AttachDisk", key, vm, vdi, readOnly),
   diskQuestion: (del: boolean, system: boolean) => call<Confirm>("DiskQuestion", del, system),
   detachDisk: (key: string, vbd: string) => call<void>("DetachDisk", key, vbd),
   deleteDisk: (key: string, vm: string, vbd: string) => call<void>("DeleteDisk", key, vm, vbd),

@@ -1,0 +1,4 @@
+#!/bin/sh
+# AppImage entry point (as XenAdmin.Desktop/packaging/AppRun).
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/xcp-ng-center-go" "$@"
