@@ -97,3 +97,10 @@ smoke:
 
 clean:
 	rm -rf $(DIST) _output/AppDir
+
+# ---------- desktop-go (the Go version; see desktop-go/README.md) ----------
+.PHONY: go-check go-cli
+go-check:
+	$(MAKE) -C desktop-go check
+go-cli:
+	$(MAKE) -C desktop-go cli

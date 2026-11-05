@@ -1,23 +1,23 @@
 ## 1. Esqueleto e ferramentas
 
-- [ ] 1.1 `desktop-go/` com `go.mod` (`xcpng-center`, Go 1.27), `main.go` → `cmd.Execute()`, `cmd/root.go` (`--json`, `--config`), `cmd/version.go`, `internal/buildinfo`
-- [ ] 1.2 `sdk/xenapi` com o SDK 26.16.1, `PATCHES.md`, script `tools/sdk-update.sh` e os patches `HTTPClient`, erros sem `log.Fatal`, `APIError` tipado e `DecodeRecord`; teste que falha se o SDK abrir conexão sem o cliente do app
+- [x] 1.1 `desktop-go/` com `go.mod` (`xcpng-center`, Go 1.27), `main.go` → `cmd.Execute()`, `cmd/root.go` (`--json`, `--config`), `cmd/version.go`, `internal/buildinfo`
+- [~] 1.2 (feito: SDK 26.16.1, `PATCHES.md`, `tools/sdk-update.sh`, patches `HTTPClient`, sem `log.Fatal`, `APIError`, `Session.Ref`; falta `DecodeRecord` e o teste dedicado de que o SDK só usa o cliente do app) `sdk/xenapi` com o SDK 26.16.1, `PATCHES.md`, script `tools/sdk-update.sh` e os patches `HTTPClient`, erros sem `log.Fatal`, `APIError` tipado e `DecodeRecord`; teste que falha se o SDK abrir conexão sem o cliente do app
 - [ ] 1.3 `internal/gui` com Wails v3.1.0 e `cmd/gui.go` (root sem subcomando abre a janela vazia carregando a SPA); tag `nogui` para testar núcleo e CLI sem CGO
 - [ ] 1.4 `frontend/` Vue 3 + TS + Tailwind 4 + Vite com `--mode desktop` (→ `frontend/dist`) e `--mode web` (→ `web/dist`); `src/api/` com interface, `wails.ts` e `http.ts` vazio
-- [ ] 1.5 Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
-- [ ] 1.6 Workflow `desktop-go.yml` (PR: check, testes, web-check, fumaça Xvfb, build Windows); README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md` e `CHANGELOG.md` do `desktop-go/`
-- [ ] 1.7 Teste de arquitetura: `internal/{xapi,model,rules,ops,console,app}` sem Wails, Cobra, MCP ou `internal/server`
+- [~] 1.5 (feito: `test`, `check`, `cli` em container `golang:1.27.3`, alvos `go-*` na raiz; falta frontend, GTK/WebKit, empacotamento) Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
+- [~] 1.6 (feito: README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md`, `CHANGELOG.md`; falta o workflow, que pede o escopo `workflow` no token do GitHub) Workflow `desktop-go.yml` (PR: check, testes, web-check, fumaça Xvfb, build Windows); README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md` e `CHANGELOG.md` do `desktop-go/`
+- [x] 1.7 Teste de arquitetura: `internal/{xapi,model,rules,ops,console,app}` sem Wails, Cobra, MCP ou `internal/server`
 
 ## 2. Núcleo de conexão
 
-- [ ] 2.1 `internal/xapi`: `ServerAddress` (porta de `ServerAddress.cs`, recusa 80/8080, IPv6), cliente HTTP com TLS 1.2+ e sem redirects (testes 302/307/308), login, `HOST_IS_SLAVE` → coordenador após confiar no certificado, logout, tabela de variantes por versão com fixtures 8.2/8.3
+- [~] 2.1 (feito: endereço, TLS 1.2+, sem redirects, login, `HOST_IS_SLAVE`, logout, com testes; falta a tabela de variantes por versão) `internal/xapi`: `ServerAddress` (porta de `ServerAddress.cs`, recusa 80/8080, IPv6), cliente HTTP com TLS 1.2+ e sem redirects (testes 302/307/308), login, `HOST_IS_SLAVE` → coordenador após confiar no certificado, logout, tabela de variantes por versão com fixtures 8.2/8.3
 - [ ] 2.1b Sanitizador de segredos (senha, `session_id`, cookies, tokens) em logs, erros e respostas; testes com canários em todos os transportes e teste de que o token do console só sai na resposta de abertura ao frontend
-- [ ] 2.2 `internal/trust`: porta de `CertificateTrust` (TOFU, certificado trocado, membros pelo coordenador, `XCP_TRUST_FINGERPRINT`), store em `config`
-- [ ] 2.3 `internal/config`: `settings.toml` em `os.UserConfigDir()/xcp-ng-center-go`, permissões 0600, lista de servidores, preferências de UI
+- [x] 2.2 `internal/trust`: porta de `CertificateTrust` (TOFU, certificado trocado, membros pelo coordenador, `XCP_TRUST_FINGERPRINT`), store em `config`
+- [x] 2.3 `internal/config`: `settings.toml` em `os.UserConfigDir()/xcp-ng-center-go`, permissões 0600, lista de servidores, preferências de UI
 - [ ] 2.4 `internal/model`: cache por conexão com `event.from` e `DecodeRecord`, `Workspace`, assinaturas, reconexão e recarga em `EVENTS_LOST` com diffs (inclusive remoções); teste com 1000 VMs no servidor falso
 - [ ] 2.5 Servidor JSON-RPC falso (`internal/xapitest`) para testes do núcleo
 - [ ] 2.6 `internal/app`: casos de uso de conexão e árvore com `Workspace` pelo contexto; teste de dois workspaces isolados
-- [ ] 2.7 CLI `server add/list/connect`, `vm list` (tabela e `--json`); servidor e usuário do ambiente ou das flags, senha de `XCP_PASS` ou prompt sem eco
+- [x] 2.7 CLI `server add/list/connect`, `vm list` (tabela e `--json`); servidor e usuário do ambiente ou das flags, senha de `XCP_PASS` ou prompt sem eco
 - [ ] 2.8 Lab KVM: conectar ao pool, TLS real (recusa sem aceite, aceite, troca de certificado), membro → coordenador
 
 ## 3. Shell do desktop e tema
@@ -67,7 +67,7 @@
 
 ## 8. MCP e CLI
 
-- [ ] 8.1 `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
+- [~] 8.1 (feito: servidor stdio com `list_servers`, `connect`, `disconnect`, `list_objects`, somente leitura, testado no .110; faltam as ferramentas de escrita) `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
 - [ ] 8.2 Teste de paridade de nomes e esquemas com o MCP C#; teste do processo real por stdio no lab
 - [ ] 8.3 CLI `vm`, `host` e `sr` com as operações e confirmações (`--yes` explícito para escrita)
 - [ ] 8.3b Flags globais (`--host`, `--user`, `--trust-fingerprint`, `--json`, `--config`), `mcp` sem display no Linux e pelo AppImage, `AttachConsole` no exe do Windows; testes de terminal e de stdin/stdout redirecionados
