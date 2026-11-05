@@ -24,6 +24,10 @@ namespace XenAdmin.Desktop
         private readonly CertificateTrust _trust;
         private readonly List<XenConnection> _connections = new List<XenConnection>();
         private readonly TreeView _tree = new TreeView();
+        // NavigationPane: the view the tree shows (and the saved search of Saved Searches)
+        private NavView _navView = NavView.Infrastructure;
+        private XenAdmin.XenSearch.Search _savedSearch;
+        private readonly List<Button> _navButtons = new List<Button>();
         private readonly TextBox _search = new TextBox { Watermark = "Search...", BorderThickness = new Thickness(0) };
         private readonly ContentControl _titleBand = new ContentControl();
         private readonly TabControl _tabs = new TabControl();
@@ -158,12 +162,40 @@ namespace XenAdmin.Desktop
             searchRow.Children.Add(_search);
 
             var navButtons = new StackPanel();
-            var infra = NavButton("infra_view_24", "Infrastructure", true, () => { _showEvents = false; UpdateContent(); });
+            Button infra = null, objects = null, orgViews = null, saved = null;
+            infra = (Button)NavButton("infra_view_24", "Infrastructure", true, () => ShowView(NavView.Infrastructure, null, infra));
             infra.Classes.Add("active");
             navButtons.Children.Add(infra);
-            navButtons.Children.Add(NavButton("objects_24", "Objects", false, null));
-            navButtons.Children.Add(NavButton("org_view_24", "Organization Views", false, null));
-            navButtons.Children.Add(NavButton("saved_searches_24", "Saved Searches", false, null));
+            objects = (Button)NavButton("objects_24", "Objects", true, () => ShowView(NavView.Objects, null, objects));
+            navButtons.Children.Add(objects);
+            // NavigationPane: Organization Views and Saved Searches open a menu of views / searches
+            orgViews = (Button)NavButton("org_view_24", "Organization Views", true, null);
+            orgViews.Click += (_, _) =>
+            {
+                var menu = new ContextMenu();
+                foreach (var (view, text) in new[] { (NavView.Tags, Messages.TAGS), (NavView.Folders, Messages.FOLDERS), (NavView.CustomFields, Messages.CUSTOM_FIELDS), (NavView.Vapps, Messages.VM_APPLIANCES) })
+                {
+                    var item = new MenuItem { Header = text, Icon = Views.Icon(NavigationViews.RootOf(view).Icon) };
+                    item.Click += (_, _) => ShowView(view, null, orgViews);
+                    menu.Items.Add(item);
+                }
+                menu.Open(orgViews);
+            };
+            navButtons.Children.Add(orgViews);
+            saved = (Button)NavButton("saved_searches_24", "Saved Searches", true, null);
+            saved.Click += (_, _) =>
+            {
+                var menu = new ContextMenu();
+                foreach (var s in NavigationViews.SavedSearches())
+                {
+                    var item = new MenuItem { Header = s.Name.Replace("_", "__"), Icon = Views.Icon(s.DefaultSearch ? "000_defaultSpyglass_h32bit_16" : "000_Search_h32bit_16") };
+                    item.Click += (_, _) => ShowView(NavView.SavedSearch, s, saved);
+                    menu.Items.Add(item);
+                }
+                menu.Open(saved);
+            };
+            navButtons.Children.Add(saved);
+            _navButtons.AddRange(new[] { infra, objects, orgViews, saved });
             // NavigationPane: the Notifications button carries the alert count in a red badge
             var notifications = NavButton("notif_none_24", "Notifications", true, () => { _showEvents = true; UpdateContent(); });
             ((StackPanel)((Button)notifications).Content).Children.Add(_alertBadge);
@@ -454,6 +486,24 @@ namespace XenAdmin.Desktop
             RefreshTree();
         }
 
+        /// <summary>NavigationPane.SwitchToNavigationMode: the tree shows this view; the selection starts at its root.</summary>
+        private void ShowView(NavView view, XenAdmin.XenSearch.Search saved, Button button)
+        {
+            _navView = view;
+            _savedSearch = saved;
+            _showEvents = false;
+            foreach (var b in _navButtons) b.Classes.Remove("active");
+            button.Classes.Add("active");
+            _treeSignature = null;
+            _selectedKey = "<root>";
+            _tabsSignature = null;
+            // node keys belong to one view: Back and Forward start again in the new one
+            _history.Clear();
+            _historyIndex = -1;
+            RefreshTree();
+            Select("<root>", true);
+        }
+
         private TreeNode SelectedNode() =>
             _rootNode == null ? null : ResourceTree.Flatten(_rootNode).FirstOrDefault(n => n.Key == _selectedKey);
 
@@ -488,7 +538,9 @@ namespace XenAdmin.Desktop
         private void RefreshTree()
         {
             PruneDroppedConnections();
-            var root = ResourceTree.Filter(ResourceTree.Root(_connections), _search.Text);
+            var root = ResourceTree.Filter(_navView == NavView.Infrastructure
+                ? ResourceTree.Root(_connections)
+                : NavigationViews.Build(_navView, _savedSearch), _search.Text);
             // cache objects are updated in place, so only rebuild the tree when its shape, names or icons change
             var signature = string.Join("\n", ResourceTree.Flatten(root).Select(n => $"{n.Key}|{n.Name}|{n.Icon}|{n.Children.Count}"));
             if (signature != _treeSignature)
@@ -592,6 +644,18 @@ namespace XenAdmin.Desktop
                 _leftPane.Child = _tree;
 
             var user = c?.Session == null ? null : $"Logged in as:  {(c.Session.IsLocalSuperuser ? "Local root account" : c.Session.UserFriendlyName())}";
+            // a group of an organization view or a saved search (or its root): the Search tab lists its objects
+            // (a vApp, or a network of "VMs by network", groups VMs too: its page lists them as in WinForms)
+            if (node != null && _navView != NavView.Infrastructure
+                && (node.IsRoot || o == null || o is XenAdmin.Model.Folder || o is VM_appliance || node.Children.Count > 0 && !(o is VM || o is Host || o is Pool || o is SR)))
+            {
+                _titleBand.Content = Views.TitleBand(node.Icon, node.Name, null);
+                var groupKey = "group:" + _navView + ":" + node.Key;
+                SetTabs(groupKey, () => new[] { Tab("Search", Body(node.Name, new SearchView(_connections, () => NavigationViews.Objects(SelectedNode() ?? node)))) });
+                if (_tabs.Items.OfType<TabItem>().FirstOrDefault()?.Content is Panel groupPanel)
+                    groupPanel.Children.OfType<ILiveView>().FirstOrDefault()?.Refresh();
+                return;
+            }
             if (node == null || node.IsRoot)
             {
                 _titleBand.Content = Views.TitleBand("Logo", ResourceTree.RootName, null);

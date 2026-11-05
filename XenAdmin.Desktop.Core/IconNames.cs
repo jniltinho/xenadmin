@@ -32,6 +32,11 @@ namespace XenAdmin.Desktop
             Host h => For(h),
             Pool p => For(p),
             SR sr => For(sr),
+            // Images.GetIconFor(Network / VDI / VM_appliance / Folder)
+            XenAPI.Network _ => "000_Network_h32bit_16",
+            VDI vdi => vdi.is_a_snapshot ? "virtualstorage_snapshot_16" : "000_VirtualStorage_h32bit_16",
+            VM_appliance _ => "000_VirtualAppliance_h32bit_16",
+            XenAdmin.Model.Folder f => f.Grey ? "folder_grey" : "000_Folder_open_h32bit_16",
             _ => "Logo"
         };
 

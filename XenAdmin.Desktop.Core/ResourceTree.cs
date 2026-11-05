@@ -15,6 +15,8 @@ namespace XenAdmin.Desktop
         public IXenObject XenObject { get; set; }
         public IXenConnection Connection { get; set; }
         public bool IsRoot { get; set; }
+        /// <summary>A group of an organization view or a search (a type, tag, folder, custom field...): its path, used as key.</summary>
+        public string GroupKey { get; set; }
         public List<TreeNode> Children { get; } = new List<TreeNode>();
         /// <summary>Expanded nodes, kept by key across tree rebuilds (only the root starts expanded, as in WinForms).</summary>
         public static readonly HashSet<string> ExpandedKeys = new HashSet<string> { "<root>" };
@@ -23,7 +25,7 @@ namespace XenAdmin.Desktop
             get => ExpandedKeys.Contains(Key);
             set { if (value) ExpandedKeys.Add(Key); else ExpandedKeys.Remove(Key); }
         }
-        public string Key => IsRoot ? "<root>" : XenObject?.opaque_ref ?? Connection?.HostnameWithPort ?? Name;
+        public string Key => IsRoot ? "<root>" : GroupKey ?? XenObject?.opaque_ref ?? Connection?.HostnameWithPort ?? Name;
     }
 
     /// <summary>Infrastructure view, laid out like the WinForms navigation tree.</summary>
@@ -97,7 +99,7 @@ namespace XenAdmin.Desktop
             var kids = node.Children.Select(c => Filter(c, text)).Where(c => c != null).ToList();
             if (kids.Count == 0 && !node.IsRoot && node.Name.IndexOf(text.Trim(), StringComparison.CurrentCultureIgnoreCase) < 0)
                 return null;
-            var copy = new TreeNode { Name = node.Name, Icon = node.Icon, XenObject = node.XenObject, Connection = node.Connection, IsRoot = node.IsRoot };
+            var copy = new TreeNode { Name = node.Name, Icon = node.Icon, XenObject = node.XenObject, Connection = node.Connection, IsRoot = node.IsRoot, GroupKey = node.GroupKey };
             copy.Children.AddRange(kids);
             return copy;
         }

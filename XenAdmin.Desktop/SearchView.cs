@@ -27,9 +27,13 @@ namespace XenAdmin.Desktop
         private static readonly double[] Widths = { 250, 115, 125, 120, 120, 120, 170 };
 
 
-        public SearchView(IReadOnlyList<IXenConnection> connections)
+        private readonly Func<IEnumerable<(IXenObject Object, int Depth)>> _rows;
+
+        /// <param name="rows">The objects to list (a group of an organization view or a saved search); by default the overview.</param>
+        public SearchView(IReadOnlyList<IXenConnection> connections, Func<IEnumerable<(IXenObject Object, int Depth)>> rows = null)
         {
             _connections = connections;
+            _rows = rows;
             Background = Brushes.White;
             if (_metrics == null)
             {
@@ -80,6 +84,12 @@ namespace XenAdmin.Desktop
 
         private IEnumerable<Row> Rows()
         {
+            if (_rows != null)
+            {
+                foreach (var (o, depth) in _rows())
+                    yield return new Row { Object = o, Depth = depth };
+                yield break;
+            }
             foreach (var c in _connections.Where(c => c.IsConnected && c.CacheIsPopulated))
             {
                 var pool = Helpers.GetPool(c);

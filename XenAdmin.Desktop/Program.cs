@@ -38,6 +38,11 @@ namespace XenAdmin.Desktop
                 InvokeHelper.Initialize(new DispatcherSynchronizer());
                 // keeps IXenObject.Path in step with other_config["folder"], as WinForms MainWindow does
                 XenAdmin.Model.Folders.InitFolders();
+                // Saved Searches: the default searches and those saved in the pools' gui_config
+                XenAdmin.XenSearch.Search.InitSearch();
+                // MainWindow.RegisterEvents: tags, folders and custom field definitions follow the servers (Custom Fields view)
+                XenAdmin.OtherConfigAndTagsWatcher.RegisterEventHandlers();
+                XenAdmin.CustomFields.CustomFieldsManager.GetCustomFields();
                 ConsoleView.Trust = trust;
                 desktop.MainWindow = new MainWindow(config, trust);
             }

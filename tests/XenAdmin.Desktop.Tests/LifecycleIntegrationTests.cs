@@ -377,6 +377,47 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Objects, Organization Views and Saved Searches (read only) on XCP_HOST.</summary>
+        [TestMethod, TestCategory("Integration")]
+        public void NavigationViewsReadOnly()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host))
+                Assert.Inconclusive("XCP_HOST required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var registered = !XenAdmin.ConnectionsManager.XenConnections.Contains(c);
+            if (registered) XenAdmin.ConnectionsManager.XenConnections.Add(c);
+            try
+            {
+                var objects = NavigationViews.Build(NavView.Objects);
+                Assert.AreEqual(Messages.VIEW_OBJECTS, objects.Name);
+                var all = ResourceTree.Flatten(objects).Where(n => n.XenObject != null).Select(n => n.XenObject.opaque_ref).ToList();
+                foreach (var h in c.Cache.Hosts)
+                    CollectionAssert.Contains(all, h.opaque_ref, "Objects lists every server");
+                Assert.IsTrue(objects.Children.All(g => g.GroupKey != null && g.XenObject == null), "the first level is the object types");
+                var keys = ResourceTree.Flatten(objects).Select(n => n.Key).ToList();
+                Assert.AreEqual(keys.Count, keys.Distinct().Count(), "node keys are unique");
+                Assert.IsTrue(NavigationViews.Objects(objects).Any(), "the root's Search tab lists objects");
+
+                foreach (var view in new[] { NavView.Tags, NavView.Folders, NavView.CustomFields, NavView.Vapps })
+                    Assert.AreEqual(NavigationViews.RootOf(view).Name, NavigationViews.Build(view).Name);
+                var tagged = c.Cache.VMs.Where(v => v.tags != null && v.tags.Length > 0).ToList();
+                if (tagged.Count > 0)
+                    Assert.IsTrue(NavigationViews.Build(NavView.Tags).Children.Count > 0, "a tag group per tag");
+
+                XenAdmin.XenSearch.Search.InitSearch();
+                var searches = NavigationViews.SavedSearches();
+                Assert.IsTrue(searches.Any(s => s.DefaultSearch), "the default searches");
+                var byOs = NavigationViews.Build(NavView.SavedSearch, searches.First(s => s.DefaultSearch));
+                Assert.IsTrue(byOs.IsRoot);
+            }
+            finally
+            {
+                if (registered) XenAdmin.ConnectionsManager.XenConnections.Remove(c);
+                c.EndConnect();
+            }
+        }
+
         /// <summary>New Network > SR-IOV (read only): the option is offered with a NIC to use, or shown disabled with the reason.</summary>
         [TestMethod, TestCategory("Integration")]
         public void SriovOptionReadOnly()
