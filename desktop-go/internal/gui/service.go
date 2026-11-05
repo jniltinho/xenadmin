@@ -390,7 +390,32 @@ func (w *Workspace) ChangeISO(key, dvdUUID, isoUUID string) error {
 
 // Performance is the Performance tab of a VM or a server ("vms" or "hosts") for a zoom (10m, 1h, 1d, 1w, 1mo, 1y).
 func (w *Workspace) Performance(key, kind, uuid, zoom string) (out app.Performance, err error) {
-	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadPerformance(c, w.policy, kind, uuid, zoom); return err })
+	err = w.with(key, func(c *xapi.Connection) error {
+		out, err = app.ReadPerformance(c, w.policy, kind, uuid, zoom)
+		return err
+	})
+	return out, err
+}
+
+// NewVMOptions is what the New VM wizard offers.
+func (w *Workspace) NewVMOptions(key string) (out app.NewVMOptions, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadNewVMOptions(c); return err })
+	return out, err
+}
+
+// NewVMDefaults are the wizard's defaults for a template and an optional home server.
+func (w *Workspace) NewVMDefaults(key, templateUUID, homeUUID string) (out app.NewVMDefaults, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		out, err = app.ReadNewVMDefaults(c, templateUUID, homeUUID)
+		return err
+	})
+	return out, err
+}
+
+// CreateVM creates (and optionally starts) the VM the wizard describes: the new VM's uuid, and the start error when
+// only starting it failed (the VM exists then; the wizard must not create it again).
+func (w *Workspace) CreateVM(key string, spec ops.NewVM) (out ops.Created, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = ops.CreateVM(c, spec); return err })
 	return out, err
 }
 

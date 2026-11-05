@@ -23,6 +23,11 @@ export interface VMProperties { name: string; description: string; halted: boole
 export interface Performance { times: number[]; start: number; end: number;
   graphs: { title: string; max: number; divisor: number; label: string; series: { name: string; values: (number | null)[] }[] }[];
   events: { time: string; name: string; text: string }[] }
+export interface NewVMOptions { templates: { uuid: string; name: string; custom: boolean }[]; isos: { vdi: string; text: string }[];
+  servers: { uuid: string; name: string; live: boolean }[]; networks: { vdi: string; text: string }[]; srs: { uuid: string; text: string }[]; default_sr: string }
+export interface NewVMDefaults { name: string; description: string; hvm: boolean; boot_mode: string; install: string; vcpus: number; cores: number;
+  memory: number; disks: { position: string; name: string; description: string; size: number; sr: string; bootable: boolean; inherited: boolean }[];
+  networks: { network: string; device?: string; qos_type?: string; qos_params?: Record<string, string> }[]; no_dvd: boolean; eliloader: boolean }
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
@@ -60,6 +65,9 @@ export const api = {
   revertSnapshot: (key: string, snapshot: string) => call<void>("RevertSnapshot", key, snapshot),
   deleteSnapshot: (key: string, snapshot: string) => call<void>("DeleteSnapshot", key, snapshot),
   performance: (key: string, kind: string, uuid: string, zoom: string) => call<Performance>("Performance", key, kind, uuid, zoom),
+  newVmOptions: (key: string) => call<NewVMOptions>("NewVMOptions", key),
+  newVmDefaults: (key: string, template: string, home: string) => call<NewVMDefaults>("NewVMDefaults", key, template, home),
+  createVm: (key: string, spec: Record<string, unknown>) => call<{ uuid: string; start_error?: string }>("CreateVM", key, spec),
   openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),

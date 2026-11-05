@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	xenapi "go/xenapi"
@@ -232,4 +233,72 @@ func TestLabProperties(t *testing.T) {
 		return
 	}
 	t.Fatalf("no VM named %q", name)
+}
+
+// TestLabCreateVM creates a VM from "Other install media" with the lab's Alpine ISO and a 1 GB disk, starts it, then
+// destroys it (XCP_ALLOW_WRITE=1; the VM is named xcpng-center-go-newvm).
+func TestLabCreateVM(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	opts, err := ReadNewVMOptions(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tpl, iso string
+	for _, x := range opts.Templates {
+		if x.Name == "Other install media" {
+			tpl = x.UUID
+		}
+	}
+	for _, x := range opts.ISOs {
+		if strings.Contains(x.Text, "alpine") {
+			iso = x.VDI
+		}
+	}
+	if tpl == "" || iso == "" || opts.DefaultSR == "" {
+		t.Fatalf("template %q iso %q sr %q", tpl, iso, opts.DefaultSR)
+	}
+	d, err := ReadNewVMDefaults(c, tpl, "")
+	if err != nil || !d.HVM || d.Install != "cd" {
+		t.Fatalf("%+v %v", d, err)
+	}
+	spec := ops.NewVM{Template: tpl, Name: "xcpng-center-go-newvm", Install: "cd", ISO: iso, BootMode: d.BootMode, VCPUs: 1, Cores: 1,
+		Memory: 256 << 20, Networks: d.Networks, Start: true,
+		Disks: []ops.NewDisk{{Position: "0", Name: "xcpng-center-go-newvm 0", Size: 1 << 30, SR: opts.DefaultSR}}}
+	created, err := ops.CreateVM(c, spec)
+	uuid := created.UUID
+	if uuid != "" {
+		defer func() {
+			ref, _ := xenapi.VM.GetByUUID(c.Session, uuid)
+			rec, _ := xenapi.VM.GetRecord(c.Session, ref)
+			if rec.PowerState != xenapi.VMPowerStateHalted {
+				_ = xenapi.VM.HardShutdown(c.Session, ref)
+			}
+			for _, b := range rec.VBDs {
+				if vbd, err := xenapi.VBD.GetRecord(c.Session, b); err == nil && vbd.OtherConfig["owner"] != "" {
+					_ = xenapi.VDI.Destroy(c.Session, vbd.VDI)
+				}
+			}
+			_ = xenapi.VM.Destroy(c.Session, ref)
+		}()
+	}
+	if err != nil || created.StartError != "" {
+		t.Fatal(err, created.StartError)
+	}
+	vms, _ := ListObjects(c, "vms")
+	for _, v := range vms {
+		if v.UUID == uuid {
+			if v.Name != spec.Name || v.PowerState != "Running" {
+				t.Fatalf("created %+v", v)
+			}
+			st, _ := ListVMStorage(c, uuid)
+			if len(st.Disks) != 1 || st.ISO != iso {
+				t.Fatalf("storage %+v", st)
+			}
+			return
+		}
+	}
+	t.Fatal("the new VM is not listed")
 }

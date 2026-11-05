@@ -60,7 +60,7 @@
 
 ## 7. Wizards
 
-- [ ] 7.1 New VM (`NewVmDefaults`: templates, instalação por ISO, discos com Add/Delete, rede, CPU/memória, UEFI preferido)
+- [~] 7.1 (feito: wizard com Template, Name, Installation Media (ISO, rede, URL do eliloader, BIOS/UEFI), Home Server, CPU & Memory, Storage, Networking e Finish; criação portada da `CreateVMAction` com limpeza em erro; testado no lab KVM pela janela e por teste de lab; faltam vGPU, vTPM, cloud-config e cópia completa) New VM (`NewVmDefaults`: templates, instalação por ISO, discos com Add/Delete, rede, CPU/memória, UEFI preferido)
 - [ ] 7.2 New Storage Repository: NFS, SMB, iSCSI (Scan, IQN, LUN, Format/Reattach), NFS ISO, SMB ISO (`SrRules`)
 - [ ] 7.3 Create New Pool (`PoolRules`), Copy VM (fast clone/full copy), Delete VM, Migrate to Server (`MigrateRules`)
 - [ ] 7.4 Lab KVM: instalação do Alpine por ISO com `xe-guest-utilities`, iSCSI no target do lab, NFS ISO, pool, migração

@@ -9,6 +9,7 @@ import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
 import PerformanceView from "./PerformanceView.vue";
+import NewVmWizard from "./NewVmWizard.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
 interface MenuItem { label: string; icon?: string; enabled?: boolean; run?: () => void; sep?: boolean }
@@ -338,6 +339,17 @@ function startResize(e: MouseEvent) {
   window.addEventListener("mouseup", up);
 }
 
+// New VM (NewVMCommand): on the selected object's server, else the first connected one
+const newVmOn = ref("");
+const targetServer = computed(() => selected.value?.server && data[selected.value.server] ? selected.value.server : servers.value.find((s) => s.connected)?.key ?? "");
+function openNewVm() { closeMenus(); if (targetServer.value) newVmOn.value = targetServer.value; }
+async function newVmClosed(uuid: string, startError: string) {
+  const key = newVmOn.value;
+  newVmOn.value = "";
+  if (uuid) { await load(key); reselect(`${key}/${uuid}`); }
+  if (startError) failure.value = `The VM was created, but it did not start: ${startError}`;
+}
+
 // the Properties dialog of a VM
 const propsOf = ref<Node | null>(null);
 async function propertiesClosed(saved: boolean) {
@@ -364,7 +376,7 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     { label: "Connect", enabled: !!serverNode.value?.disconnected, run: () => { closeMenus(); connectTo(serverNode.value!); } },
     { label: "Disconnect", enabled: !!serverNode.value && !serverNode.value.disconnected, run: () => { closeMenus(); disconnect(serverNode.value!); } },
     { label: "", sep: true }, ...hostItems(selectedHost.value)] },
-  { label: "VM", items: vmItems(selectedVm.value) },
+  { label: "VM", items: [{ label: "New VM...", icon: "001_CreateVM_h32bit_16", enabled: !!targetServer.value, run: openNewVm }, { label: "", sep: true }, ...vmItems(selectedVm.value)] },
   { label: "Storage", items: [{ label: "New SR...", enabled: false }] },
   { label: "Templates", items: [{ label: "New VM from Template...", enabled: false }] },
   { label: "Tools", items: [{ label: "Options...", enabled: false }] },
@@ -464,7 +476,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <span class="toolsep"></span>
       <button class="tool" disabled :title="soon"><img src="/icons/000_PoolNew_h32bit_24.png" alt="" />New Pool</button>
       <button class="tool" disabled :title="soon"><img src="/icons/000_NewStorage_h32bit_24.png" alt="" />New Storage</button>
-      <button class="tool" disabled :title="soon"><img src="/icons/000_CreateVM_h32bit_24.png" alt="" />New VM</button>
+      <button class="tool" :disabled="!targetServer" @click="openNewVm"><img src="/icons/000_CreateVM_h32bit_24.png" alt="" />New VM</button>
       <span class="toolsep"></span>
       <button v-for="b in powerButtons" :key="b.op" class="tool" :disabled="!b.enabled" @click="b.run()"><img :src="`/icons/${b.icon}_h32bit_24.png`" alt="" />{{ b.label }}</button>
       <button class="tool" disabled><img src="/icons/000_Paused_h32bit_24_green.png" alt="" />Pause</button>
@@ -505,7 +517,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         </div>
       </aside>
       <!-- the splitter between the navigation pane and the tabs: drag it to resize -->
-      <div class="w-1 shrink-0 cursor-col-resize border-r border-line bg-pane hover:bg-neutral-300" @mousedown.prevent="startResize"></div>
+      <div class="splitter" title="Drag to resize" @mousedown.prevent="startResize"></div>
       <main v-if="view === 'alerts'" class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
           <img src="/icons/notif_alerts_16.png" alt="" class="h-4 w-4" />Alerts
@@ -599,6 +611,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       </template>
     </div>
 
+    <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />
     <PropertiesDialog v-if="propsOf?.object && propsOf.server" :server="propsOf.server" :vm="propsOf.object.uuid" @close="propertiesClosed" />
     <div v-if="ask" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
       <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">

@@ -17,7 +17,8 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
 - Window (Wails v3, GTK 4 + WebKitGTK 6.0 on Linux) laid out as the C# app: its menus and toolbar (Back, Forward,
   Add New Server, the power buttons), the tree with its search box, the navigation pane, the Home and Search tabs of
   the root, saved servers shown disconnected (Connect, Disconnect, Remove), a VM's Properties (General, CPU, Home
-  Server), the Performance tab of VMs and servers, a resizable navigation pane, the XCP-ng window icon; Add New Server with the certificate question, the tree (pool,
+  Server), the Performance tab of VMs and servers, the New VM wizard, a resizable navigation pane, the XCP-ng window
+  icon; Add New Server with the certificate question, the tree (pool,
   hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app; VM Start, Shut Down,
   Reboot, Suspend, Resume and the forced ones from the toolbar, the VM menu and the context menu, enabled by the VM's
   allowed operations and with the C# confirmations; Notifications > Alerts with the C# texts, Dismiss, Dismiss

@@ -58,6 +58,7 @@ func restriction(recommendations, field, attr string, def int) int {
 			Field string `xml:"field,attr"`
 			Max   string `xml:"max,attr"`
 			Min   string `xml:"min,attr"`
+			Value string `xml:"value,attr"`
 		} `xml:"restriction"`
 	}
 	if xml.Unmarshal([]byte(recommendations), &doc) != nil {
@@ -67,10 +68,7 @@ func restriction(recommendations, field, attr string, def int) int {
 		if r.Field != field {
 			continue
 		}
-		v := r.Max
-		if attr == "min" {
-			v = r.Min
-		}
+		v := map[string]string{"max": r.Max, "min": r.Min, "value": r.Value}[attr]
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
 		}
