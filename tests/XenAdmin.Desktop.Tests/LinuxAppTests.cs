@@ -66,6 +66,50 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void OptionsCertificateWarningsProxyAndRoundTrip()
+        {
+            using var rsa = System.Security.Cryptography.RSA.Create(2048);
+            var req = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=opt", rsa, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+            using var cert = req.CreateSelfSigned(DateTimeOffset.Now.AddDays(-1), DateTimeOffset.Now.AddDays(1));
+            var cfg = TempConfig();
+            var trust = new CertificateTrust(cfg);
+            Assert.IsFalse(trust.ValidateHost("new:443", cert, SslPolicyErrors.RemoteCertificateChainErrors), "new certificates warn by default");
+
+            cfg.Options.WarnUnrecognizedCertificate = false;
+            Assert.IsTrue(trust.ValidateHost("new:443", cert, SslPolicyErrors.RemoteCertificateChainErrors), "no warning: trusted and pinned");
+            Assert.AreEqual(CertificateTrust.Fingerprint(cert), cfg.Fingerprints["new:443"]);
+
+            trust.Pin("changed:443", "00");
+            Assert.IsFalse(trust.ValidateHost("changed:443", cert, SslPolicyErrors.None), "a changed certificate warns by default");
+            cfg.Options.WarnChangedCertificate = false;
+            Assert.IsTrue(trust.ValidateHost("changed:443", cert, SslPolicyErrors.None), "no warning: the new certificate replaces the pin");
+            Assert.AreEqual(CertificateTrust.Fingerprint(cert), cfg.Fingerprints["changed:443"]);
+
+            trust.OperatorPins["op:443"] = "00";
+            Assert.IsFalse(trust.ValidateHost("op:443", cert, SslPolicyErrors.None), "an operator pin is never overridden");
+            var strict = new CertificateTrust(cfg) { RequirePin = true };
+            Assert.IsFalse(strict.ValidateHost("strict:443", cert, SslPolicyErrors.RemoteCertificateChainErrors), "RequirePin (MCP) ignores the options");
+
+            Assert.IsNull(AppOptions.ProxyError(XenAPI.HTTPHelper.ProxyStyle.DirectConnection, "", ""));
+            Assert.IsNull(AppOptions.ProxyError(XenAPI.HTTPHelper.ProxyStyle.SpecifiedProxy, "proxy.lan", "3128"));
+            Assert.IsNotNull(AppOptions.ProxyError(XenAPI.HTTPHelper.ProxyStyle.SpecifiedProxy, "proxy lan", "3128"));
+            Assert.IsNotNull(AppOptions.ProxyError(XenAPI.HTTPHelper.ProxyStyle.SpecifiedProxy, "proxy.lan", "70000"));
+            var o = new AppOptions { ProxyStyle = XenAPI.HTTPHelper.ProxyStyle.SpecifiedProxy, ProxyAddress = "proxy.lan", ProxyPort = 3128, BypassProxyForServers = true };
+            Assert.IsNull(o.Proxy(true), "bypassed for servers");
+            Assert.AreEqual(new Uri("http://proxy.lan:3128/"), ((System.Net.WebProxy)o.Proxy(false)).Address);
+            Assert.IsNull(new AppOptions().Proxy(true), "direct by default");
+
+            cfg.Options.ConnectionTimeoutSeconds = 45;
+            cfg.Options.FillAreaUnderGraphs = true;
+            cfg.Save();
+            var again = AppConfig.Load(cfg.Path);
+            Assert.AreEqual(45, again.Options.ConnectionTimeoutSeconds);
+            Assert.IsTrue(again.Options.FillAreaUnderGraphs);
+            Assert.IsFalse(again.Options.WarnChangedCertificate);
+            Assert.AreEqual(45000, new DesktopConfigProvider { Options = again.Options }.ConnectionTimeout);
+        }
+
+        [TestMethod]
         public void ConfigRoundTripHasNoPassword()
         {
             var cfg = TempConfig();
@@ -73,7 +117,7 @@ namespace XenAdmin.Desktop.Tests
             cfg.Fingerprints["xcp1:443"] = "AB";
             cfg.Save();
             var json = File.ReadAllText(cfg.Path);
-            StringAssert.DoesNotMatch(json, new System.Text.RegularExpressions.Regex("(?i)pass"));
+            StringAssert.DoesNotMatch(json, new System.Text.RegularExpressions.Regex("(?i)passw"));
             var again = AppConfig.Load(cfg.Path);
             Assert.AreEqual("xcp1", again.Servers[0].Host);
             Assert.AreEqual("AB", again.Fingerprints["XCP1:443"]);
@@ -108,7 +152,7 @@ namespace XenAdmin.Desktop.Tests
         {
             CollectionAssert.AreEqual(new[] { "General", "Memory", "Storage", "Networking", "Console", "Performance", "Snapshots", "Search" }, Details.Tabs(new VM()));
             Assert.IsFalse(Details.NotPorted(new VM(), "Console"));
-            Assert.IsTrue(Details.NotPorted(new Host(), "Console"));
+            Assert.IsFalse(Details.NotPorted(new Host(), "Console"), "the server console is its control domain's");
             Assert.IsFalse(Details.NotPorted(new VM(), "Snapshots"));
             Assert.IsFalse(Details.NotPorted(new VM(), "Search"));
             Assert.IsTrue(Details.NotPorted(new SR(), "Search"));

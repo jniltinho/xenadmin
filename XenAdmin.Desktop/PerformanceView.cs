@@ -214,16 +214,35 @@ namespace XenAdmin.Desktop
                 foreach (var (brush, points) in _series)
                 {
                     var pen = new Pen(brush, 1.2);
-                    Point? last = null;
+                    // DisplayOptionsPage "Area graph": each unbroken run of points is filled down to the axis
+                    var fill = DesktopConfigProvider.CurrentOptions.FillAreaUnderGraphs && brush is ISolidColorBrush solid
+                        ? new SolidColorBrush(solid.Color, 0.35) : null;
+                    var run = new List<Point>();
+                    void Close()
+                    {
+                        if (fill != null && run.Count > 1)
+                        {
+                            var g = new StreamGeometry();
+                            using (var ctx = g.Open())
+                            {
+                                ctx.BeginFigure(new Point(run[0].X, area.Bottom), true);
+                                run.ForEach(p => ctx.LineTo(p));
+                                ctx.LineTo(new Point(run[^1].X, area.Bottom));
+                                ctx.EndFigure(true);
+                            }
+                            dc.DrawGeometry(fill, null, g);
+                        }
+                        for (var i = 1; i < run.Count; i++) dc.DrawLine(pen, run[i - 1], run[i]);
+                        run.Clear();
+                    }
                     foreach (var p in points)
                     {
-                        if (!double.IsFinite(p.Value) || p.Value < 0) { last = null; continue; }
+                        if (!double.IsFinite(p.Value) || p.Value < 0) { Close(); continue; }
                         var x = area.Left + area.Width * (p.Time - _start).TotalSeconds / span;
                         var y = area.Bottom - area.Height * Math.Min(1, p.Value / _max);
-                        var pt = new Point(x, y);
-                        if (last != null) dc.DrawLine(pen, last.Value, pt);
-                        last = pt;
+                        run.Add(new Point(x, y));
                     }
+                    Close();
                 }
 
                 // value axis on the right: max, unit, 0

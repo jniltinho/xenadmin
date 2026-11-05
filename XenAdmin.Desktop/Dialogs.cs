@@ -11,7 +11,7 @@ namespace XenAdmin.Desktop
 {
     public static class Dialogs
     {
-        private static Window Frame(string title, Control content, double width = 460)
+        internal static Window Frame(string title, Control content, double width = 460)
         {
             var w = new Window
             {
@@ -27,7 +27,7 @@ namespace XenAdmin.Desktop
             return w;
         }
 
-        private static StackPanel Buttons(params Button[] buttons)
+        internal static StackPanel Buttons(params Button[] buttons)
         {
             var p = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 4, 0, 0) };
             p.Children.AddRange(buttons);

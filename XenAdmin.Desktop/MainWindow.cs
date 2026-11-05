@@ -49,6 +49,7 @@ namespace XenAdmin.Desktop
         private TreeNode _rootNode;
         // last tab per object, as MainWindow.selectedTabs (RememberLastSelectedTab)
         private readonly Dictionary<string, string> _lastTab = new Dictionary<string, string>();
+        private string _lastTabAny; // selectedOverviewTab: the last tab of any object, when tabs are not remembered per object
         private bool _refreshing;
 
         // toolbar / menu items whose state follows the selection
@@ -184,7 +185,10 @@ namespace XenAdmin.Desktop
             _tabs.SelectionChanged += (_, _) =>
             {
                 if (_tabs.SelectedItem is TabItem t && SelectedNode()?.XenObject is IXenObject x && _tabsSignature == x.opaque_ref)
+                {
                     _lastTab[x.opaque_ref] = (string)t.Header;
+                    _lastTabAny = (string)t.Header;
+                }
             };
 
             var split = new Grid { ColumnDefinitions = new ColumnDefinitions("245,3,*") };
@@ -336,7 +340,8 @@ namespace XenAdmin.Desktop
                         _copyTemplateMenu = Item("_Copy...", () => CopyVm(SelectedNode()?.XenObject as VM)), "-",
                         _deleteTemplateMenu = Item("_Delete Template...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _templateProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
-                    Top("T_ools", Item("Server Status Report...")),
+                    Top("T_ools", Item("Server Status Report..."), "-",
+                        Item("_Options...", async () => { if (await OptionsDialog.Show(this, _config.Options)) { _config.Save(); ((DesktopConfigProvider)XenAdminConfigManager.Provider).ApplyProxy(); _tabsSignature = null; UpdateContent(); } })),
                     Top("_Help", Item("_About XCP-ng Center", async () => await Dialogs.Info(this, "About XCP-ng Center",
                         $"XCP-ng Center for {Platform.PlatformServices.Current.Name} {typeof(MainWindow).Assembly.GetName().Version}\nPreview build based on the XCP-ng Center core (XenModel).")))
                 }
@@ -605,7 +610,9 @@ namespace XenAdmin.Desktop
             _titleBand.Content = Views.TitleBand(node.Icon, Details.Heading(o), user);
             // rebuild the tab bodies on every refresh so values stay live, but keep the selected tab
             var sig = o.opaque_ref;
-            _lastTab.TryGetValue(sig, out var current);
+            string current = _lastTabAny;
+            if (_config.Options.RememberLastSelectedTab)
+                _lastTab.TryGetValue(sig, out current);
             if (_tabsSignature == sig)
             {
                 foreach (var existing in _tabs.Items.OfType<TabItem>().Where(i => i.IsEnabled && (string)i.Header != "Console"))
@@ -669,7 +676,8 @@ namespace XenAdmin.Desktop
                 case "NICs":
                     return Body("Network Interface Cards", new NicsView((Host)o, RunTracked));
                 case "Console":
-                    return ConsoleView.For(o as VM);
+                    // TabPageConsole of a server: the console of its control domain
+                    return ConsoleView.For(o is Host consoleHost ? consoleHost.ControlDomainZero() : o as VM);
                 case "Performance":
                     return Body("Performance Graphs", new PerformanceView(o));
                 case "Snapshots":
@@ -731,7 +739,8 @@ namespace XenAdmin.Desktop
                 await Dialogs.Info(this, Messages.ROTATE_POOL_SECRET_TITLE, restriction);
                 return;
             }
-            await Dialogs.Info(this, Messages.ROTATE_POOL_SECRET_TITLE, Messages.ROTATE_POOL_SECRET_REMIND_CHANGE_PASSWORD);
+            if (_config.Options.RotateSecretReminder)
+                await Dialogs.Info(this, Messages.ROTATE_POOL_SECRET_TITLE, Messages.ROTATE_POOL_SECRET_REMIND_CHANGE_PASSWORD);
             RunTracked(PoolRules.RotateSecretAction(c));
         }
 

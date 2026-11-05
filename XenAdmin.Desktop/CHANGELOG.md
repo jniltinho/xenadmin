@@ -44,8 +44,13 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   Properties.
 - VM > Export (an XVA file, optionally verified on completion) and File > Import of an XVA file to a pool or one of
   its servers, on the SR you choose, optionally starting the VM.
+- Tools > Options: Security (warn on new or changed server certificates, the rotate-secret reminder), Connection
+  (proxy: none, the system's or a given server, with bypass for servers; connection timeout), Confirmations (dismiss
+  alerts) and Display (area or line performance graphs, remember the last tab per object). Saved in config.json.
+- Server Console tab: the console of the server's control domain.
 
 ### Fixed
+- VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).
 - Exporting a VM no longer fails outside Windows (the export flushed the file with a Windows-only call).
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).
 - Delete Virtual Disk also requires the server to allow `destroy` on the disk, as the Windows app does.

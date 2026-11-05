@@ -107,6 +107,17 @@ namespace XenAdmin.Desktop
             var decision = Evaluate(hostKey, fp, errors);
             if (decision == TrustDecision.Prompt && IsVouched(hostKey, cert))
                 decision = TrustDecision.Trusted;
+            // SecurityOptionsPage: certificates the user chose not to be warned about (never for pins given by the operator)
+            if (!RequirePin && !OperatorPins.ContainsKey(hostKey))
+            {
+                if (decision == TrustDecision.Prompt && old == null && !_config.Options.WarnUnrecognizedCertificate)
+                    decision = TrustDecision.Trusted;
+                else if (decision == TrustDecision.Mismatch && old != null && !_config.Options.WarnChangedCertificate)
+                {
+                    Pin(hostKey, fp);
+                    return true;
+                }
+            }
             if (decision == TrustDecision.Trusted)
             {
                 if (old == null && !RequirePin)

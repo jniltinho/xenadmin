@@ -71,7 +71,8 @@ namespace XenAdmin.Desktop
                 Action("Dismiss Sele&cted", async () =>
                 {
                     var selected = Shown.Where(r => _selected.Contains(r.Message.opaque_ref)).Select(r => r.Message).ToList();
-                    if (selected.Count > 0 && await Dialogs.Confirm(Owner, Title, Messages.ALERT_DISMISS_SELECTED_CONFIRM, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+                    if (selected.Count > 0 && (DesktopConfigProvider.CurrentOptions.DoNotConfirmDismissAlerts
+                        || await Dialogs.Confirm(Owner, Title, Messages.ALERT_DISMISS_SELECTED_CONFIRM, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION)))
                         DismissMany(selected);
                 })
             });
@@ -181,7 +182,8 @@ namespace XenAdmin.Desktop
             bool? all = true;
             if (FilterIsOn)
                 all = await Dialogs.Choose(Owner, Title, Messages.ALERT_DISMISS_ALL_CONTINUE, Messages.DISMISS_ALL_CONFIRM_BUTTON, Messages.DISMISS_FILTERED_CONFIRM_BUTTON);
-            else if (!await Dialogs.Confirm(Owner, Title, Messages.ALERT_DISMISS_ALL_NO_FILTER_CONTINUE, Messages.DISMISS_ALL_YES_CONFIRM_BUTTON, Messages.CANCEL))
+            else if (!DesktopConfigProvider.CurrentOptions.DoNotConfirmDismissAlerts
+                     && !await Dialogs.Confirm(Owner, Title, Messages.ALERT_DISMISS_ALL_NO_FILTER_CONTINUE, Messages.DISMISS_ALL_YES_CONFIRM_BUTTON, Messages.CANCEL))
                 all = null;
             if (all == null)
                 return;
@@ -190,7 +192,8 @@ namespace XenAdmin.Desktop
 
         private async void DismissOne(Message m)
         {
-            if (await Dialogs.Confirm(Owner, Title, Messages.ALERT_DISMISS_CONFIRM, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+            if (DesktopConfigProvider.CurrentOptions.DoNotConfirmDismissAlerts
+                || await Dialogs.Confirm(Owner, Title, Messages.ALERT_DISMISS_CONFIRM, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
                 DismissMany(new[] { m });
         }
 

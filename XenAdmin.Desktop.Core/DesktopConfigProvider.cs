@@ -13,8 +13,16 @@ namespace XenAdmin.Desktop
     {
         private readonly HashSet<string> _hidden = new HashSet<string>();
 
+        /// <summary>Tools > Options (the GUI hands in the saved ones; the CLI and MCP keep the defaults).</summary>
+        public AppOptions Options { get; set; } = new AppOptions();
+
+        /// <summary>Settings.ReconfigureProxyAuthenticationSettings: new XAPI sessions use the configured proxy.</summary>
+        public void ApplyProxy() => Session.Proxy = Options.Proxy(true);
+
+        public static AppOptions CurrentOptions => (XenAdminConfigManager.Provider as DesktopConfigProvider)?.Options ?? new AppOptions();
+
         public Func<List<Role>, IXenConnection, string, AsyncAction.SudoElevationResult> ElevatedSessionDelegate => (roles, connection, title) => null;
-        public int ConnectionTimeout => 20000;
+        public int ConnectionTimeout => Options.ConnectionTimeoutSeconds * 1000;
         public Session CreateActionSession(Session session, IXenConnection connection) => new Session(session, connection) { Timeout = ConnectionTimeout };
         public bool Exiting { get; set; }
         public bool ForcedExiting => false;
@@ -36,7 +44,7 @@ namespace XenAdmin.Desktop
         public string FileServiceUsername => null;
         public string FileServiceClientId => null;
         public string GetCustomTokenUrl() => null;
-        public IWebProxy GetProxyFromSettings(IXenConnection connection) => null;
-        public IWebProxy GetProxyFromSettings(IXenConnection connection, bool isForXenServer) => null;
+        public IWebProxy GetProxyFromSettings(IXenConnection connection) => Options.Proxy(true);
+        public IWebProxy GetProxyFromSettings(IXenConnection connection, bool isForXenServer) => Options.Proxy(isForXenServer);
     }
 }

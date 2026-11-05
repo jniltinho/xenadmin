@@ -487,7 +487,8 @@ namespace XenAPI
                     var hostKey = string.Format("{0}:{1}", uri.Host, uri.Port);
                     SslStream sslStream = new SslStream(stream, false,
                         (sender, cert, chain, errors) => ServerCertificateValidator == null || ServerCertificateValidator(hostKey, cert, errors), null);
-                    sslStream.AuthenticateAsClient("", null, SslProtocols.Tls | SslProtocols.Tls11 | SslProtocols.Tls12, true);
+                    // SslProtocols.None: the system's protocols (TLS 1.2 and 1.3), the host name for SNI
+                    sslStream.AuthenticateAsClient(uri.Host, null, SslProtocols.None, true);
 
                     stream = sslStream;
                 }

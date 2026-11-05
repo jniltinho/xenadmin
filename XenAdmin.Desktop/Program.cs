@@ -24,6 +24,9 @@ namespace XenAdmin.Desktop
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 var config = AppConfig.Load();
+                var provider = (DesktopConfigProvider)XenAdminConfigManager.Provider;
+                provider.Options = config.Options;
+                provider.ApplyProxy();
                 var trust = new CertificateTrust(config);
 #pragma warning disable SYSLIB0014 // XenAPI's JsonRpc falls back to this global callback, as on Windows
                 ServicePointManager.ServerCertificateValidationCallback = trust.Validate;

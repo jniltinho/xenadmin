@@ -25,6 +25,9 @@ namespace XenAdmin.Desktop
         /// <summary>host:port → SHA-256 fingerprint (hex, upper case)</summary>
         public Dictionary<string, string> Fingerprints { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Tools > Options.</summary>
+        public AppOptions Options { get; set; } = new AppOptions();
+
         [JsonIgnore]
         public string Path { get; private set; }
 
@@ -44,6 +47,7 @@ namespace XenAdmin.Desktop
             }
             cfg ??= new AppConfig();
             cfg.Fingerprints = new Dictionary<string, string>(cfg.Fingerprints ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+            cfg.Options ??= new AppOptions();
             cfg.Path = path;
             return cfg;
         }

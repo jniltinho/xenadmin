@@ -196,6 +196,12 @@ namespace XenAdmin.Desktop
 
         private void UpdateDvd()
         {
+            // a server's console (its control domain) shows HostLabel instead of the DVD drive
+            if (_vm.IsControlDomainZero(out var host))
+            {
+                _dvdBand.Content = new TextBlock { Text = string.Format(Messages.CONSOLE_HOST, host.Name()), Foreground = Brushes.White, FontWeight = FontWeight.Bold };
+                return;
+            }
             var cd = _vm.Connection.ResolveAll(_vm.VBDs).FirstOrDefault(b => b.IsCDROM());
             var isos = cd == null ? null : StorageRules.IsoChoices(_vm);
             var signature = cd == null ? "none" : $"{cd.opaque_ref}|{cd.empty}|{cd.VDI?.opaque_ref}|{cd.Locked}|{string.Join(",", isos.Select(i => i.Vdi?.opaque_ref))}";
@@ -322,7 +328,8 @@ namespace XenAdmin.Desktop
                 try
                 {
                     var session = _vm.Connection.DuplicateSession();
-                    var stream = OpenTunnel(new Uri(location), session.opaque_ref);
+                    // XSVNCScreen: the proxy of Tools > Options and the app's certificate policy (HTTP.ServerCertificateValidator)
+                    var stream = HTTPHelper.CONNECT(new Uri(location), _vm.Connection, session.opaque_ref, false);
                     if (_closed || generation != _generation) { stream.Dispose(); return; }
                     _session = session;
                     _vnc = new VNCStream(this, stream, false);
@@ -350,33 +357,6 @@ namespace XenAdmin.Desktop
             // never log out: DuplicateSession shares the connection's session ref, so logout would drop the whole
             // connection (XSVNCScreen only forgets it too)
             _session = null;
-        }
-
-        /// <summary>CONNECT tunnel as in XenAPI.HTTP.HttpConnectStream, but with the app's certificate policy.</summary>
-        private static Stream OpenTunnel(Uri uri, string sessionRef)
-        {
-            var port = uri.IsDefaultPort ? 443 : uri.Port;
-            var tcp = new TcpClient(uri.Host, port) { NoDelay = true };
-            var ssl = new SslStream(tcp.GetStream(), false, (_, cert, _, errors) => Trust.ValidateHost($"{uri.Host}:{port}", cert, errors));
-            ssl.AuthenticateAsClient(uri.Host);
-            var request = $"CONNECT {uri.PathAndQuery} HTTP/1.0\r\nHost: {uri.Host}\r\nCookie: session_id={sessionRef}\r\n\r\n";
-            ssl.Write(Encoding.ASCII.GetBytes(request));
-            ssl.Flush();
-            var status = ReadLine(ssl);
-            while (ReadLine(ssl).Length > 0) { }
-            if (!status.Contains(" 200"))
-                throw new IOException("Console tunnel refused: " + status);
-            return ssl;
-        }
-
-        private static string ReadLine(Stream s)
-        {
-            var sb = new StringBuilder();
-            int c;
-            while ((c = s.ReadByte()) >= 0 && c != '\n')
-                if (c != '\r') sb.Append((char)c);
-            if (c < 0) throw new EndOfStreamException("Console tunnel closed");
-            return sb.ToString();
         }
 
         private static void Ui(Action a) => Dispatcher.UIThread.Post(a);
