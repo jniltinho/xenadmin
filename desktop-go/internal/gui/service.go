@@ -9,6 +9,8 @@ import (
 
 	"xcpng-center/internal/app"
 	"xcpng-center/internal/config"
+	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/trust"
 	"xcpng-center/internal/xapi"
 )
@@ -133,6 +135,34 @@ func (w *Workspace) Objects(key, kind string) ([]app.Object, error) {
 		return nil, errors.New("not connected")
 	}
 	return app.ListObjects(conn, kind)
+}
+
+// Confirm is the question a VM operation asks first (empty Title: none).
+type Confirm struct {
+	Title string `json:"title"`
+	Text  string `json:"text"`
+}
+
+// VMConfirmation is the confirmation of a VM operation (VmOperations.Confirmation).
+func (w *Workspace) VMConfirmation(op string, haProtected bool) Confirm {
+	if !rules.NeedsConfirmation(rules.VMOp(op)) {
+		return Confirm{}
+	}
+	title, text := rules.Confirmation(rules.VMOp(op), haProtected)
+	return Confirm{Title: title, Text: text}
+}
+
+// VMPower runs a VM power operation (the window asked VMConfirmation first).
+func (w *Workspace) VMPower(key, uuid, op string) error {
+	w.use.RLock()
+	defer w.use.RUnlock()
+	w.mu.Lock()
+	conn := w.conns[key]
+	w.mu.Unlock()
+	if conn == nil {
+		return errors.New("not connected")
+	}
+	return ops.VMPower(conn, uuid, rules.VMOp(op))
 }
 
 // Close logs out of every server (the window closes).

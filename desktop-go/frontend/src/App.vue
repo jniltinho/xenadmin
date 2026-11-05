@@ -2,7 +2,7 @@
 // The main window (first stage): menu and toolbar, the Infrastructure tree (server -> pool -> hosts -> VMs, and the
 // SRs), the General tab of the selected object, Add New Server and the certificate question, a status bar.
 import { computed, onMounted, reactive, ref } from "vue";
-import { api, type ServerRow, type XenObject } from "./api/workspace";
+import { api, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[] }
 
@@ -15,6 +15,54 @@ const failure = ref(""); // the last error, kept visible in the status bar until
 
 const addOpen = ref(false);
 const form = reactive({ address: "", user: "root", password: "", error: "", busy: false });
+// The VM power commands (StartVMCommand ... ForceVMRebootCommand): label, icon, the allowed_operations entry they need.
+const vmCommands = [
+  { op: "start", label: "Start", icon: "001_PowerOn", needs: "start", busy: "Starting" },
+  { op: "shutdown", label: "Shut Down", icon: "001_ShutDown", needs: "clean_shutdown", busy: "Shutting down" },
+  { op: "reboot", label: "Reboot", icon: "001_Reboot", needs: "clean_reboot", busy: "Rebooting" },
+  { op: "suspend", label: "Suspend", icon: "000_Paused", menuIcon: "000_paused", needs: "suspend", busy: "Suspending" },
+  { op: "resume", label: "Resume", icon: "000_Resumed", needs: "resume", busy: "Resuming" },
+  { op: "force_shutdown", label: "Force Shut Down", icon: "001_ForceShutDown", needs: "hard_shutdown", busy: "Forcing shut down of" },
+  { op: "force_reboot", label: "Force Reboot", icon: "001_ForceReboot", needs: "hard_reboot", busy: "Forcing reboot of" },
+];
+type VmCommand = (typeof vmCommands)[number];
+const selectedVm = computed(() => (selected.value?.object?.kind === "vms" ? selected.value : null));
+const canRun = (c: VmCommand, n: Node | null) => !!n?.object?.allowed?.includes(c.needs);
+const menu = ref<{ x: number; y: number; node: Node } | null>(null);
+const vmMenuOpen = ref(false);
+const ask = ref<(Confirm & { resolve: (ok: boolean) => void }) | null>(null);
+
+async function runVm(c: VmCommand, n: Node | null) {
+  menu.value = null; vmMenuOpen.value = false;
+  if (!n?.object || !n.server || !canRun(c, n)) return;
+  const q = await api.vmConfirmation(c.op, !!n.object.ha_protected);
+  if (q.title && !(await new Promise<boolean>((resolve) => (ask.value = { ...q, resolve })))) return;
+  status.value = `${c.busy} VM '${n.label}'...`;
+  let error = "";
+  try {
+    await api.vmPower(n.server, n.object.uuid, c.op);
+  } catch (e) {
+    error = `${c.label} '${n.label}': ${String(e)}`;
+  }
+  await load(n.server);
+  if (error) failure.value = error; // the refresh clears old errors, never this one
+  reselect(n.id);
+}
+
+// keep the selection on the object after a reload (a VM moves under its host when it starts): expand its parents
+function reselect(id: string) {
+  const path = (n: Node): Node[] | null => {
+    if (n.id === id) return [n];
+    for (const c of n.children) { const p = path(c); if (p) return [n, ...p]; }
+    return null;
+  };
+  const p = path(tree.value);
+  p?.slice(0, -1).forEach((a) => expanded.add(a.id));
+  selected.value = p?.[p.length - 1] ?? null;
+}
+
+function answer(ok: boolean) { ask.value?.resolve(ok); ask.value = null; }
+
 const cert = ref<{ key: string; fingerprint: string; previous?: string } | null>(null);
 
 const vmIcon = (o: XenObject) => (o.power_state === "Running" ? "000_StartVM_h32bit_16" : o.power_state === "Suspended" ? "000_SuspendVM_h32bit_16" : "000_StoppedVM_h32bit_16");
@@ -93,15 +141,29 @@ onMounted(async () => { await refreshServers(); });
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div class="flex h-full flex-col" @click="menu = null">
     <nav class="flex gap-4 border-b border-line bg-pane px-2 py-1">
       <span class="cursor-default hover:bg-neutral-200 px-1" @click="addOpen = true">File</span>
-      <span v-for="m in ['View', 'Pool', 'Server', 'VM', 'Storage', 'Templates', 'Tools', 'Help']" :key="m" class="cursor-default px-1 text-neutral-400">{{ m }}</span>
+      <span v-for="m in ['View', 'Pool', 'Server']" :key="m" class="cursor-default px-1 text-neutral-400">{{ m }}</span>
+      <span class="relative cursor-default px-1 hover:bg-neutral-200" @click.stop="vmMenuOpen = !vmMenuOpen">VM
+        <div v-if="vmMenuOpen" class="absolute left-0 top-full z-10 w-48 border border-neutral-400 bg-white py-1 shadow">
+          <div v-for="c in vmCommands" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
+               :class="canRun(c, selectedVm) ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click.stop="runVm(c, selectedVm)">
+            <img :src="`/icons/${c.menuIcon ?? c.icon}_h32bit_16.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !canRun(c, selectedVm) }" />{{ c.label }}
+          </div>
+        </div>
+      </span>
+      <span v-for="m in ['Storage', 'Templates', 'Tools', 'Help']" :key="m" class="cursor-default px-1 text-neutral-400">{{ m }}</span>
     </nav>
     <div class="flex items-center gap-1 border-b border-line bg-pane px-2 py-1">
       <button class="flex items-center gap-1 px-2 py-0.5 hover:bg-neutral-200" @click="addOpen = true">
         <img src="/icons/000_AddApplicationServer_h32bit_16.png" alt="" /> Add New Server
       </button>
+      <template v-for="c in vmCommands" :key="c.op">
+        <button v-if="canRun(c, selectedVm)" class="flex items-center gap-1 px-2 py-0.5 hover:bg-neutral-200" @click="runVm(c, selectedVm)">
+          <img :src="`/icons/${c.icon}_h32bit_24.png`" alt="" class="h-6 w-6" /> {{ c.label }}
+        </button>
+      </template>
     </div>
     <div class="flex min-h-0 flex-1">
       <aside class="w-64 overflow-auto border-r border-line">
@@ -109,7 +171,8 @@ onMounted(async () => { await refreshServers(); });
              class="flex cursor-default items-center gap-1 whitespace-nowrap px-1 py-px"
              :class="selected?.id === node.id ? 'bg-select text-white' : 'hover:bg-neutral-100'"
              :style="{ paddingLeft: `${0.25 + depth * 1.1}rem` }"
-             @click="selected = node" @dblclick="toggle(node)">
+             @click="selected = node" @dblclick="toggle(node)"
+             @contextmenu.prevent.stop="selected = node; menu = node.object?.kind === 'vms' ? { x: $event.clientX, y: $event.clientY, node } : null">
           <span class="w-3 text-center text-[10px]" @click.stop="toggle(node)">{{ node.children.length ? (expanded.has(node.id) ? "−" : "+") : "" }}</span>
           <img :src="`/icons/${node.icon}.png`" alt="" class="h-4 w-4" />
           <span>{{ node.label }}</span>
@@ -137,6 +200,26 @@ onMounted(async () => { await refreshServers(); });
     <footer class="flex gap-4 border-t border-line bg-pane px-2 py-0.5 text-xs">
       <span>{{ status }}</span><span v-if="failure" class="text-red-700">{{ failure }}</span>
     </footer>
+
+    <div v-if="menu" class="fixed z-20 w-48 border border-neutral-400 bg-white py-1 shadow" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @click.stop>
+      <div v-for="c in vmCommands" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
+           :class="canRun(c, menu.node) ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click="runVm(c, menu.node)">
+        <img :src="`/icons/${c.menuIcon ?? c.icon}_h32bit_16.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !canRun(c, menu.node) }" />{{ c.label }}
+      </div>
+    </div>
+
+    <div v-if="ask" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
+      <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">
+        <div class="bg-band-dark px-3 py-1 font-semibold text-white">{{ ask.title }}</div>
+        <div class="space-y-3 p-3">
+          <p>{{ ask.text }}</p>
+          <div class="flex justify-end gap-2">
+            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(true)">Yes</button>
+            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(false)">No</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="addOpen" class="fixed inset-0 flex items-center justify-center bg-black/20">
       <form class="w-[28rem] border border-neutral-500 bg-white shadow-lg" @submit.prevent="submitAdd">

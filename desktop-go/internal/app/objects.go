@@ -16,13 +16,15 @@ var Kinds = []string{"pools", "hosts", "vms", "templates", "srs", "networks"}
 
 // Object is one row of a listing.
 type Object struct {
-	Kind        string `json:"kind"`
-	UUID        string `json:"uuid"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	PowerState  string `json:"power_state,omitempty"`
-	Host        string `json:"host,omitempty"`
-	HostUUID    string `json:"host_uuid,omitempty"` // the resident host of a VM (names may repeat)
+	Kind        string   `json:"kind"`
+	UUID        string   `json:"uuid"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	PowerState  string   `json:"power_state,omitempty"`
+	Host        string   `json:"host,omitempty"`
+	HostUUID    string   `json:"host_uuid,omitempty"` // the resident host of a VM (names may repeat)
+	Allowed     []string `json:"allowed,omitempty"`   // a VM's allowed_operations (what the menu and toolbar enable)
+	HAProtected bool     `json:"ha_protected,omitempty"`
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -56,6 +58,14 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 		if err != nil {
 			return nil, xapi.Sanitize(err)
 		}
+		pools, err := xenapi.Pool.GetAllRecords(s)
+		if err != nil {
+			return nil, xapi.Sanitize(err)
+		}
+		ha := false
+		for _, p := range pools {
+			ha = p.HaEnabled
+		}
 		for _, r := range vms {
 			if r.IsControlDomain || r.IsASnapshot || r.IsATemplate != (kind == "templates") {
 				continue
@@ -66,6 +76,11 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 				if h, ok := hosts[r.ResidentOn]; ok {
 					o.Host, o.HostUUID = h.NameLabel, h.UUID
 				}
+				for _, a := range r.AllowedOperations {
+					o.Allowed = append(o.Allowed, string(a))
+				}
+				o.HAProtected = ha && r.HaRestartPriority != "" // VM.HAIsProtected
+
 			}
 			out = append(out, o)
 		}

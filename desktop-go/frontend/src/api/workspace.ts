@@ -6,7 +6,8 @@ const call = <T>(method: string, ...args: unknown[]) => Call.ByName(svc + method
 
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
-export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string }
+export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean }
+export interface Confirm { title: string; text: string }
 
 export const api = {
   servers: () => call<ServerRow[]>("Servers"),
@@ -14,4 +15,6 @@ export const api = {
   trust: (key: string, fingerprint: string) => call<void>("Trust", key, fingerprint),
   disconnect: (key: string) => call<void>("Disconnect", key),
   objects: (key: string, kind: string) => call<XenObject[] | null>("Objects", key, kind),
+  vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
+  vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),
 };

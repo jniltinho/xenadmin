@@ -15,10 +15,13 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
   certificate trust on first use with SHA-256 pins (a changed certificate is refused), `--trust-fingerprint` for
   unattended use, the pool coordinator redirect (`HOST_IS_SLAVE`). Passwords never reach logs, errors or files.
 - Window (Wails v3, GTK 4 + WebKitGTK 6.0 on Linux): Add New Server with the certificate question, the tree (pool,
-  hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app.
+  hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app; VM Start, Shut Down,
+  Reboot, Suspend, Resume and the forced ones from the toolbar, the VM menu and the context menu, enabled by the VM's
+  allowed operations and with the C# confirmations.
 - CLI: `server add|list`, `pool|host|vm|template|sr|network list` (table or `--json`), `version`.
 - MCP (`mcp`, stdio): `list_servers`, `connect`, `disconnect`, `list_objects` — the names and arguments of the C# app's
-  MCP server, all read-only. The operator's password comes from `XCP_PASS`; the agent never sees it.
+  MCP server, read-only; `mcp --allow-write` adds `vm_power`, which runs only with `confirm: true`. The operator's
+  password comes from `XCP_PASS`; the agent never sees it.
 
 ## Use
 

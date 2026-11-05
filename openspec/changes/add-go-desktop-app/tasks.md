@@ -34,10 +34,10 @@
 
 ## 4. Operações
 
-- [ ] 4.1 `internal/rules`: `VmOperations`, `VmRules`, `HostRules`, `PoolRules` com testes de tabela do C#; `internal/messages` gerado por `tools/resx2go`
+- [~] 4.1 (feito: `rules/vm.go` com `VMAllowed`, `NeedsConfirmation`, `Confirmation`, `HAStartBlocker` e teste de tabela; falta `HostRules`, `PoolRules` e o `resx2go`) `internal/rules`: `VmOperations`, `VmRules`, `HostRules`, `PoolRules` com testes de tabela do C#; `internal/messages` gerado por `tools/resx2go`
 - [ ] 4.2 `internal/ops`: Async + task, progresso, erros XAPI traduzidos, cancelamento quando permitido, resultado incerto sem repetição
 - [ ] 4.2b Orquestração portada das Actions (Create VM, SR create/reattach/introduce, Evacuate, Copy, Create Pool) com testes de falha em cada passo e reserva de LUN
-- [ ] 4.3 VM: Start, Shut Down, Reboot, Suspend, Resume e forçados, com as confirmações do C#; menus e toolbar
+- [x] 4.3 VM: Start, Shut Down, Reboot, Suspend, Resume e forçados, com as confirmações do C#; menus e toolbar
 - [ ] 4.4 Host: Shut Down, Reboot, Enter/Exit Maintenance Mode com o diálogo de evacuação e a volta das VMs
 - [ ] 4.5 Notifications: Alerts (filtros por severidade e servidor, Dismiss, Dismiss All/Selected, contador) e Events
 - [ ] 4.6 Lab KVM: ciclo de vida de VM, manutenção com VMs, alertas
@@ -67,7 +67,7 @@
 
 ## 8. MCP e CLI
 
-- [~] 8.1 (feito: servidor stdio com `list_servers`, `connect`, `disconnect`, `list_objects`, somente leitura, testado no .110; faltam as ferramentas de escrita) `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
+- [~] 8.1 (feito: servidor stdio com `list_servers`, `connect`, `disconnect`, `list_objects`, testado no .110, e `vm_power` com `--allow-write` e `confirm: true`; faltam as demais ferramentas de escrita e `operation_id`) `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
 - [ ] 8.2 Teste de paridade de nomes e esquemas com o MCP C#; teste do processo real por stdio no lab
 - [ ] 8.3 CLI `vm`, `host` e `sr` com as operações e confirmações (`--yes` explícito para escrita)
 - [ ] 8.3b Flags globais (`--host`, `--user`, `--trust-fingerprint`, `--json`, `--config`), `mcp` sem display no Linux e pelo AppImage, `AttachConsole` no exe do Windows; testes de terminal e de stdin/stdout redirecionados

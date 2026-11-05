@@ -4,6 +4,8 @@
 main.go → cmd (Cobra: GUI when no subcommand, CLI, mcp)
              │
              ├── internal/mcp     MCP server (modelcontextprotocol/go-sdk), the C# tool names
+             ├── internal/rules   UI-free decisions ported from XenAdmin.Desktop.Core (VmOperations)
+             ├── internal/ops     operations on a server (VMPower)
              ├── internal/gui     Wails v3 window (Workspace service) + Vue/Tailwind SPA in frontend/
              │
              └── internal/app     use cases shared by every front end

@@ -11,7 +11,9 @@ RUN      := $(DOCKER) -v $(CURDIR):/src -w /src $(GO_ENV) $(GO_IMAGE)
 ICONS    := ../branding-xcp-ng/Images/Logo.png $(addprefix ../XenAdmin/Images/,000_ServerDisconnected_h32bit_16.png \
             000_PoolConnected_h32bit_16.png 000_TreeConnected_h32bit_16.png 000_StartVM_h32bit_16.png \
             000_StoppedVM_h32bit_16.png 000_SuspendVM_h32bit_16.png 000_Storage_h32bit_16.png \
-            000_AddApplicationServer_h32bit_16.png)
+            000_AddApplicationServer_h32bit_16.png \
+            $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_Paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_24.png) \
+            $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_16.png))
 
 .PHONY: test check cli frontend linux dist clean
 

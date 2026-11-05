@@ -12,7 +12,9 @@ import (
 	"xcpng-center/internal/config"
 )
 
-func session(t *testing.T) *sdk.ClientSession {
+func session(t *testing.T) *sdk.ClientSession { return sessionWith(t, false) }
+
+func sessionWith(t *testing.T, allowWrite bool) *sdk.ClientSession {
 	t.Helper()
 	settings, err := config.Load(filepath.Join(t.TempDir(), "settings.toml"))
 	if err != nil {
@@ -20,7 +22,7 @@ func session(t *testing.T) *sdk.ClientSession {
 	}
 	settings.Servers = []config.Server{{Host: "xcp1", Port: 443, User: "root", Name: "pool one"}}
 	m := sdk.NewServer(&sdk.Implementation{Name: "xcp-ng-center", Version: "test"}, nil)
-	New(settings, "", Credentials{User: "root", Password: "secret-pw"}).Register(m)
+	New(settings, "", Credentials{User: "root", Password: "secret-pw"}, allowWrite).Register(m)
 	st, ct := sdk.NewInMemoryTransports()
 	ctx := context.Background()
 	if _, err := m.Connect(ctx, st, nil); err != nil {
@@ -51,6 +53,32 @@ func TestToolsAreTheCSharpNamesAndReadOnly(t *testing.T) {
 		if !names[want] {
 			t.Errorf("missing tool %s (XcpTools.cs)", want)
 		}
+	}
+}
+
+func TestWriteToolsNeedAllowWriteAndConfirm(t *testing.T) {
+	ctx := context.Background()
+	tools, err := session(t).ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "vm_power" {
+			t.Fatal("vm_power listed without --allow-write")
+		}
+	}
+	cs := sessionWith(t, true)
+	res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: "vm_power", Arguments: map[string]any{"vm": "u", "operation": "start"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := json.Marshal(res.Content)
+	if !res.IsError || !strings.Contains(string(text), `confirm`) {
+		t.Errorf("vm_power without confirm: %s", text)
+	}
+	res, _ = cs.CallTool(ctx, &sdk.CallToolParams{Name: "vm_power", Arguments: map[string]any{"vm": "u", "operation": "start", "confirm": true}})
+	if text, _ = json.Marshal(res.Content); !res.IsError || !strings.Contains(string(text), "no connected server") {
+		t.Errorf("vm_power with no server: %s", text)
 	}
 }
 

@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- VM power operations (Start, Shut Down, Reboot, Suspend, Resume, Force Shut Down, Force Reboot) in the toolbar, the
+  VM menu and the context menu, with the C# confirmations and HA start check (`internal/rules`, `internal/ops`);
+  MCP `vm_power` behind `--allow-write` and `confirm: true`.
 - The desktop window (Wails v3, Vue 3, Tailwind 4): Add New Server with the certificate question, the tree with the
   C# app's icons, the General tab, a status bar; `make frontend` and `make linux` build it in containers.
 - One binary (`xcp-ng-center-go`) with Cobra: `server add|list`, `pool|host|vm|template|sr|network list` (table or

@@ -1,7 +1,7 @@
 // Package mcp is the MCP server of the app (xcp-ng-center-go mcp), on the official Go SDK
 // (github.com/modelcontextprotocol/go-sdk). The tools keep the names and arguments of the C# app's MCP server
-// (XenAdmin.Desktop.Core/Mcp/XcpTools.cs). This first stage has the read-only tools; the write tools come with
-// --allow-write and confirm: true (task 8.1).
+// (XenAdmin.Desktop.Core/Mcp/XcpTools.cs). The write tools (vm_power) are listed only with --allow-write and run only
+// with confirm: true, as McpServer.cs.
 package mcp
 
 import (
@@ -16,6 +16,8 @@ import (
 	"xcpng-center/internal/app"
 	"xcpng-center/internal/buildinfo"
 	"xcpng-center/internal/config"
+	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/trust"
 	"xcpng-center/internal/xapi"
 )
@@ -34,6 +36,7 @@ type Server struct {
 	settings *config.Settings
 	policy   *trust.Policy
 	creds    Credentials
+	write    bool // --allow-write: the write tools are listed
 	mu       sync.Mutex
 	conns    map[string]*xapi.Connection // hostKey -> connection
 	locks    map[string]*sync.Mutex      // hostKey -> one operation at a time on that server (connect, list, logout)
@@ -59,12 +62,12 @@ func (s *Server) fail(err error) error { return errors.New(s.redact(err.Error())
 
 // New builds the MCP server: certificates must already be trusted (stored pin or XCP_TRUST_FINGERPRINT); it never
 // accepts a new certificate by itself.
-func New(settings *config.Settings, operatorFingerprint string, creds Credentials) *Server {
+func New(settings *config.Settings, operatorFingerprint string, creds Credentials, allowWrite bool) *Server {
 	p := &trust.Policy{Store: settings, OperatorPins: map[string]string{}, RequirePin: true}
 	if operatorFingerprint != "" {
 		p.OperatorPins["*"] = operatorFingerprint
 	}
-	return &Server{settings: settings, policy: p, creds: creds, conns: map[string]*xapi.Connection{}, locks: map[string]*sync.Mutex{}}
+	return &Server{settings: settings, policy: p, creds: creds, write: allowWrite, conns: map[string]*xapi.Connection{}, locks: map[string]*sync.Mutex{}}
 }
 
 type serverRow struct {
@@ -110,7 +113,7 @@ func (s *Server) Register(m *sdk.Server) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			out := listServersOut{Servers: []serverRow{}}
-			for _, e := range s.settings.Servers {
+			for _, e := range s.settings.ServerList() {
 				key := xapi.HostKey(e.Host, e.Port)
 				_, ok := s.conns[key]
 				out.Servers = append(out.Servers, serverRow{Server: key, Name: e.Name, User: e.User, Connected: ok})
@@ -176,6 +179,65 @@ func (s *Server) Register(m *sdk.Server) {
 			}
 			return nil, out, nil
 		})
+	if !s.write {
+		return
+	}
+	sdk.AddTool(m, &sdk.Tool{Name: "vm_power", Annotations: &sdk.ToolAnnotations{DestructiveHint: ptr(true)},
+		Description: "Starts, shuts down, reboots, suspends or resumes a VM, if the VM allows that operation now."},
+		func(ctx context.Context, _ *sdk.CallToolRequest, in vmPowerIn) (*sdk.CallToolResult, statusOut, error) {
+			out, err := s.VMPower(in)
+			if err != nil {
+				return nil, out, s.fail(err)
+			}
+			return nil, out, nil
+		})
+}
+
+func ptr[T any](v T) *T { return &v }
+
+type vmPowerIn struct {
+	VM          string `json:"vm" jsonschema:"VM uuid."`
+	Operation   string `json:"operation" jsonschema:"start, shutdown, reboot, suspend, resume, force_shutdown or force_reboot."`
+	Confirm     bool   `json:"confirm" jsonschema:"Must be true: the user agreed to this change."`
+	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Accepted for the C# schema; this version always waits for the end."`
+}
+
+// VMPower is the vm_power tool: the VM is looked up on every connected server.
+func (s *Server) VMPower(in vmPowerIn) (statusOut, error) {
+	if !in.Confirm {
+		return statusOut{}, errors.New(`this tool changes the pool: call it again with "confirm": true once the user agreed`)
+	}
+	if !rules.Known(rules.VMOp(in.Operation)) {
+		return statusOut{}, fmt.Errorf("unknown operation %q", in.Operation)
+	}
+	s.mu.Lock()
+	keys := make([]string, 0, len(s.conns))
+	for k := range s.conns {
+		keys = append(keys, k)
+	}
+	s.mu.Unlock()
+	sort.Strings(keys)
+	for _, k := range keys {
+		lock := s.serverLock(k)
+		lock.Lock()
+		s.mu.Lock()
+		c := s.conns[k]
+		s.mu.Unlock()
+		found, err := false, error(nil)
+		if c != nil {
+			if found, err = ops.HasVM(c, in.VM); found {
+				err = ops.VMPower(c, in.VM, rules.VMOp(in.Operation))
+			}
+		}
+		lock.Unlock()
+		if err != nil {
+			return statusOut{}, err
+		}
+		if found {
+			return statusOut{Server: k, Status: "done"}, nil
+		}
+	}
+	return statusOut{}, errors.New("no connected server has this VM")
 }
 
 // ListObjects is the list_objects tool.
@@ -249,7 +311,7 @@ func (s *Server) configured(server string) (config.Server, error) {
 	if err != nil {
 		return config.Server{}, err
 	}
-	for _, e := range s.settings.Servers {
+	for _, e := range s.settings.ServerList() {
 		if e.Host == host && e.Port == port {
 			return e, nil
 		}
