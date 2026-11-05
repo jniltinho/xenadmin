@@ -25,15 +25,27 @@ namespace XenAdmin.Desktop
         private readonly HashSet<string> _collapsed = new HashSet<string>();
         private static readonly string[] Columns = { "Name", Messages.OVERVIEW_CPU_USAGE, Messages.OVERVIEW_MEMORY_USAGE, "Disks\n(avg / max KBs)", "Network\n(avg / max KBs)", "Address", "Uptime" };
         private static readonly double[] Widths = { 250, 115, 125, 120, 120, 120, 170 };
+        /// <summary>Show Columns: the columns the user hid (Name always shows), for every Search tab.</summary>
+        private static readonly HashSet<int> HiddenColumns = new HashSet<int>();
+
+        /// <summary>The main window shows a search in the tree (null: back to Infrastructure).</summary>
+        public static Action<Search> ShowSearch;
+        /// <summary>The main window runs and tracks an action.</summary>
+        public static Action<XenAdmin.Actions.AsyncAction> Run;
+
+        private readonly Search _search;
 
 
         private readonly Func<IEnumerable<(IXenObject Object, int Depth)>> _rows;
 
         /// <param name="rows">The objects to list (a group of an organization view or a saved search); by default the overview.</param>
-        public SearchView(IReadOnlyList<IXenConnection> connections, Func<IEnumerable<(IXenObject Object, int Depth)>> rows = null)
+        /// <param name="search">The search shown (Edit Search and Export start from it); the overview when null.</param>
+        /// <param name="canEdit">False for a group of an organization view or search: Edit Search and Export need its definition.</param>
+        public SearchView(IReadOnlyList<IXenConnection> connections, Func<IEnumerable<(IXenObject Object, int Depth)>> rows = null, Search search = null, bool canEdit = true)
         {
             _connections = connections;
             _rows = rows;
+            _search = search;
             Background = Brushes.White;
             if (_metrics == null)
             {
@@ -42,10 +54,43 @@ namespace XenAdmin.Desktop
             }
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            foreach (var t in new[] { "New Search", "Edit Search", "Saved Searches  ▾", "Export...", "Import..." })
-                buttons.Children.Add(new Button { Content = t, IsEnabled = false });
+            Button B(string text, Action click)
+            {
+                var b = new Button { Content = text };
+                b.Click += (_, _) => click();
+                buttons.Children.Add(b);
+                return b;
+            }
+            B("New Search", async () => Apply(await SearchEditor.Show(Owner, null, _connections)));
+            B("Edit Search", async () => Apply(await SearchEditor.Show(Owner, _search ?? SearchRules.Overview(), _connections))).IsEnabled = canEdit;
+            Button saved = null;
+            saved = B("Saved Searches  ▾", () =>
+            {
+                var menu = new ContextMenu();
+                foreach (var s in NavigationViews.SavedSearches())
+                {
+                    var item = new MenuItem { Header = s.Name.Replace("_", "__"), Icon = Views.Icon(s.DefaultSearch ? "000_defaultSpyglass_h32bit_16" : "000_Search_h32bit_16") };
+                    item.Click += (_, _) => ShowSearch?.Invoke(s);
+                    menu.Items.Add(item);
+                }
+                menu.Open(saved);
+            });
+            B("Export...", async () => await Export()).IsEnabled = canEdit;
+            B("Import...", async () => await Import());
             var top = new Border { BorderBrush = Brush.Parse("#DCDCDC"), BorderThickness = new Thickness(1, 1, 1, 0), Padding = new Thickness(10, 8), Child = buttons };
-            var columns = new Button { Content = "Show Columns  ▾", IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
+            var columns = new Button { Content = "Show Columns  ▾", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 4, 6) };
+            columns.Click += (_, _) =>
+            {
+                var menu = new ContextMenu();
+                for (var i = 1; i < Columns.Length; i++)
+                {
+                    var c = i;
+                    var item = new MenuItem { Header = Columns[c].Replace("\n", " "), ToggleType = MenuItemToggleType.CheckBox, IsChecked = !HiddenColumns.Contains(c) };
+                    item.Click += (_, _) => { if (!HiddenColumns.Remove(c)) HiddenColumns.Add(c); Refresh(); };
+                    menu.Items.Add(item);
+                }
+                menu.Open(columns);
+            };
             var body = new DockPanel();
             DockPanel.SetDock(columns, Dock.Top);
             body.Children.Add(columns);
@@ -118,7 +163,10 @@ namespace XenAdmin.Desktop
             _grid.RowDefinitions.Clear();
             _grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             for (int c = 0; c < Columns.Length; c++)
+                _grid.ColumnDefinitions[c].Width = new GridLength(HiddenColumns.Contains(c) ? 0 : Widths[c], GridUnitType.Pixel);
+            for (int c = 0; c < Columns.Length; c++)
             {
+                if (HiddenColumns.Contains(c)) continue;
                 var h = new Border
                 {
                     BorderBrush = Brush.Parse("#E3E3E3"), BorderThickness = new Thickness(0, 0, 1, 1), Padding = new Thickness(4, 0), Height = 38,
@@ -161,6 +209,7 @@ namespace XenAdmin.Desktop
                 var values = OverviewColumns.Values(r.Object);
                 for (int c = 0; c < values.Length; c++)
                 {
+                    if (HiddenColumns.Contains(c + 1)) continue;
                     var cell = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(4, 0) };
                     if (values[c].Bar >= 0)
                         cell.Children.Add(Bar(values[c].Bar));
@@ -171,6 +220,56 @@ namespace XenAdmin.Desktop
                 }
                 row++;
             }
+        }
+
+        private Window Owner => TopLevel.GetTopLevel(this) as Window;
+
+        /// <summary>The editor's result: show the search, save it to a pool first, or delete it.</summary>
+        private void Apply(SearchEditor.Result result)
+        {
+            if (result == null) return;
+            if (result.Delete)
+            {
+                var c = result.Search.Connection ?? _connections.FirstOrDefault(x => x.IsConnected);
+                if (c != null) Run?.Invoke(SearchRules.DeleteAction(result.Search, c));
+                ShowSearch?.Invoke(null);
+                return;
+            }
+            if (result.SaveTo != null)
+                Run?.Invoke(SearchRules.SaveAction(result.Search, result.SaveTo));
+            ShowSearch?.Invoke(result.Search);
+        }
+
+        private static readonly Avalonia.Platform.Storage.FilePickerFileType SearchFiles =
+            new Avalonia.Platform.Storage.FilePickerFileType("XenCenter search (*.xensearch)") { Patterns = new[] { "*.xensearch" } };
+
+        /// <summary>SearchPage export: the search shown (the overview by default) to a .xensearch file.</summary>
+        private async System.Threading.Tasks.Task Export()
+        {
+            var search = _search ?? SearchRules.Overview();
+            var f = await Owner.StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+            {
+                Title = "Export Search", SuggestedFileName = (string.IsNullOrEmpty(search.Name) ? "Overview" : search.Name) + ".xensearch",
+                DefaultExtension = "xensearch", ShowOverwritePrompt = true, FileTypeChoices = new[] { SearchFiles }
+            });
+            if (f == null || !(Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(f) is string path)) return;
+            try { SearchRules.Export(search, path); }
+            catch (Exception e) { await Dialogs.Info(Owner, "Export Search", e.Message); }
+        }
+
+        /// <summary>SearchPage import: a .xensearch file's search is shown (Edit Search can then save it to a pool).</summary>
+        private async System.Threading.Tasks.Task Import()
+        {
+            var files = await Owner.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+                { Title = "Import Search", AllowMultiple = false, FileTypeFilter = new[] { SearchFiles } });
+            if (files.Count == 0 || !(Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(files[0]) is string path)) return;
+            var searches = SearchRules.Import(path);
+            if (searches == null || searches.Count == 0)
+            {
+                await Dialogs.Info(Owner, "Import Search", "The file is not a search exported by XCP-ng Center.");
+                return;
+            }
+            ShowSearch?.Invoke(searches[0]);
         }
 
         /// <summary>The usage bar drawn above CPU and memory values.</summary>

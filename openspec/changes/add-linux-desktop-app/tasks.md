@@ -114,5 +114,6 @@
 - [x] 8.4g21 VM > Manage vTPMs (adicionar/remover, Protected/Unique; testado no .110 numa VM UEFI descartável)
 - [x] 8.4g22 New Network > SR-IOV Network (regras de NetWTypeSelect, NetWSriovDetails, CreateSriovAction); verificado até a página de NIC no .110 sem criar
 - [x] 8.4g23 Navegação: Objects, Organization Views (Tags, Folders, Custom Fields, vApps) e Saved Searches com o XenSearch do XenModel
+- [x] 8.4g24 Search editável: New/Edit Search, salvar/apagar no pool, Saved Searches, Export/Import .xensearch, Show Columns
 - [ ] 8.4g Restantes do QA: botões das abas Networking/Storage de host, pool e SR, menus Pool/Server/VM/Templates/Help completos (HA, DR, Restart Toolstack, Export, Convert to Template, vApp, vTPM), abas NICs/GPU/USB e Console do host, barras da aba Memory, Search editável, Tree View de snapshots, Objects/Organization Views/Saved Searches, HBA/FCoE/Local no New Storage, Undock/Fullscreen do console, filtro de data e Export de alertas, ícones de SO no New VM
 - [ ] 8.4d Assinatura e notarização do app macOS (precisa de Mac com Developer ID), assinatura Authenticode no Windows; FreeBSD — fora do escopo atual

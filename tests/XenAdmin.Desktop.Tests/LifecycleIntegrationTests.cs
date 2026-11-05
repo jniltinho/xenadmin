@@ -377,6 +377,42 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Search > Save to the pool, listed in Saved Searches, then Delete (a throwaway gui_config entry).</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void SaveAndDeleteSearchInPool()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var registered = !XenAdmin.ConnectionsManager.XenConnections.Contains(c);
+            if (registered) XenAdmin.ConnectionsManager.XenConnections.Add(c);
+            XenAdmin.XenSearch.Search search = null;
+            try
+            {
+                XenAdmin.XenSearch.Search.InitSearch();
+                search = SearchRules.Build(VmName + "-search", XenAdmin.XenSearch.ObjectTypes.VM, "", null, null);
+                Run(SearchRules.SaveAction(search, c));
+                var deadline = DateTime.Now.AddSeconds(60);
+                while (NavigationViews.SavedSearches().All(s => s.UUID != search.UUID) && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                var saved = NavigationViews.SavedSearches().FirstOrDefault(s => s.UUID == search.UUID);
+                Assert.IsNotNull(saved, "the saved search is listed");
+                Assert.IsTrue(SearchRules.CanDelete(saved));
+                Run(SearchRules.DeleteAction(saved, c));
+                while (NavigationViews.SavedSearches().Any(s => s.UUID == search.UUID) && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsFalse(NavigationViews.SavedSearches().Any(s => s.UUID == search.UUID), "deleted");
+            }
+            finally
+            {
+                if (search?.UUID != null)
+                    try { foreach (var p in c.Cache.Pools) Pool.remove_from_gui_config(c.DuplicateSession(), p.opaque_ref, XenAdmin.Core.BrandManager.ExtensionSearch + ".Search-" + search.UUID); } catch { }
+                if (registered) XenAdmin.ConnectionsManager.XenConnections.Remove(c);
+                c.EndConnect();
+            }
+        }
+
         /// <summary>Objects, Organization Views and Saved Searches (read only) on XCP_HOST.</summary>
         [TestMethod, TestCategory("Integration")]
         public void NavigationViewsReadOnly()

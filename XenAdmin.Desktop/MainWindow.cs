@@ -28,6 +28,7 @@ namespace XenAdmin.Desktop
         private NavView _navView = NavView.Infrastructure;
         private XenAdmin.XenSearch.Search _savedSearch;
         private readonly List<Button> _navButtons = new List<Button>();
+        private Button _savedButton, _infraButton;
         private readonly TextBox _search = new TextBox { Watermark = "Search...", BorderThickness = new Thickness(0) };
         private readonly ContentControl _titleBand = new ContentControl();
         private readonly TabControl _tabs = new TabControl();
@@ -68,6 +69,13 @@ namespace XenAdmin.Desktop
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
+            // the Search tab's New/Edit Search, Saved Searches and Import show the search in the tree
+            SearchView.ShowSearch = search =>
+            {
+                if (search == null) ShowView(NavView.Infrastructure, null, _infraButton);
+                else ShowView(NavView.SavedSearch, search, _savedButton);
+            };
+            SearchView.Run = RunTracked;
             _config = config;
             _trust = trust;
             ConsoleView.RunAction = RunTracked;
@@ -183,6 +191,8 @@ namespace XenAdmin.Desktop
             };
             navButtons.Children.Add(orgViews);
             saved = (Button)NavButton("saved_searches_24", "Saved Searches", true, null);
+            _savedButton = saved;
+            _infraButton = infra;
             saved.Click += (_, _) =>
             {
                 var menu = new ContextMenu();
@@ -699,7 +709,8 @@ namespace XenAdmin.Desktop
             {
                 _titleBand.Content = Views.TitleBand(node.Icon, node.Name, null);
                 var groupKey = "group:" + _navView + ":" + node.Key;
-                SetTabs(groupKey, () => new[] { Tab("Search", Body(node.Name, new SearchView(_connections, () => NavigationViews.Objects(SelectedNode() ?? node)))) });
+                var shown = _navView == NavView.SavedSearch && node.IsRoot ? _savedSearch : null;
+                SetTabs(groupKey, () => new[] { Tab("Search", Body(node.Name, new SearchView(_connections, () => NavigationViews.Objects(SelectedNode() ?? node), shown, shown != null))) });
                 if (_tabs.Items.OfType<TabItem>().FirstOrDefault()?.Content is Panel groupPanel)
                     groupPanel.Children.OfType<ILiveView>().FirstOrDefault()?.Refresh();
                 return;

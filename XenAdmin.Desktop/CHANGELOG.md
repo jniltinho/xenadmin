@@ -57,6 +57,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Navigation pane: Objects (by type), Organization Views (Tags, Folders, Custom Fields, vApps) and Saved Searches (the
   default searches and those saved in the pools), built with the Windows app's searches; a group shows its objects in
   the Search tab.
+- Search tab: New Search and Edit Search (object types, a text filter, the grouping; Apply, Save to a pool, Delete),
+  Saved Searches, Export and Import of .xensearch files, and Show Columns.
 - New Network > SR-IOV Network: enable SR-IOV on a NIC of every server and create the network (the option says why
   when it cannot be used). New VMs get an auto-add SR-IOV network when their template recommends SR-IOV.
 

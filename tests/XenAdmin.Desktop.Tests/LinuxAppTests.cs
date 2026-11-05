@@ -110,6 +110,41 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void SearchEditorBuildExportImport()
+        {
+            var types = XenAdmin.XenSearch.ObjectTypes.VM | XenAdmin.XenSearch.ObjectTypes.Server;
+            Assert.IsNotNull(SearchRules.Validate(" ", types));
+            Assert.IsNotNull(SearchRules.Validate("x", XenAdmin.XenSearch.ObjectTypes.None));
+            var groupings = SearchRules.Groupings();
+            var os = groupings.FindIndex(g => g.Name == "Operating System");
+            var search = SearchRules.Build("My VMs", types, "web", groupings[os].Make(), null);
+            Assert.AreEqual("My VMs", search.Name);
+            Assert.AreEqual(types, search.Query.QueryScope.ObjectTypes);
+            Assert.IsNotNull(search.Query.QueryFilter, "the text filter");
+            Assert.AreEqual(os, SearchRules.GroupingIndex(search), "the editor shows the grouping again");
+
+            var edited = SearchRules.Build("My VMs 2", types, "", null, search);
+            Assert.AreSame(search.Query.QueryFilter, edited.Query.QueryFilter, "editing keeps the conditions");
+            Assert.AreEqual(0, SearchRules.GroupingIndex(edited));
+
+            var file = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".xensearch");
+            try
+            {
+                SearchRules.Export(search, file);
+                var back = SearchRules.Import(file);
+                Assert.AreEqual(1, back.Count);
+                Assert.AreEqual("My VMs", back[0].Name);
+                Assert.AreEqual(types, back[0].Query.QueryScope.ObjectTypes);
+                File.WriteAllText(file, "not a search");
+                Assert.IsTrue(SearchRules.Import(file) == null || SearchRules.Import(file).Count == 0, "a file that is not a search");
+            }
+            finally
+            {
+                File.Delete(file);
+            }
+        }
+
+        [TestMethod]
         public void ConfigRoundTripHasNoPassword()
         {
             var cfg = TempConfig();
