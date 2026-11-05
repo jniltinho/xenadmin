@@ -619,7 +619,7 @@ namespace XenAdmin.Desktop
             switch (tab)
             {
                 case "General": return Body(Details.TabTitle(o, tab), Views.Sections(Details.General(o), VmRules.CanEditProperties(o) ? () => ShowProperties(o) : null));
-                case "Memory": return Body("Memory", Views.Sections(Details.Memory(o)));
+                case "Memory": return Body("Memory", new MemoryView(o, RunTracked));
                 case "Storage":
                     var st = Details.Storage(o);
                     return Body(st.Title, o switch

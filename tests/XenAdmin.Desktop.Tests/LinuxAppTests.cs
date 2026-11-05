@@ -317,6 +317,18 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void MemorySettingsKeepExactValues()
+        {
+            // ChangeMemorySettings: a static maximum unchanged to the MB keeps the server's bytes (no resize by rounding)
+            var vm = new VM { memory_static_max = 536870912L + 4096, memory_dynamic_min = 268435456L, memory_dynamic_max = 536870912L + 4096 };
+            var same = MemoryRules.Settings(vm, 268435456L, 536870912L, 536870912L);
+            Assert.AreEqual((268435456L, 536870912L + 4096, 536870912L + 4096), same);
+            var bigger = MemoryRules.Settings(vm, 268435456L, 1073741824L, 1073741824L);
+            Assert.AreEqual((268435456L, 1073741824L, 1073741824L), bigger);
+            Assert.IsTrue(MemoryRules.InMegabytes(vm));
+        }
+
+        [TestMethod]
         public void TemplateIconsExist()
         {
             // every template type maps to a PNG the app ships (XenAdmin/Images, linked as Avalonia resources)

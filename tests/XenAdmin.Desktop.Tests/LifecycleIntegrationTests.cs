@@ -216,6 +216,38 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Memory tab: Edit (Memory Settings) on a halted throwaway VM, 256 MB to 384 MB.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void MemorySettingsOnThrowawayVm()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-memory");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template && v.memory_static_max == 256L << 20);
+                Assert.IsTrue(MemoryRules.CanEdit(vm), "a halted VM can be edited");
+                Assert.IsNull(MemoryRules.Confirmation(vm, 384L << 20), "no restart warning for a halted VM");
+                const long size = 384L << 20;
+                var (dmin, dmax, smax) = (size, size, size); // fixed memory: what the Basic controls send
+                Assert.IsNull(MemoryRules.Validate(vm, dmin, dmax, smax));
+                Assert.IsNotNull(MemoryRules.Validate(vm, dmin, size + (1L << 20), smax), "dynamic maximum above the static maximum");
+                var settings = MemoryRules.Settings(vm, dmin, dmax, smax);
+                Run(MemoryRules.ChangeAction(vm, settings.DynamicMin, settings.DynamicMax, settings.StaticMax));
+                WaitFor(c, vmRef, v => v.memory_static_max == size && v.memory_dynamic_max == size && v.memory_dynamic_min == size);
+            }
+            finally
+            {
+                if (vmRef != null)
+                    VM.destroy(session, vmRef);
+                c.EndConnect();
+            }
+        }
+
         /// <summary>VM menu: Convert to Template (ConvertVMToTemplateCommand) on a throwaway VM, then the template is destroyed.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void ConvertThrowawayVmToTemplate()

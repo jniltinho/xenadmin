@@ -475,6 +475,104 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        /// <summary>
+        /// BallooningDialog ("Memory Settings"): one memory size (VMMemoryControlsBasic) or dynamic minimum, dynamic
+        /// maximum and static maximum (VMMemoryControlsAdvanced), in MB up to 1 GB and GB above; the restart warning for a
+        /// running VM whose static maximum changes. Returns ChangeMemorySettingsAction, or null.
+        /// </summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> MemorySettings(Window owner, XenAPI.VM vm)
+        {
+            if (!MemoryRules.CanEdit(vm)) return null;
+            var advanced = MemoryRules.Advanced(vm);
+            var mb = MemoryRules.InMegabytes(vm);
+            var unit = mb ? XenAdmin.Util.BINARY_MEGA : XenAdmin.Util.BINARY_GIGA;
+            NumericUpDown Spinner(long bytes) => new NumericUpDown
+            {
+                Value = (decimal)Math.Round((double)bytes / unit, mb ? 0 : 1), Increment = mb ? 64 : 0.1m, Minimum = 0, FormatString = mb ? "0" : "0.0", Width = 130
+            };
+            var dmin = Spinner(vm.memory_dynamic_min);
+            var dmax = Spinner(vm.memory_dynamic_max);
+            var smax = Spinner(vm.memory_static_max);
+            // VMMemoryControlsBasic: a fixed size, or a range when ballooning is allowed
+            var fixedRadio = new RadioButton { Content = M("&Set a fixed memory of"), GroupName = "mem", IsChecked = vm.memory_dynamic_min == vm.memory_static_max || !MemoryRules.DynamicAllowed(vm) };
+            var rangeRadio = new RadioButton { Content = M("&Automatically allocate memory within this range:"), GroupName = "mem", IsChecked = fixedRadio.IsChecked != true, IsEnabled = MemoryRules.DynamicAllowed(vm) };
+            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+            var ok = new Button { Content = "OK", IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            // a field left as shown keeps the server's exact bytes (the display rounds, e.g. 1280 MiB shows as 1.3 GB)
+            var original = new Dictionary<NumericUpDown, (decimal? Shown, long Bytes)>
+            {
+                [dmin] = (dmin.Value, vm.memory_dynamic_min), [dmax] = (dmax.Value, vm.memory_dynamic_max), [smax] = (smax.Value, vm.memory_static_max)
+            };
+            long Bytes(NumericUpDown n) => n.Value == original[n].Shown ? original[n].Bytes : (long)((double)(n.Value ?? 0) * unit);
+            (long, long, long) Values() => advanced ? (Bytes(dmin), Bytes(dmax), Bytes(smax))
+                : rangeRadio.IsChecked == true ? (Bytes(dmin), Bytes(dmax), Bytes(dmax)) : (Bytes(smax), Bytes(smax), Bytes(smax));
+            void Validate()
+            {
+                var (a, b, c) = Values();
+                error.Text = MemoryRules.Validate(vm, a, b, c) ?? "";
+                ok.IsEnabled = error.Text == "";
+            }
+            foreach (var n in new[] { dmin, dmax, smax })
+                n.ValueChanged += (_, _) => Validate();
+            fixedRadio.IsCheckedChanged += (_, _) => Validate();
+            dmin.GotFocus += (_, _) => { if (!advanced && rangeRadio.IsEnabled) rangeRadio.IsChecked = true; };
+            dmax.GotFocus += (_, _) => { if (!advanced && rangeRadio.IsEnabled) rangeRadio.IsChecked = true; };
+            smax.GotFocus += (_, _) => { if (!advanced) fixedRadio.IsChecked = true; };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto"), RowSpacing = 8, ColumnSpacing = 10 };
+            void Row(string label, NumericUpDown field)
+            {
+                var r = grid.RowDefinitions.Count;
+                grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                var l = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
+                var u = new TextBlock { Text = mb ? "MB" : "GB", VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetRow(l, r); Grid.SetRow(field, r); Grid.SetRow(u, r); Grid.SetColumn(field, 1); Grid.SetColumn(u, 2);
+                grid.Children.Add(l); grid.Children.Add(field); grid.Children.Add(u);
+            }
+            if (advanced)
+            {
+                Row("Minimum memory:", dmin);
+                Row("Maximum memory:", dmax);
+                Row("Static maximum:", smax);
+            }
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(new TextBlock { Text = MemoryRules.Rubric(vm), TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            if (advanced)
+                panel.Children.Add(grid);
+            else
+            {
+                var fixedRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                fixedRow.Children.Add(fixedRadio);
+                fixedRow.Children.Add(smax);
+                fixedRow.Children.Add(new TextBlock { Text = mb ? "MB" : "GB", VerticalAlignment = VerticalAlignment.Center });
+                panel.Children.Add(fixedRow);
+                panel.Children.Add(rangeRadio);
+                Row("Minimum memory:", dmin);
+                Row("Maximum memory:", dmax);
+                grid.Margin = new Thickness(22, 0, 0, 0);
+                grid.IsEnabled = rangeRadio.IsEnabled;
+                panel.Children.Add(grid);
+                if (MemoryRules.DynamicUnavailable(vm) is string why)
+                    panel.Children.Add(new TextBlock { Text = why, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Opacity = 0.8 });
+            }
+            panel.Children.Add(error);
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame("Memory Settings", panel, 480);
+            Validate();
+            XenAdmin.Actions.AsyncAction result = null;
+            ok.Click += async (_, _) =>
+            {
+                var (a, b, c) = MemoryRules.Settings(vm, Values().Item1, Values().Item2, Values().Item3);
+                if (MemoryRules.Confirmation(vm, c) is string warning && !await Confirm(w, "Memory Settings", warning, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+                    return;
+                result = MemoryRules.ChangeAction(vm, a, b, c);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>DestroyBondCommand: the warning for the management interfaces (or the HA error), then DestroyBondAction.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> DeleteBond(Window owner, XenAPI.Network network)
         {

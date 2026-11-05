@@ -31,6 +31,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   first, newest version first); the list no longer starts with an empty band.
 - Console: Undock (Alt+Shift+U) into its own window, Redock, and Fullscreen (Ctrl+Enter); while undocked the tab
   offers Find Console and Reattach Console.
+- Memory tab: the memory bar of a VM (in use, dynamic range) or of a server (Xen and control domain, each VM, free),
+  and Edit: the Memory Settings dialog (a fixed size or a range, or the advanced dynamic minimum, maximum and static
+  maximum), with the server's limits and the restart warning.
 - Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
   Properties.
 
