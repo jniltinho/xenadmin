@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-var core = []string{"xapi", "trust", "config", "app", "buildinfo", "model", "rules", "ops", "console"}
+var core = []string{"xapi", "trust", "config", "app", "buildinfo", "model", "rules", "ops", "console", "messages"}
 
 var forbidden = []string{"github.com/spf13/cobra", "github.com/modelcontextprotocol/", "github.com/wailsapp/", "xcpng-center/cmd", "xcpng-center/internal/mcp", "xcpng-center/internal/gui", "xcpng-center/internal/server"}
 

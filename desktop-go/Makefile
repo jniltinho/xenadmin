@@ -12,10 +12,11 @@ ICONS    := ../branding-xcp-ng/Images/Logo.png $(addprefix ../XenAdmin/Images/,0
             000_PoolConnected_h32bit_16.png 000_TreeConnected_h32bit_16.png 000_StartVM_h32bit_16.png \
             000_StoppedVM_h32bit_16.png 000_SuspendVM_h32bit_16.png 000_Storage_h32bit_16.png \
             000_AddApplicationServer_h32bit_16.png \
+            $(foreach i,alert1 alert2 alert3 alert4 alert5 alert6 infra_view notif_none notif_alerts,$(i)_16.png) infra_view_24.png notif_none_24.png \
             $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_Paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_24.png) \
             $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_16.png))
 
-.PHONY: test check cli frontend linux dist clean
+.PHONY: test check cli frontend linux windows macos dist clean
 
 test:            ## unit tests of the app and the vendored SDK
 	$(RUN) sh -c 'go test -tags nogui ./... && cd sdk/xenapi && go test ./...'
@@ -37,7 +38,27 @@ linux: frontend  ## the desktop app for Linux (amd64) in dist/
 	$(DOCKER) -v $(CURDIR):/src -w /src $(GO_ENV) xcpng-center-go-linux \
 	  go build -trimpath -ldflags "$(LDFLAGS)" -o dist/xcp-ng-center-go-$(VERSION)-linux-amd64-desktop .
 
-dist: check cli linux
+windows: frontend ## the desktop app for Windows (amd64; WebView2, no CGO) in dist/
+	$(RUN) sh -c 'CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS) -H windowsgui" \
+	  -o dist/xcp-ng-center-go-$(VERSION)-windows-amd64-desktop.exe .'
+
+# "XCP-ng Center (Go).app" with one binary per CPU and the launcher that picks it, as the C# app's `make macos`.
+# Cross-built from Linux with Wails' CGO-free backend (-tags purego, experimental in Wails 3.1).
+# shortcut: unverified on a Mac and unsigned (`xattr -dr com.apple.quarantine` after download); on a Mac, build
+# natively with CGO (`CGO_ENABLED=1 go build`) and sign/notarize before a release that claims macOS support.
+macos: frontend ## the desktop app for macOS (Apple Silicon + Intel) as a zip in dist/
+	docker build -q -t xcpng-center-go-linux -f build/linux.Dockerfile build
+	$(DOCKER) -v $(CURDIR):/src -v $(CURDIR)/../XenAdmin.Desktop/packaging/macos:/macos:ro -w /src $(GO_ENV) xcpng-center-go-linux sh -c '\
+	  out=dist/macos; app="$$out/XCP-ng Center (Go).app"; rm -rf $$out; mkdir -p "$$app/Contents/Resources"; \
+	  for arch in arm64 amd64; do CGO_ENABLED=0 GOOS=darwin GOARCH=$$arch go build -tags purego -trimpath \
+	    -ldflags "$(LDFLAGS)" -o "$$app/Contents/MacOS/$$arch/xcp-ng-center-go" . || exit 1; done; \
+	  install -m 755 build/darwin/launcher "$$app/Contents/MacOS/xcp-ng-center-go"; \
+	  cp /macos/xcp-ng-center.icns "$$app/Contents/Resources/"; \
+	  v=$(VERSION); sed -e "s/@VERSION@/$$v/" -e "s/@SHORT_VERSION@/$${v%%-*}/" build/darwin/Info.plist > "$$app/Contents/Info.plist"; \
+	  rm -f dist/xcp-ng-center-go-$(VERSION)_macos_universal.zip; \
+	  (cd $$out && zip -qry ../xcp-ng-center-go-$(VERSION)_macos_universal.zip "XCP-ng Center (Go).app")'
+
+dist: check cli linux windows macos
 
 clean:
 	rm -rf dist .cache

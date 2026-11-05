@@ -2,7 +2,7 @@
 // The main window (first stage): menu and toolbar, the Infrastructure tree (server -> pool -> hosts -> VMs, and the
 // SRs), the General tab of the selected object, Add New Server and the certificate question, a status bar.
 import { computed, onMounted, reactive, ref } from "vue";
-import { api, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
+import { api, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[] }
 
@@ -36,7 +36,7 @@ async function runVm(c: VmCommand, n: Node | null) {
   menu.value = null; vmMenuOpen.value = false;
   if (!n?.object || !n.server || !canRun(c, n)) return;
   const q = await api.vmConfirmation(c.op, !!n.object.ha_protected);
-  if (q.title && !(await new Promise<boolean>((resolve) => (ask.value = { ...q, resolve })))) return;
+  if (q.title && !(await confirm(q))) return;
   status.value = `${c.busy} VM '${n.label}'...`;
   let error = "";
   try {
@@ -59,6 +59,50 @@ function reselect(id: string) {
   const p = path(tree.value);
   p?.slice(0, -1).forEach((a) => expanded.add(a.id));
   selected.value = p?.[p.length - 1] ?? null;
+}
+
+// Notifications > Alerts (AlertSummaryPage): every connected server's alerts, newest first; Dismiss asks first.
+const view = ref<"infrastructure" | "alerts">("infrastructure");
+type AlertRow = Alert & { server: string };
+const alerts = ref<AlertRow[]>([]);
+const picked = reactive(new Set<string>());
+const confirm = (q: Confirm) => new Promise<boolean>((resolve) => (ask.value = { ...q, resolve }));
+
+async function loadAlerts() {
+  const rows: AlertRow[] = [];
+  for (const s of servers.value.filter((x) => x.connected)) {
+    try {
+      rows.push(...((await api.alerts(s.key)) ?? []).map((a) => ({ ...a, server: s.key })));
+    } catch (e) {
+      failure.value = `Could not load the alerts of ${s.key}: ${String(e)}`;
+    }
+  }
+  alerts.value = rows.sort((a, b) => b.time.localeCompare(a.time));
+  picked.clear();
+}
+
+async function dismiss(rows: AlertRow[], all = false) {
+  if (!rows.length || !(await confirm(await api.dismissConfirmation(rows.length, all)))) return;
+  for (const key of new Set(rows.map((r) => r.server))) {
+    try {
+      await api.dismissAlerts(key, rows.filter((r) => r.server === key).map((r) => r.uuid));
+    } catch (e) {
+      failure.value = `Dismiss: ${String(e)}`;
+    }
+  }
+  await loadAlerts();
+}
+
+function pick(a: AlertRow, e: MouseEvent) {
+  if (!e.ctrlKey && !e.metaKey) picked.clear();
+  picked.has(a.uuid) ? picked.delete(a.uuid) : picked.add(a.uuid);
+}
+
+const when = (t: string) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+async function showView(v: "infrastructure" | "alerts") {
+  view.value = v;
+  if (v === "alerts") await loadAlerts();
 }
 
 function answer(ok: boolean) { ask.value?.resolve(ok); ask.value = null; }
@@ -166,7 +210,9 @@ onMounted(async () => { await refreshServers(); });
       </template>
     </div>
     <div class="flex min-h-0 flex-1">
-      <aside class="w-64 overflow-auto border-r border-line">
+      <aside class="flex w-64 flex-col border-r border-line">
+       <div class="min-h-0 flex-1 overflow-auto">
+        <template v-if="view === 'infrastructure'">
         <div v-for="{ node, depth } in flat" :key="node.id"
              class="flex cursor-default items-center gap-1 whitespace-nowrap px-1 py-px"
              :class="selected?.id === node.id ? 'bg-select text-white' : 'hover:bg-neutral-100'"
@@ -177,8 +223,48 @@ onMounted(async () => { await refreshServers(); });
           <img :src="`/icons/${node.icon}.png`" alt="" class="h-4 w-4" />
           <span>{{ node.label }}</span>
         </div>
+        </template>
+        <div v-else class="flex items-center gap-1 bg-select px-2 py-px text-white">
+          <img src="/icons/notif_alerts_16.png" alt="" class="h-4 w-4" /> Alerts ({{ alerts.length }})
+        </div>
+       </div>
+        <div class="border-t border-line bg-pane">
+          <div v-for="b in [{ v: 'infrastructure', label: 'Infrastructure', icon: 'infra_view_24' }, { v: 'alerts', label: 'Notifications', icon: 'notif_none_24' }] as const"
+               :key="b.v" class="flex cursor-default items-center gap-2 border-b border-line px-2 py-1.5 font-semibold"
+               :class="view === b.v ? 'bg-neutral-200' : 'hover:bg-neutral-100'" @click="showView(b.v)">
+            <img :src="`/icons/${b.icon}.png`" alt="" class="h-6 w-6" />{{ b.label }}
+          </div>
+        </div>
       </aside>
-      <main class="flex min-w-0 flex-1 flex-col">
+      <main v-if="view === 'alerts'" class="flex min-w-0 flex-1 flex-col">
+        <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
+          <img src="/icons/notif_alerts_16.png" alt="" class="h-4 w-4" />Alerts
+        </div>
+        <div class="flex gap-1 border-b border-line bg-pane px-2 py-1">
+          <button class="px-2 py-0.5 hover:bg-neutral-200" @click="loadAlerts">Refresh</button>
+          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!alerts.length" @click="dismiss(alerts, true)">Dismiss All</button>
+          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!picked.size" @click="dismiss(alerts.filter((a) => picked.has(a.uuid)))">Dismiss Selected</button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-auto">
+          <table class="w-full border-collapse">
+            <thead class="sticky top-0 bg-pane text-left">
+              <tr><th class="w-20 border-b border-line px-2 py-1 font-normal">Severity</th><th class="border-b border-line px-2 py-1 font-normal">Message</th>
+                <th class="w-48 border-b border-line px-2 py-1 font-normal">Location</th><th class="w-44 border-b border-line px-2 py-1 font-normal">Date</th><th class="w-24 border-b border-line"></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="a in alerts" :key="a.uuid" class="cursor-default align-top" :class="picked.has(a.uuid) ? 'bg-select text-white' : 'hover:bg-neutral-100'" @click="pick(a, $event)">
+                <td class="border-b border-line px-2 py-1"><img :src="`/icons/alert${a.priority}_16.png`" alt="" class="h-4 w-4" /></td>
+                <td class="border-b border-line px-2 py-1 select-text"><div class="font-semibold">{{ a.title }}</div><div class="whitespace-pre-line">{{ a.description }}</div></td>
+                <td class="border-b border-line px-2 py-1">{{ a.applies_to }}</td>
+                <td class="border-b border-line px-2 py-1">{{ when(a.time) }}</td>
+                <td class="border-b border-line px-2 py-1"><button class="underline" @click.stop="dismiss([a])">Dismiss</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="!alerts.length" class="p-3 text-neutral-500">There are no alerts.</p>
+        </div>
+      </main>
+      <main v-else class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
           <img :src="`/icons/${selected?.icon ?? 'Logo'}.png`" alt="" class="h-4 w-4" />{{ selected?.label ?? "XCP-ng Center" }}
         </div>

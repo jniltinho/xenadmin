@@ -9,6 +9,7 @@ import (
 
 	"xcpng-center/internal/app"
 	"xcpng-center/internal/config"
+	"xcpng-center/internal/messages"
 	"xcpng-center/internal/ops"
 	"xcpng-center/internal/rules"
 	"xcpng-center/internal/trust"
@@ -125,16 +126,45 @@ func (w *Workspace) logout(conn *xapi.Connection) {
 }
 
 // Objects lists one kind (pools, hosts, vms, templates, srs, networks) of a connected server.
-func (w *Workspace) Objects(key, kind string) ([]app.Object, error) {
+func (w *Workspace) Objects(key, kind string) (out []app.Object, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListObjects(c, kind); return err })
+	return out, err
+}
+
+// Alerts lists the alerts of a connected server (Notifications > Alerts), newest first.
+func (w *Workspace) Alerts(key string) (out []app.Alert, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListAlerts(c); return err })
+	return out, err
+}
+
+// DismissAlerts removes alerts from a server for good (the window asked DismissConfirmation first).
+func (w *Workspace) DismissAlerts(key string, uuids []string) error {
+	return w.with(key, func(c *xapi.Connection) error { return app.DismissAlerts(c, uuids) })
+}
+
+// DismissConfirmation is the question of Dismiss (one alert), Dismiss Selected and Dismiss All (AlertSummaryPage).
+func (w *Workspace) DismissConfirmation(count int, all bool) Confirm {
+	text := messages.Get("ALERT_DISMISS_SELECTED_CONFIRM")
+	switch {
+	case all:
+		text = messages.Get("ALERT_DISMISS_ALL_NO_FILTER_CONTINUE")
+	case count == 1:
+		text = messages.Get("ALERT_DISMISS_CONFIRM")
+	}
+	return Confirm{Title: "Dismiss Alerts", Text: strings.TrimSpace(text)}
+}
+
+// with runs fn on a connected server's session; logging out waits for it (Workspace.use).
+func (w *Workspace) with(key string, fn func(*xapi.Connection) error) error {
 	w.use.RLock()
 	defer w.use.RUnlock()
 	w.mu.Lock()
 	conn := w.conns[key]
 	w.mu.Unlock()
 	if conn == nil {
-		return nil, errors.New("not connected")
+		return errors.New("not connected")
 	}
-	return app.ListObjects(conn, kind)
+	return fn(conn)
 }
 
 // Confirm is the question a VM operation asks first (empty Title: none).
@@ -154,15 +184,7 @@ func (w *Workspace) VMConfirmation(op string, haProtected bool) Confirm {
 
 // VMPower runs a VM power operation (the window asked VMConfirmation first).
 func (w *Workspace) VMPower(key, uuid, op string) error {
-	w.use.RLock()
-	defer w.use.RUnlock()
-	w.mu.Lock()
-	conn := w.conns[key]
-	w.mu.Unlock()
-	if conn == nil {
-		return errors.New("not connected")
-	}
-	return ops.VMPower(conn, uuid, rules.VMOp(op))
+	return w.with(key, func(c *xapi.Connection) error { return ops.VMPower(c, uuid, rules.VMOp(op)) })
 }
 
 // Close logs out of every server (the window closes).

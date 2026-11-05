@@ -4,7 +4,7 @@
 - [~] 1.2 (feito: SDK 26.16.1, `PATCHES.md`, `tools/sdk-update.sh`, patches `HTTPClient`, sem `log.Fatal`, `APIError`, `Session.Ref`; falta `DecodeRecord` e o teste dedicado de que o SDK só usa o cliente do app) `sdk/xenapi` com o SDK 26.16.1, `PATCHES.md`, script `tools/sdk-update.sh` e os patches `HTTPClient`, erros sem `log.Fatal`, `APIError` tipado e `DecodeRecord`; teste que falha se o SDK abrir conexão sem o cliente do app
 - [x] 1.3 `internal/gui` com Wails v3.1.0 e `cmd/gui.go` (root sem subcomando abre a janela vazia carregando a SPA); tag `nogui` para testar núcleo e CLI sem CGO
 - [~] 1.4 (feito: Vue 3 + TS + Tailwind 4 + Vite → `internal/gui/dist`, `--mode web` → `web/dist`, `src/api/workspace.ts`; falta a interface comum e `http.ts`) `frontend/` Vue 3 + TS + Tailwind 4 + Vite com `--mode desktop` (→ `frontend/dist`) e `--mode web` (→ `web/dist`); `src/api/` com interface, `wails.ts` e `http.ts` vazio
-- [~] 1.5 (feito: `test`, `check`, `cli`, `frontend` (node:24), `linux` (Ubuntu 24.04 + GTK4/WebKitGTK 6.0, `build/linux.Dockerfile`), alvos `go-*` na raiz; falta `windows`, `macos`, `appimage`, `web-check`, `smoke`) Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
+- [~] 1.5 (feito: `test`, `check`, `cli`, `frontend` (node:24), `linux` (Ubuntu 24.04 + GTK4/WebKitGTK 6.0, `build/linux.Dockerfile`), alvos `go-*` na raiz; `windows` (WebView2, sem CGO) e `macos` (`.app` arm64 + amd64 com `-tags purego`, sem teste num Mac); falta `appimage`, `web-check`, `smoke`) Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
 - [~] 1.6 (feito: README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md`, `CHANGELOG.md`; falta o workflow, que pede o escopo `workflow` no token do GitHub) Workflow `desktop-go.yml` (PR: check, testes, web-check, fumaça Xvfb, build Windows); README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md` e `CHANGELOG.md` do `desktop-go/`
 - [x] 1.7 Teste de arquitetura: `internal/{xapi,model,rules,ops,console,app}` sem Wails, Cobra, MCP ou `internal/server`
 
@@ -34,12 +34,12 @@
 
 ## 4. Operações
 
-- [~] 4.1 (feito: `rules/vm.go` com `VMAllowed`, `NeedsConfirmation`, `Confirmation`, `HAStartBlocker` e teste de tabela; falta `HostRules`, `PoolRules` e o `resx2go`) `internal/rules`: `VmOperations`, `VmRules`, `HostRules`, `PoolRules` com testes de tabela do C#; `internal/messages` gerado por `tools/resx2go`
+- [~] 4.1 (feito: `rules/vm.go` com teste de tabela, `tools/resx2go` e `internal/messages` gerado de Messages.resx e FriendlyNames.resx; falta `HostRules`, `PoolRules`) `internal/rules`: `VmOperations`, `VmRules`, `HostRules`, `PoolRules` com testes de tabela do C#; `internal/messages` gerado por `tools/resx2go`
 - [ ] 4.2 `internal/ops`: Async + task, progresso, erros XAPI traduzidos, cancelamento quando permitido, resultado incerto sem repetição
 - [ ] 4.2b Orquestração portada das Actions (Create VM, SR create/reattach/introduce, Evacuate, Copy, Create Pool) com testes de falha em cada passo e reserva de LUN
 - [x] 4.3 VM: Start, Shut Down, Reboot, Suspend, Resume e forçados, com as confirmações do C#; menus e toolbar
 - [ ] 4.4 Host: Shut Down, Reboot, Enter/Exit Maintenance Mode com o diálogo de evacuação e a volta das VMs
-- [ ] 4.5 Notifications: Alerts (filtros por severidade e servidor, Dismiss, Dismiss All/Selected, contador) e Events
+- [~] 4.5 (feito: Alerts com os textos de `NotificationRules` (login falho, nomes amigáveis, prioridade), Dismiss, Dismiss Selected e Dismiss All com as confirmações do C#, painel Infrastructure/Notifications; faltam os filtros, o contador na barra e Events) Notifications: Alerts (filtros por severidade e servidor, Dismiss, Dismiss All/Selected, contador) e Events
 - [ ] 4.6 Lab KVM: ciclo de vida de VM, manutenção com VMs, alertas
 
 ## 5. Console

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Universal app: runs the build for this Mac's CPU (Apple Silicon or Intel), also when started under Rosetta
+# (as XenAdmin.Desktop/packaging/macos/launcher).
+dir=$(cd "$(dirname "$0")" && pwd)
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; else arch=amd64; fi
+exec "$dir/$arch/xcp-ng-center-go" "$@"

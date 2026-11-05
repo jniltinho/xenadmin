@@ -17,7 +17,8 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
 - Window (Wails v3, GTK 4 + WebKitGTK 6.0 on Linux): Add New Server with the certificate question, the tree (pool,
   hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app; VM Start, Shut Down,
   Reboot, Suspend, Resume and the forced ones from the toolbar, the VM menu and the context menu, enabled by the VM's
-  allowed operations and with the C# confirmations.
+  allowed operations and with the C# confirmations; Notifications > Alerts with the C# texts, Dismiss, Dismiss
+  Selected and Dismiss All.
 - CLI: `server add|list`, `pool|host|vm|template|sr|network list` (table or `--json`), `version`.
 - MCP (`mcp`, stdio): `list_servers`, `connect`, `disconnect`, `list_objects` — the names and arguments of the C# app's
   MCP server, read-only; `mcp --allow-write` adds `vm_power`, which runs only with `confirm: true`. The operator's
@@ -42,6 +43,16 @@ Settings (servers and certificate fingerprints, no passwords) live in `settings.
 make check     # gofmt, go vet (app and SDK), tests
 make cli       # static CLI/MCP binaries for Linux, macOS (arm64, amd64) and Windows in dist/
 make linux     # the desktop app for Linux (builds the frontend first, node:24 + Ubuntu 24.04 GTK/WebKit images)
+make windows   # the desktop app for Windows (WebView2; no CGO)
+make macos     # "XCP-ng Center (Go).app" for Apple Silicon and Intel, zipped (cross-built, see below)
 ```
+
+### macOS
+
+`make macos` cross-builds the app on Linux with Wails' CGO-free backend (`-tags purego`, experimental in Wails 3.1):
+one binary per CPU inside the bundle and a launcher that picks it, like the C# app's macOS zip. It is unsigned and not
+yet tried on a Mac: after downloading, `xattr -dr com.apple.quarantine "XCP-ng Center (Go).app"`. On a Mac, the
+native build is `cd frontend && npm ci && npm run build && cd .. && CGO_ENABLED=1 go build .` (Xcode command line
+tools), then sign and notarize before a release that claims macOS support.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/development.md](docs/development.md).

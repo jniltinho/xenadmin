@@ -2,7 +2,11 @@
 // asks for confirmation and with which words.
 package rules
 
-import "fmt"
+import (
+	"fmt"
+
+	"xcpng-center/internal/messages"
+)
 
 // VMOp is a power operation of the VM menu and toolbar (VmOperations.VmOp; the names are the MCP vm_power ones).
 type VMOp string
@@ -42,28 +46,22 @@ func VMAllowed(allowed []string, op VMOp) bool {
 // NeedsConfirmation is VmOperations.NeedsConfirmation: Start and Resume do not ask.
 func NeedsConfirmation(op VMOp) bool { return op != VMStart && op != VMResume }
 
-// Confirmation is VmOperations.Confirmation (the commands' ConfirmationDialogTitle/Text, XenModel/Messages.resx);
+// Confirmation is VmOperations.Confirmation (the commands' ConfirmationDialogTitle/Text from Messages.resx);
 // haProtected is VM.HAIsProtected (pool HA on and a restart priority set).
 func Confirmation(op VMOp, haProtected bool) (title, text string) {
-	switch op {
-	case VMShutdown:
-		if haProtected {
-			return "Shut Down VM", "The selected VM is currently protected by HA. Are you sure you want to shut it down?"
-		}
-		return "Shut Down VM", "Are you sure you want to shut down the selected VM?"
-	case VMReboot:
-		return "Reboot VM", "Are you sure you want to reboot the selected VM?"
-	case VMSuspend:
-		if haProtected {
-			return "Suspend VM", "The selected VM is currently protected by HA. Are you sure you want to suspend it?"
-		}
-		return "Suspend VM", "Are you sure you want to suspend the selected VM?"
-	case VMForceShutdown:
-		return "Force Shut Down VM", "Are you sure you want to forcibly shut down the selected VM? This operation can result in data loss."
-	case VMForceReboot:
-		return "Force VM Reboot", "Are you sure you want to forcibly reboot the selected VM? This operation can result in data loss."
+	key := map[VMOp]string{VMShutdown: "SHUTDOWN_VM", VMReboot: "REBOOT_VM", VMSuspend: "SUSPEND_VM",
+		VMForceShutdown: "FORCESHUTDOWN_VM", VMForceReboot: "FORCEREBOOT_VM"}[op]
+	if key == "" {
+		return "", ""
 	}
-	return "", ""
+	text = messages.Get("CONFIRM_" + key)
+	switch {
+	case haProtected && (op == VMShutdown || op == VMSuspend):
+		text = messages.Get("HA_CONFIRM_" + key)
+	case op == VMForceShutdown || op == VMForceReboot:
+		text = messages.Get("CONFIRM_" + key + "_NO_CANCEL_TASKS")
+	}
+	return messages.Get("CONFIRM_" + key + "_TITLE"), text
 }
 
 // HAStartBlocker is VmOperations.HaStartBlocker: with HA on, a VM whose restart priority protects it must be agile; a

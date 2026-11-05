@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Notifications > Alerts: the alerts of every connected server with the C# texts (FriendlyNames, failed logins),
+  Dismiss, Dismiss Selected, Dismiss All with the C# confirmations; `tools/resx2go` generates `internal/messages`.
+- `make windows` (WebView2, no CGO) and `make macos` (a universal `.app` zip, cross-built with `-tags purego`).
 - VM power operations (Start, Shut Down, Reboot, Suspend, Resume, Force Shut Down, Force Reboot) in the toolbar, the
   VM menu and the context menu, with the C# confirmations and HA start check (`internal/rules`, `internal/ops`);
   MCP `vm_power` behind `--allow-write` and `confirm: true`.
