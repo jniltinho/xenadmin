@@ -57,7 +57,7 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
             _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
-            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable;
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu;
         // connections with an Enable/Disable HA action of ours running (HelpersGUI.FindActiveHaAction)
         private readonly HashSet<IXenConnection> _haBusy = new HashSet<IXenConnection>();
 
@@ -297,7 +297,9 @@ namespace XenAdmin.Desktop
                 Background = Brush.Parse("#F5F5F5"),
                 ItemsSource = new[]
                 {
-                    Top("_File", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", Item("E_xit", Close, "Alt+F4")),
+                    Top("_File", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-",
+                        Item("_Import...", ImportVm, icon: "000_ImportVirtualAppliance_h32bit_16"), "-",
+                        Item("E_xit", Close, "Alt+F4")),
                     Top("_View", Item("_Infrastructure", () => { _showEvents = false; UpdateContent(); }),
                         Item("_Notifications", () => { _showEvents = true; UpdateContent(); })),
                     Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool(), icon: "000_PoolNew_h32bit_16"), "-",
@@ -325,6 +327,7 @@ namespace XenAdmin.Desktop
                         _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
                         _snapshotMenu = Item("Ta_ke a Snapshot...", () => TakeSnapshot(SelectedNode()?.XenObject as VM), icon: "000_VMSnapShotDiskOnly_h32bit_16"),
                         _toTemplateMenu = Item("Con_vert to Template...", () => ConvertToTemplate(SelectedNode()?.XenObject as VM)),
+                        _exportVmMenu = Item("_Export...", async () => { if (SelectedNode()?.XenObject is VM v && await Dialogs.ExportVm(this, v) is AsyncAction a) RunTracked(a); }, icon: "000_ExportVirtualAppliance_h32bit_16"),
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
                     Top("S_torage", _newSrMenu = Item("New SR...", () => ShowNewSr(), icon: "000_NewStorage_h32bit_16")),
@@ -557,6 +560,8 @@ namespace XenAdmin.Desktop
             _copyVmMenu.IsEnabled = vm != null && VmRules.CanCopy(vm);
             _snapshotMenu.IsEnabled = VmRules.CanTakeSnapshot(vm);
             _toTemplateMenu.IsEnabled = VmRules.CanConvertToTemplate(vm);
+            _exportVmMenu.IsEnabled = XvaRules.CanExport(vm);
+            ToolTip.SetTip(_exportVmMenu, XvaRules.ExportBlocker(vm));
             var template = o as VM;
             _fromTemplateMenu.IsEnabled = VmRules.IsUserTemplate(template) && template.Connection.IsConnected;
             _copyTemplateMenu.IsEnabled = VmRules.CanCopyTemplate(template);
@@ -1191,6 +1196,19 @@ namespace XenAdmin.Desktop
                     Dispatcher.UIThread.Post(async () => await Dialogs.Info(this, "XCP-ng Center", $"{a.Title}\n\n{a.Exception.Message}"));
             };
             action.RunAsync();
+        }
+
+        /// <summary>File > Import (XVA): the import, then "Start VM after import" as its own tracked action.</summary>
+        private async void ImportVm()
+        {
+            var (import, start) = await Dialogs.ImportVm(this, _connections);
+            if (import == null) return;
+            if (start)
+                import.Completed += _ => Dispatcher.UIThread.Post(() =>
+                {
+                    if (XvaRules.StartAfterImport(import) is AsyncAction a) RunTracked(a);
+                });
+            RunTracked(import);
         }
 
         // ---------- VM operations ----------

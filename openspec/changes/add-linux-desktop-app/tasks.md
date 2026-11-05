@@ -107,5 +107,6 @@
 - [x] 8.4g14 Menu Pool: Reconnect As, Disconnect, Change Server Password, Rotate Pool Secret (testado no lab)
 - [x] 8.4g15 Menu Pool: Add Server, Remove Server, Make into standalone server (testados no lab)
 - [x] 8.4g16 HA: wizard Configure HA, prioridades com HA ligado e Disable (testado no pool do lab com heartbeat NFS)
+- [x] 8.4g17 Import/Export XVA: VM > Export (verificação opcional) e File > Import em pool/servidor e SR (testado no .110)
 - [ ] 8.4g Restantes do QA: botões das abas Networking/Storage de host, pool e SR, menus Pool/Server/VM/Templates/Help completos (HA, DR, Restart Toolstack, Export, Convert to Template, vApp, vTPM), abas NICs/GPU/USB e Console do host, barras da aba Memory, Search editável, Tree View de snapshots, Objects/Organization Views/Saved Searches, HBA/FCoE/Local no New Storage, Undock/Fullscreen do console, filtro de data e Export de alertas, ícones de SO no New VM
 - [ ] 8.4d Assinatura e notarização do app macOS (precisa de Mac com Developer ID), assinatura Authenticode no Windows; FreeBSD — fora do escopo atual

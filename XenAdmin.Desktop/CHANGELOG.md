@@ -42,8 +42,11 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   Disable.
 - Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
   Properties.
+- VM > Export (an XVA file, optionally verified on completion) and File > Import of an XVA file to a pool or one of
+  its servers, on the SR you choose, optionally starting the VM.
 
 ### Fixed
+- Exporting a VM no longer fails outside Windows (the export flushed the file with a Windows-only call).
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).
 - Delete Virtual Disk also requires the server to allow `destroy` on the disk, as the Windows app does.
 

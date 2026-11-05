@@ -700,6 +700,109 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        private static async Task<string> PickFile(Window owner, bool save, string title, string suggested)
+        {
+            var sp = owner.StorageProvider;
+            if (save)
+            {
+                // ExportVmAction writes a plain (uncompressed) XVA
+                var plain = new Avalonia.Platform.Storage.FilePickerFileType("XVA (*.xva)") { Patterns = new[] { "*.xva" } };
+                var f = await sp.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+                    { Title = title, SuggestedFileName = suggested, DefaultExtension = "xva", ShowOverwritePrompt = true, FileTypeChoices = new[] { plain } });
+                return f == null ? null : Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(f);
+            }
+            var xva = new Avalonia.Platform.Storage.FilePickerFileType("XVA (*.xva, *.xva.gz)") { Patterns = new[] { "*.xva", "*.xva.gz" } };
+            var files = await sp.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions { Title = title, AllowMultiple = false, FileTypeFilter = new[] { xva } });
+            return files.Count == 0 ? null : Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(files[0]);
+        }
+
+        /// <summary>ExportVMCommand with the export wizard's XVA path: the file and "Verify export on completion".</summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> ExportVm(Window owner, XenAPI.VM vm)
+        {
+            if (!XvaRules.CanExport(vm)) return null;
+            var path = await PickFile(owner, true, string.Format("Export '{0}'", vm.Name()), vm.Name() + ".xva");
+            if (path == null) return null;
+            var verify = new CheckBox { Content = M("&Verify export on completion") };
+            var ok = new Button { Content = M("&Export"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            var panel = new StackPanel { Spacing = 10 };
+            panel.Children.Add(new TextBlock { Text = $"Export '{vm.Name()}' to:\n{path}", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(verify);
+            panel.Children.Add(new TextBlock { Text = "Verify export can take up to 5 hours per TB.", Opacity = 0.7 });
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame("Export VM", panel, 520);
+            XenAdmin.Actions.AsyncAction result = null;
+            ok.Click += (_, _) => { result = XvaRules.ExportAction(vm, path, verify.IsChecked == true); w.Close(); };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
+        /// <summary>The import wizard's XVA path: the file, the server (a pool or one of its servers) and the SR, and Start.</summary>
+        public static async Task<(XenAdmin.Actions.ImportVmAction Action, bool Start)> ImportVm(Window owner, IEnumerable<XenAdmin.Network.IXenConnection> connections)
+        {
+            var file = new TextBox { Watermark = "File to import (.xva)" };
+            var browse = new Button { Content = M("&Browse...") };
+            // the pool (or standalone server) itself, then each server of a pool as the affinity
+            var targets = new List<(XenAdmin.Network.IXenConnection Connection, XenAPI.Host Host, string Text)>();
+            foreach (var c in connections.Where(c => c.IsConnected))
+            {
+                targets.Add((c, null, XenAdmin.Core.Helpers.GetName(c)));
+                if (XenAdmin.Core.Helpers.GetPool(c) != null)
+                    targets.AddRange(c.Cache.Hosts.OrderBy(h => h.Name()).Select(h => (c, h, "    " + h.Name())));
+            }
+            var server = new ComboBox { ItemsSource = targets.Select(t => t.Text).ToList(), SelectedIndex = targets.Count > 0 ? 0 : -1, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var srList = new ListBox { Height = 140 };
+            var start = new CheckBox { Content = M("&Start VM after import") };
+            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+            var ok = new Button { Content = M("&Import"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            List<XenAPI.SR> srs = new List<XenAPI.SR>();
+            void FillSrs()
+            {
+                if (server.SelectedIndex < 0) { srs = new List<XenAPI.SR>(); srList.ItemsSource = null; return; }
+                var t = targets[server.SelectedIndex];
+                srs = XvaRules.Targets(t.Connection, t.Host);
+                srList.ItemsSource = srs.Select(sr => $"{sr.NameWithLocation()}   {XenAdmin.Util.DiskSizeString(sr.FreeSpace())} free").ToList();
+                var def = t.Connection.Resolve(XenAdmin.Core.Helpers.GetPoolOfOne(t.Connection)?.default_SR);
+                srList.SelectedIndex = Math.Max(0, srs.FindIndex(sr => sr.opaque_ref == def?.opaque_ref));
+            }
+            server.SelectionChanged += (_, _) => FillSrs();
+            FillSrs();
+            browse.Click += async (_, _) => { if (await PickFile(owner, false, "Import VM", null) is string p) file.Text = p; };
+            var fileRow = new DockPanel();
+            DockPanel.SetDock(browse, Dock.Right);
+            browse.Margin = new Thickness(6, 0, 0, 0);
+            fileRow.Children.Add(browse);
+            fileRow.Children.Add(file);
+            var panel = new StackPanel { Spacing = 10 };
+            panel.Children.Add(new TextBlock { Text = "Import a VM from an XVA file to a pool or server, on the storage you choose." });
+            panel.Children.Add(fileRow);
+            panel.Children.Add(new TextBlock { Text = "Import to:" });
+            panel.Children.Add(server);
+            panel.Children.Add(new TextBlock { Text = "Storage:" });
+            panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#828790"), BorderThickness = new Thickness(1), Child = srList });
+            panel.Children.Add(start);
+            panel.Children.Add(error);
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame("Import VM", panel, 560);
+            (XenAdmin.Actions.ImportVmAction, bool) result = (null, false);
+            ok.Click += (_, _) =>
+            {
+                var err = XvaRules.FileError(file.Text?.Trim());
+                if (err == null && server.SelectedIndex < 0) err = "Select the pool or server to import to.";
+                if (err == null && (srList.SelectedIndex < 0 || srList.SelectedIndex >= srs.Count)) err = "Select a storage repository.";
+                var t = server.SelectedIndex >= 0 ? targets[server.SelectedIndex] : default;
+                if (err == null) err = XvaRules.TargetError(t.Connection, t.Host, srs[srList.SelectedIndex]);
+                if (err != null) { error.Text = err; return; }
+                result = (XvaRules.ImportAction(t.Connection, t.Host, file.Text.Trim(), srs[srList.SelectedIndex]), start.IsChecked == true);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>DestroyBondCommand: the warning for the management interfaces (or the HA error), then DestroyBondAction.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> DeleteBond(Window owner, XenAPI.Network network)
         {

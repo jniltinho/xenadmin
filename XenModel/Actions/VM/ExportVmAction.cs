@@ -140,12 +140,14 @@ namespace XenAdmin.Actions
 
             using (FileStream fs = new FileStream(tmpFile, FileMode.Append))
             {
-                // Flush written data to disk
-                if (!Win32.FlushFileBuffers(fs.SafeFileHandle))
+                // Flush written data to disk (FlushFileBuffers on Windows, fsync elsewhere)
+                try
                 {
-                    Win32Exception exn = new Win32Exception(System.Runtime.InteropServices.Marshal.GetLastWin32Error());
-                    log.Error(string.Format("FlushFileBuffers failed in ExportVmAction with NativeErrorCode={0}",
-                        exn.NativeErrorCode), exn);
+                    fs.Flush(true);
+                }
+                catch (IOException exn)
+                {
+                    log.Error("Flushing the export to disk failed in ExportVmAction", exn);
                 }
             }
 

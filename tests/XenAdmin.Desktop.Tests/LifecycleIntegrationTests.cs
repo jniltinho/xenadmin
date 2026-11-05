@@ -285,6 +285,48 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>VM menu Export (XVA, verified) of a halted throwaway VM, then File > Import of that file to the default SR.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void ExportImportXvaOnThrowawayVm()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            var file = System.IO.Path.Combine(System.IO.Path.GetTempPath(), VmName + "-xva.xva");
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-xva");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template && XvaRules.CanExport(v));
+                Assert.IsNull(XvaRules.ExportBlocker(vm), "a halted VM exports");
+                var export = XvaRules.ExportAction(vm, file, true);
+                Run(export);
+                Assert.IsTrue(export.Succeeded, "export: " + export.Exception?.Message);
+                Assert.IsTrue(new System.IO.FileInfo(file).Length > 0, "the XVA was written");
+                Assert.IsNull(XvaRules.FileError(file));
+
+                var srs = XvaRules.Targets(c, null);
+                Assert.IsTrue(srs.Count > 0, "an SR can hold the import");
+                Assert.IsNull(XvaRules.TargetError(c, null, srs[0]));
+                var import = XvaRules.ImportAction(c, null, file, srs[0]);
+                Run(import);
+                Assert.IsTrue(import.Succeeded, "import: " + import.Exception?.Message);
+                Assert.IsNotNull(import.VM, "the imported VM");
+                Assert.AreNotEqual(vmRef, import.VM.opaque_ref);
+                Assert.IsFalse(import.VM.is_a_template);
+                var startAction = XvaRules.StartAfterImport(import);
+                Assert.IsInstanceOfType(startAction, typeof(XenAdmin.Actions.VMActions.VMStartAction), "a halted import is started, not resumed");
+            }
+            finally
+            {
+                CleanupNamed(c, session, VmName + "-xva");
+                try { System.IO.File.Delete(file); } catch { }
+                c.EndConnect();
+            }
+        }
+
         /// <summary>Host Networking tab: create a single-server private network (New Network wizard) and remove it.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void HostNetworkPrivateCreateRemove()
