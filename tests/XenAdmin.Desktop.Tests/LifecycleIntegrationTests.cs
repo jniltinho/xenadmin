@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -323,6 +324,73 @@ namespace XenAdmin.Desktop.Tests
             {
                 CleanupNamed(c, session, VmName + "-xva");
                 try { System.IO.File.Delete(file); } catch { }
+                c.EndConnect();
+            }
+        }
+
+        /// <summary>vApps: New vApp wizard (create with a VM, startup order), Assign to vApp, Properties VMs, Delete.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void VappCreateAssignDeleteOnThrowawayVms()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            const string name = VmName + "-vapp";
+            string aRef = null, bRef = null;
+            try
+            {
+                foreach (var old in c.Cache.VM_appliances.Where(a => a.name_label == name).ToList())
+                    VM_appliance.destroy(session, old.opaque_ref);
+                aRef = CreateThrowawayVm(c, session, VmName + "-vapp-a");
+                bRef = VM.clone(session, aRef, VmName + "-vapp-b").opaque_ref;
+                var a = WaitFor(c, aRef, v => VappRules.CanAssign(v));
+                var b = WaitFor(c, bRef, v => VappRules.CanAssign(v));
+                Assert.IsTrue(VappRules.CanManage(c));
+                Assert.IsNotNull(VappRules.NameError(" "));
+
+                Run(VappRules.CreateAction(c, name, "throwaway", new List<VM> { a }));
+                var deadline = DateTime.Now.AddSeconds(60);
+                VM_appliance app;
+                while ((app = c.Cache.VM_appliances.FirstOrDefault(x => x.name_label == name)) == null && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsNotNull(app, "the vApp");
+                a = WaitFor(c, aRef, v => VappRules.Of(v)?.opaque_ref == app.opaque_ref);
+
+                var changed = VappRules.ChangedStartup(new[] { (a, 3L, 7L) });
+                Run(VappRules.StartupAction(c, changed));
+                WaitFor(c, aRef, v => v.order == 3 && v.start_delay == 7);
+
+                // Assign to vApp: b joins (a stays), then choosing the checked vApp takes b out again
+                Assert.IsNull(VappRules.ChangeWarning(new[] { b }, app, name), "b has no vApp yet");
+                Run(VappRules.AssignAction(app, new List<VM> { b }));
+                WaitFor(c, bRef, v => VappRules.Of(v)?.opaque_ref == app.opaque_ref);
+                Assert.AreEqual(2, c.Resolve(new XenRef<VM_appliance>(app.opaque_ref)).VMs.Count);
+                Run(VappRules.AssignAction(c.Resolve(new XenRef<VM_appliance>(app.opaque_ref)), new List<VM> { c.Resolve(new XenRef<VM>(bRef)) }));
+                WaitFor(c, bRef, v => VappRules.Of(v) == null);
+
+                // Properties > Virtual Machines: only b
+                Run(VappRules.SetMembersAction(c.Resolve(new XenRef<VM_appliance>(app.opaque_ref)), new[] { c.Resolve(new XenRef<VM>(bRef)) }));
+                WaitFor(c, aRef, v => VappRules.Of(v) == null);
+                WaitFor(c, bRef, v => VappRules.Of(v)?.opaque_ref == app.opaque_ref);
+
+                var current = c.Resolve(new XenRef<VM_appliance>(app.opaque_ref));
+                StringAssert.Contains(VappRules.DeleteConfirmation(new[] { current }), name);
+                Run(VappRules.DeleteAction(c, new List<VM_appliance> { current }));
+                WaitFor(c, bRef, v => VappRules.Of(v) == null);
+                deadline = DateTime.Now.AddSeconds(60);
+                while (c.Resolve(new XenRef<VM_appliance>(app.opaque_ref)) != null && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsNull(c.Resolve(new XenRef<VM_appliance>(app.opaque_ref)), "the vApp is gone");
+                Assert.IsNotNull(c.Resolve(new XenRef<VM>(bRef)), "its VMs stay");
+            }
+            finally
+            {
+                foreach (var left in c.Cache.VM_appliances.Where(x => x.name_label == name).ToList())
+                    try { VM_appliance.destroy(session, left.opaque_ref); } catch { }
+                foreach (var r in new[] { aRef, bRef }.Where(r => r != null))
+                    try { VM.destroy(session, r); } catch { }
                 c.EndConnect();
             }
         }

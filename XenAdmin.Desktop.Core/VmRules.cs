@@ -15,7 +15,7 @@ namespace XenAdmin.Desktop
     {
         /// <summary>PropertiesCommand.CanRun for the objects that have a Properties dialog here.</summary>
         public static bool CanEditProperties(IXenObject o) =>
-            o != null && o.Connection != null && o.Connection.IsConnected && !o.Locked && (o is VM || o is Host || o is Pool || o is SR || o is VDI || o is XenAPI.Network);
+            o != null && o.Connection != null && o.Connection.IsConnected && !o.Locked && (o is VM || o is Host || o is Pool || o is SR || o is VDI || o is XenAPI.Network || o is VM_appliance);
 
         public sealed record SnapshotModes(bool Disk, bool QuiesceVisible, bool Quiesce, bool Memory, string MemoryInfo);
 

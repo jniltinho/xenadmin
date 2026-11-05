@@ -58,7 +58,7 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
             _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
-            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu;
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu, _vappsMenu, _assignVappMenu;
         // connections with an Enable/Disable HA action of ours running (HelpersGUI.FindActiveHaAction)
         private readonly HashSet<IXenConnection> _haBusy = new HashSet<IXenConnection>();
 
@@ -315,6 +315,7 @@ namespace XenAdmin.Desktop
                         Top(Dialogs.M(Messages.MAINWINDOW_HIGH_AVAILABILITY),
                             _haConfigure = Item("_Configure...", () => ConfigureHa(SelectedNode()?.Connection), icon: "ha_16"),
                             _haDisable = Item("_Disable", () => DisableHa(SelectedNode()?.Connection))), "-",
+                        _vappsMenu = Item(Dialogs.M(Messages.VM_APPLIANCES_MENU), () => ManageVapps(SelectedNode()?.Connection), icon: "000_VirtualAppliance_h32bit_16"), "-",
                         _makeStandalone = Item(Dialogs.M(Messages.MAINWINDOW_DELETE_POOL), () => MakeStandalone(SelectedNode()?.Connection)), "-",
                         _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
                     Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
@@ -331,6 +332,7 @@ namespace XenAdmin.Desktop
                         _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
                         _snapshotMenu = Item("Ta_ke a Snapshot...", () => TakeSnapshot(SelectedNode()?.XenObject as VM), icon: "000_VMSnapShotDiskOnly_h32bit_16"),
                         _toTemplateMenu = Item("Con_vert to Template...", () => ConvertToTemplate(SelectedNode()?.XenObject as VM)),
+                        _assignVappMenu = AssignVappMenu(), "-",
                         _exportVmMenu = Item("_Export...", async () => { if (SelectedNode()?.XenObject is VM v && await Dialogs.ExportVm(this, v) is AsyncAction a) RunTracked(a); }, icon: "000_ExportVirtualAppliance_h32bit_16"),
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
@@ -566,6 +568,8 @@ namespace XenAdmin.Desktop
             _snapshotMenu.IsEnabled = VmRules.CanTakeSnapshot(vm);
             _toTemplateMenu.IsEnabled = VmRules.CanConvertToTemplate(vm);
             _exportVmMenu.IsEnabled = XvaRules.CanExport(vm);
+            _vappsMenu.IsEnabled = VappRules.CanManage(c);
+            _assignVappMenu.IsEnabled = VappRules.CanAssign(vm);
             ToolTip.SetTip(_exportVmMenu, XvaRules.ExportBlocker(vm));
             var template = o as VM;
             _fromTemplateMenu.IsEnabled = VmRules.IsUserTemplate(template) && template.Connection.IsConnected;
@@ -903,6 +907,51 @@ namespace XenAdmin.Desktop
         /// Pool > Add Server (the other connected standalone servers, each with the reason it cannot join) and Remove
         /// Server (the members; RemoveHostFromPoolCommand), filled when the submenu opens.
         /// </summary>
+        /// <summary>VMGroupCommand&lt;VM_appliance&gt;: Manage vApps for the selected pool or server.</summary>
+        private void ManageVapps(IXenConnection c)
+        {
+            if (VappRules.CanManage(c))
+                new VappsDialog(c, RunTracked, o => ShowProperties(_vappsDialogOwner ?? this, o)).Show(this);
+        }
+
+        private Window _vappsDialogOwner => OwnedWindows.OfType<VappsDialog>().FirstOrDefault();
+
+        /// <summary>
+        /// AssignGroupToolStripMenuItem&lt;VM_appliance&gt;: New vApp... (with this VM), then each vApp; the VM's own vApp is
+        /// checked and choosing it takes the VM out.
+        /// </summary>
+        private MenuItem AssignVappMenu()
+        {
+            var menu = new MenuItem { Header = Dialogs.M(Messages.ASSIGN_VM_APPLIANCE) };
+            menu.Items.Add(new MenuItem { Header = Messages.DELAY_LOADING_COMBO_BOX_WAITING, IsEnabled = false });
+            menu.SubmenuOpened += (_, e) =>
+            {
+                if (e.Source != menu || !(SelectedNode()?.XenObject is VM vm) || !VappRules.CanAssign(vm)) return;
+                menu.Items.Clear();
+                var add = new MenuItem { Header = Dialogs.M(Messages.NEW_VM_APPLIANCE), Icon = Views.Icon("000_NewVirtualAppliance_h32bit_16") };
+                add.Click += (_, _) => new VappWizard(vm.Connection, RunTracked, new[] { vm }).Show(this);
+                menu.Items.Add(add);
+                var apps = VappRules.Appliances(vm.Connection);
+                if (apps.Count > 0) menu.Items.Add(new Separator());
+                for (var i = 0; i < apps.Count; i++)
+                {
+                    var app = apps[i];
+                    var text = (i < 9 ? $"_{i + 1} " : "") + app.Name().Ellipsise(30).Replace("_", "__");
+                    var item = new MenuItem { Header = text, ToggleType = MenuItemToggleType.CheckBox, IsChecked = VappRules.Of(vm)?.opaque_ref == app.opaque_ref };
+                    item.Click += async (_, _) =>
+                    {
+                        var vms = new List<VM> { vm };
+                        if (VappRules.ChangeWarning(vms, app, app.Name()) is string warning
+                            && !await Dialogs.Confirm(this, Messages.CHANGE_VMS_APPLIANCE, warning, Messages.YES, Messages.NO))
+                            return;
+                        RunTracked(VappRules.AssignAction(app, vms));
+                    };
+                    menu.Items.Add(item);
+                }
+            };
+            return menu;
+        }
+
         private MenuItem PoolServersMenu(string header, bool add)
         {
             var menu = new MenuItem { Header = header };
@@ -1171,11 +1220,13 @@ namespace XenAdmin.Desktop
 
         // ---------- Properties (PropertiesCommand) ----------
 
-        private async void ShowProperties(IXenObject o)
+        private async void ShowProperties(IXenObject o) => await ShowProperties(this, o);
+
+        private async System.Threading.Tasks.Task ShowProperties(Window owner, IXenObject o)
         {
             if (!VmRules.CanEditProperties(o)) return;
             var dialog = new PropertiesDialog(o);
-            await dialog.ShowDialog(this);
+            await dialog.ShowDialog(owner);
             if (dialog.Action == null) return;
             o.Locked = true; // SaveChangesAction requires the original locked
             RunTracked(dialog.Action, o);

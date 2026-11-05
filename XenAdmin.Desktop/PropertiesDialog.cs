@@ -25,6 +25,9 @@ namespace XenAdmin.Desktop
         public Control View { get; protected set; }
         public event Action Changed;
         protected void OnChanged() => Changed?.Invoke();
+        /// <summary>IsValidToSave with a question (the page may warn and let the user cancel the save).</summary>
+        public virtual System.Threading.Tasks.Task<bool> ConfirmSave(Window owner) => System.Threading.Tasks.Task.FromResult(true);
+
         /// <summary>Applies edits to the cloned object; returns an extra action to run, or null.</summary>
         public virtual AsyncAction SaveSettings() => null;
 
@@ -84,10 +87,14 @@ namespace XenAdmin.Desktop
             Row("Na&me:", _name);
             if (descriptionType != VM.VmDescriptionType.None)
                 Row("&Description:", _description);
-            Row("Folder:", FolderBox());
-            Row("Tags:", TagsBox());
-            RefreshFolder();
-            RefreshTags();
+            // GeneralEditPage: vApps have no folder or tags
+            if (!(copy is VM_appliance))
+            {
+                Row("Folder:", FolderBox());
+                Row("Tags:", TagsBox());
+                RefreshFolder();
+                RefreshTags();
+            }
             if (copy is Host host)
             {
                 _iqn.Text = host.GetIscsiIqn();
@@ -585,6 +592,14 @@ namespace XenAdmin.Desktop
                 case XenAPI.Network _:
                     pages.Add(new NotPortedPage("Network Settings", "000_Network_h32bit_16"));
                     break;
+                case VM_appliance vapp:
+                    // the vApp's VMs, and the startup sequence of the VMs chosen there
+                    var vms = new VappVmsPage(vapp.Connection, vapp);
+                    var order = new VappOrderPage(vapp.Connection, () => vms.Selected);
+                    vms.Changed += order.Refresh;
+                    pages.Add(vms);
+                    pages.Add(order);
+                    break;
             }
             return pages;
         }
@@ -633,7 +648,7 @@ namespace XenAdmin.Desktop
 
             var ok = new Button { Content = Messages.OK, IsDefault = true, MinWidth = 75 };
             var cancel = new Button { Content = Messages.CANCEL, IsCancel = true, MinWidth = 75 };
-            ok.Click += (_, _) => Ok();
+            ok.Click += async (_, _) => await Ok();
             cancel.Click += (_, _) => Close();
             // Esc closes from any field (a focused TextBox would otherwise keep the key)
             AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Avalonia.Input.Key.Escape) { e.Handled = true; Close(); } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
@@ -678,7 +693,7 @@ namespace XenAdmin.Desktop
         }
 
         /// <summary>PropertiesDialog.okButton_Click: validate, then one MultipleAction with SaveChangesAction first.</summary>
-        private void Ok()
+        private async System.Threading.Tasks.Task Ok()
         {
             foreach (var p in _pages)
             {
@@ -696,6 +711,12 @@ namespace XenAdmin.Desktop
                 Close();
                 return;
             }
+            foreach (var p in changed)
+                if (!await p.ConfirmSave(this))
+                {
+                    _list.SelectedItem = p;
+                    return;
+                }
             var actions = changed.Select(p => p.SaveSettings()).Where(a => a != null).ToList();
             actions.Insert(0, new SaveChangesAction(_copy, true, _orig));
             var name = Helpers.GetName(_orig).Ellipsise(50);

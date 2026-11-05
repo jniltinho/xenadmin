@@ -48,6 +48,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   (proxy: none, the system's or a given server, with bypass for servers; connection timeout), Confirmations (dismiss
   alerts) and Display (area or line performance graphs, remember the last tab per object). Saved in config.json.
 - Server Console tab: the console of the server's control domain.
+- vApps: Pool > Manage vApps (New vApp, Delete, Properties, Start, Shut down and the VMs of each vApp), the New vApp
+  wizard (name, VMs, VM startup sequence), vApp Properties and VM > Assign to vApp. Importing and exporting a vApp
+  (OVF) are not available yet.
 
 ### Fixed
 - VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).
