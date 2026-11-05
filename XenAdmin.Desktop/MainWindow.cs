@@ -58,7 +58,7 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
             _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
-            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu, _vappsMenu, _assignVappMenu;
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu, _vappsMenu, _assignVappMenu, _vtpmMenu;
         // connections with an Enable/Disable HA action of ours running (HelpersGUI.FindActiveHaAction)
         private readonly HashSet<IXenConnection> _haBusy = new HashSet<IXenConnection>();
 
@@ -332,7 +332,8 @@ namespace XenAdmin.Desktop
                         _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
                         _snapshotMenu = Item("Ta_ke a Snapshot...", () => TakeSnapshot(SelectedNode()?.XenObject as VM), icon: "000_VMSnapShotDiskOnly_h32bit_16"),
                         _toTemplateMenu = Item("Con_vert to Template...", () => ConvertToTemplate(SelectedNode()?.XenObject as VM)),
-                        _assignVappMenu = AssignVappMenu(), "-",
+                        _assignVappMenu = AssignVappMenu(),
+                        _vtpmMenu = Item(Dialogs.M(Messages.COMMAND_VTPM_MENU), () => { if (SelectedNode()?.XenObject is VM v && VtpmRules.CanManage(v)) new VtpmDialog(v, RunTracked).Show(this); }), "-",
                         _exportVmMenu = Item("_Export...", async () => { if (SelectedNode()?.XenObject is VM v && await Dialogs.ExportVm(this, v) is AsyncAction a) RunTracked(a); }, icon: "000_ExportVirtualAppliance_h32bit_16"),
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
@@ -570,6 +571,8 @@ namespace XenAdmin.Desktop
             _exportVmMenu.IsEnabled = XvaRules.CanExport(vm);
             _vappsMenu.IsEnabled = VappRules.CanManage(c);
             _assignVappMenu.IsEnabled = VappRules.CanAssign(vm);
+            _vtpmMenu.IsEnabled = VtpmRules.CanManage(vm);
+            ToolTip.SetTip(_vtpmMenu, VtpmRules.Blocker(vm));
             ToolTip.SetTip(_exportVmMenu, XvaRules.ExportBlocker(vm));
             var template = o as VM;
             _fromTemplateMenu.IsEnabled = VmRules.IsUserTemplate(template) && template.Connection.IsConnected;

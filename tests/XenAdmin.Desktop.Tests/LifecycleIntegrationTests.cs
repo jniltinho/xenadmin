@@ -328,6 +328,55 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>VM > Manage vTPMs on a halted UEFI throwaway VM: add one, read its properties, remove it.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void VtpmAddRemoveOnThrowawayVm()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-vtpm");
+                var bios = WaitFor(c, vmRef, v => v.IsHVM());
+                Assert.IsFalse(VtpmRules.CanManage(bios), "BIOS VMs have no vTPM");
+                if (XenAdmin.Core.Helpers.XapiEqualOrGreater_22_26_0(c) && !XenAdmin.Core.Helpers.FeatureForbidden(c, Host.RestrictVtpm))
+                    Assert.IsNotNull(VtpmRules.Blocker(bios), "the reason names UEFI");
+                var boot = new System.Collections.Generic.Dictionary<string, string>(bios.HVM_boot_params) { ["firmware"] = "uefi" };
+                VM.set_HVM_boot_params(session, vmRef, boot);
+                var vm = WaitFor(c, vmRef, v => v.IsDefaultBootModeUefi());
+                if (!VtpmRules.CanManage(vm))
+                    Assert.Inconclusive("vTPMs are not available on this server");
+                Assert.AreEqual(0, VtpmRules.Vtpms(vm).Count);
+                vm = WaitFor(c, vmRef, v => VtpmRules.AddBlocker(v) == null);
+                Run(VtpmRules.AddAction(vm));
+                vm = WaitFor(c, vmRef, v => v.VTPMs.Count == 1);
+                var deadline = DateTime.Now.AddSeconds(60);
+                VTPM vtpm;
+                while ((vtpm = VtpmRules.Vtpms(vm).FirstOrDefault()) == null && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsNotNull(vtpm);
+                Assert.IsNotNull(VtpmRules.Properties(vtpm).Protected);
+                while (VtpmRules.RemoveBlocker(vm, vtpm = c.Resolve(new XenRef<VTPM>(vtpm.opaque_ref))) != null && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsNull(VtpmRules.RemoveBlocker(vm, vtpm), "a halted VM's vTPM can be removed");
+                Run(VtpmRules.RemoveAction(vm, vtpm));
+                WaitFor(c, vmRef, v => v.VTPMs.Count == 0);
+            }
+            finally
+            {
+                if (vmRef != null)
+                {
+                    try { foreach (var t in VM.get_VTPMs(session, vmRef)) VTPM.destroy(session, t.opaque_ref); } catch { }
+                    try { VM.destroy(session, vmRef); } catch { }
+                }
+                c.EndConnect();
+            }
+        }
+
         /// <summary>GPU and USB tabs (read only): the rules run on every server and the pool of XCP_HOST.</summary>
         [TestMethod, TestCategory("Integration")]
         public void GpuAndUsbTabsReadOnly()

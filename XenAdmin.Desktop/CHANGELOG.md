@@ -53,6 +53,7 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   (OVF) are not available yet.
 - GPU tab of servers and pools (placement policy, the GPUs with their running vGPUs and allowed vGPU types, Edit) and
   USB tab of servers (USB devices, Enable/Disable pass-through), shown only where they apply, as in Windows.
+- VM > Manage vTPMs (UEFI VMs): add and remove vTPMs and see whether each is protected and unique.
 
 ### Fixed
 - VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).
