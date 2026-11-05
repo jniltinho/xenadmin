@@ -28,6 +28,8 @@ type Object struct {
 	Maintenance bool     `json:"maintenance,omitempty"` // a host that is disabled (HostRules.InMaintenance)
 	Coordinator bool     `json:"coordinator,omitempty"`
 	Live        bool     `json:"live,omitempty"`
+	// ControlDomain is a host's dom0 VM (its Console tab shows the server's console)
+	ControlDomain string `json:"control_domain,omitempty"`
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -59,6 +61,9 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 				live = false // no metrics yet: the server is starting
 			}
 			o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, Maintenance: !r.Enabled, Live: live}
+			if dom0, err := xenapi.VM.GetUUID(s, r.ControlDomain); err == nil {
+				o.ControlDomain = dom0
+			}
 			for _, p := range pools {
 				o.Coordinator = o.Coordinator || p.Master == ref
 			}

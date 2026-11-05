@@ -7,7 +7,7 @@ const call = <T>(method: string, ...args: unknown[]) => Call.ByName(svc + method
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
 export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean;
-  maintenance?: boolean; coordinator?: boolean; live?: boolean }
+  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string }
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
@@ -23,6 +23,7 @@ export const api = {
   dismissConfirmation: (count: number, all: boolean) => call<Confirm>("DismissConfirmation", count, all),
   hostQuestion: (key: string, uuid: string, op: string) => call<HostQuestion>("HostQuestion", key, uuid, op),
   hostCommand: (key: string, uuid: string, op: string, restore: boolean) => call<void>("HostCommand", key, uuid, op, restore),
+  openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),
 };

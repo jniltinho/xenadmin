@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"sync"
 
 	"xcpng-center/internal/app"
 	"xcpng-center/internal/config"
+	"xcpng-center/internal/console"
 	"xcpng-center/internal/messages"
 	"xcpng-center/internal/ops"
 	"xcpng-center/internal/rules"
@@ -26,7 +28,12 @@ type Workspace struct {
 	mu       sync.Mutex
 	conns    map[string]*xapi.Connection
 	use      sync.RWMutex // listings hold it for reading; logging a session out holds it for writing
+	console  *console.Proxy
+	closed   bool // the window closed: no console endpoint is created any more
 }
+
+// webviewOrigins are the pages Wails serves the window from (internal/assetserver: Linux and macOS, Windows).
+var webviewOrigins = []string{"wails://localhost", "http://wails.localhost"}
 
 // NewWorkspace uses the settings file of the CLI (servers and pinned certificates are shared) and the CLI's trust
 // policy (the operator's --trust-fingerprint applies to the window too).
@@ -107,16 +114,27 @@ func (w *Workspace) Trust(key, fingerprint string) error {
 	return w.settings.PinNew(key, trust.Normalize(fingerprint))
 }
 
-// Disconnect logs out of a server.
+// Disconnect logs out of a server. In-flight calls on it finish first, so no console ticket is issued after the
+// revocation.
 func (w *Workspace) Disconnect(key string) {
 	w.mu.Lock()
 	conn := w.conns[key]
 	delete(w.conns, key)
 	w.mu.Unlock()
-	w.logout(conn)
+	w.use.Lock()
+	defer w.use.Unlock()
+	w.mu.Lock()
+	proxy := w.console // read after the in-flight calls ended: a first OpenConsole may have just created it
+	w.mu.Unlock()
+	if proxy != nil {
+		proxy.Revoke(key)
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
 }
 
-// logout waits for the listings in progress (they use the session) before logging it out.
+// logout waits for the calls in progress (they use the session) before logging it out.
 func (w *Workspace) logout(conn *xapi.Connection) {
 	if conn == nil {
 		return
@@ -239,13 +257,52 @@ func (w *Workspace) HostCommand(key, uuid, op string, restore bool) error {
 	})
 }
 
-// Close logs out of every server (the window closes).
+// OpenConsole returns a one-time ws:// URL for the VM's graphical console (noVNC connects to it within 30 s); it is
+// revoked, and an open console closed, when the server is disconnected.
+func (w *Workspace) OpenConsole(key, vmUUID string) (ticket string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		target, err := console.Locate(c, vmUUID)
+		if err != nil {
+			return err
+		}
+		w.mu.Lock()
+		if w.closed {
+			w.mu.Unlock()
+			return errors.New("the window is closing")
+		}
+		if w.console == nil {
+			if w.console, err = console.NewProxy(webviewOrigins...); err != nil {
+				w.mu.Unlock()
+				return err
+			}
+		}
+		proxy := w.console
+		w.mu.Unlock()
+		session := string(c.Session.Ref())
+		ticket, err = proxy.Ticket(key, func(ctx context.Context) (net.Conn, error) {
+			return console.Dial(ctx, w.policy, target, session)
+		})
+		return err
+	})
+	return ticket, err
+}
+
+// Close logs out of every server (the window closes): calls in progress finish first, then the consoles stop.
 func (w *Workspace) Close() {
 	w.mu.Lock()
+	w.closed = true
 	conns := w.conns
 	w.conns = map[string]*xapi.Connection{}
 	w.mu.Unlock()
+	w.use.Lock()
+	defer w.use.Unlock()
+	w.mu.Lock()
+	proxy := w.console
+	w.mu.Unlock()
+	if proxy != nil {
+		proxy.Close()
+	}
 	for _, c := range conns {
-		w.logout(c)
+		_ = c.Close()
 	}
 }

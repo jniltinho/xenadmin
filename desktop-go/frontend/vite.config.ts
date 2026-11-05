@@ -6,5 +6,5 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig(({ mode }) => ({
   plugins: [vue(), tailwindcss()],
   base: "./",
-  build: { outDir: mode === "web" ? "../web/dist" : "../internal/gui/dist", emptyOutDir: true },
+  build: { target: "es2022", outDir: mode === "web" ? "../web/dist" : "../internal/gui/dist", emptyOutDir: true },
 }));

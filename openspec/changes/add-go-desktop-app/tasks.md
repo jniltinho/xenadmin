@@ -44,10 +44,10 @@
 
 ## 5. Console
 
-- [ ] 5.1 `internal/console`: `tls.Dial` com a política do app, `CONNECT` com bytes bufferizados preservados e deadlines; listener loopback com token de uso único (atômico, ligado à VM e ao `Workspace`, revogado no disconnect) e origens por plataforma (`wails://localhost`, `http://wails.localhost`) conferidas nos webviews reais; testes com origem ausente/hostil e consumo concorrente
-- [ ] 5.2 Aba Console com noVNC (escala, Ctrl+Alt+Del, teclado ABNT2/scancodes), faixa de DVD; spike com streams do Wails
+- [x] 5.1 (origens tiradas do assetserver do Wails 3.1: `wails://localhost` no Linux/macOS, `http://wails.localhost` no Windows; conferida no WebKitGTK) `internal/console`: `tls.Dial` com a política do app, `CONNECT` com bytes bufferizados preservados e deadlines; listener loopback com token de uso único (atômico, ligado à VM e ao `Workspace`, revogado no disconnect) e origens por plataforma (`wails://localhost`, `http://wails.localhost`) conferidas nos webviews reais; testes com origem ausente/hostil e consumo concorrente
+- [~] 5.2 (feito: noVNC 1.5 com escala, Send Ctrl+Alt+Del, Reconnect, console do host pelo dom0; faltam scancodes ABNT2 e a faixa de DVD) Aba Console com noVNC (escala, Ctrl+Alt+Del, teclado ABNT2/scancodes), faixa de DVD; spike com streams do Wails
 - [ ] 5.3 Launch SSH Console e Remote Desktop (porta de `ConsoleRules` e do lançador do app C#)
-- [ ] 5.4 Lab KVM: console de VM Alpine e teclado com símbolos no WebKitGTK, WKWebView (Mac do lab) e WebView2 (Windows do lab)
+- [~] 5.4 (feito: VM Alpine no membro do pool e console do host no WebKitGTK, login e símbolos `|@#$%&*()_+{}:<>?~^[]=;` corretos; faltam WKWebView e WebView2) Lab KVM: console de VM Alpine e teclado com símbolos no WebKitGTK, WKWebView (Mac do lab) e WebView2 (Windows do lab)
 
 ## 6. Abas e Properties
 

@@ -5,6 +5,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Console tab: the graphical console of a running VM or of a server (its control domain) with noVNC, Send
+  Ctrl+Alt+Del and Scale; `internal/console` dials the console host with the trust policy (pool members vouched by
+  the coordinator) and serves it on 127.0.0.1 to the webview's origin with a one-time ticket.
+- Tabs with an icon and a bold label, the selected one joined to its page with an accent line on top.
 - Server Shut Down, Reboot, Enter Maintenance Mode (saves where the VMs are, evacuates, hands the coordinator role
   over) and Exit Maintenance Mode (restores the VMs), with the C# questions; XAPI calls run as polled tasks.
 - MCP `list_alerts`, and with `--allow-write`: `host_power`, `host_maintenance`, `dismiss_alerts`.

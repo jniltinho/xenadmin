@@ -9,6 +9,7 @@
   --color-pane: #f5f5f5;
   --color-line: #c8c8c8;
   --color-select: #0078d7;
+  --color-accent: #e8a33d; /* the selected tab's top line */
   --font-sans: "Segoe UI", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
 }
 
@@ -16,4 +17,17 @@
   *, ::before, ::after { border-radius: 0 !important; }
   html, body, #app { height: 100%; }
   body { @apply bg-white text-[13px] text-neutral-900 font-sans select-none; }
+}
+
+/* Tabs: square boxes with an icon and a bold label on a light strip; the inactive ones grey, the selected one white,
+   joined to the page under it and marked by an accent line on top. */
+@layer components {
+  .tabstrip { @apply flex items-end gap-1 border-b border-line bg-pane px-2 pt-2; }
+  .tab {
+    @apply relative -mb-px flex cursor-default items-center gap-1.5 border border-line bg-neutral-100 px-4 py-1.5 font-semibold text-neutral-700;
+    border-top: 3px solid transparent;
+  }
+  .tab:hover:not(.active) { @apply bg-white text-neutral-900; }
+  .tab.active { @apply z-10 border-b-white bg-white text-neutral-900; border-top-color: var(--color-accent); }
+  .tab:focus-visible { @apply outline-1 outline-offset-[-4px] outline-dotted outline-neutral-500; }
 }

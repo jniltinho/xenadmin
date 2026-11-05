@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The main window (first stage): menu and toolbar, the Infrastructure tree (server -> pool -> hosts -> VMs, and the
 // SRs), the General tab of the selected object, Add New Server and the certificate question, a status bar.
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
+import ConsoleView from "./ConsoleView.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[] }
 
@@ -121,6 +122,18 @@ const selectedHost = computed(() => (selected.value?.object?.kind === "hosts" ? 
 const hostCanRun = (c: HostCommand, n: Node | null) =>
   !!n?.object?.live && (c.op === "enter_maintenance" ? !n.object.maintenance : c.op === "exit_maintenance" ? !!n.object.maintenance : true);
 const serverMenuOpen = ref(false);
+
+// The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
+const tab = ref<"general" | "console">("general");
+const consoleVm = computed(() => {
+  const o = selected.value?.object;
+  if (o?.kind === "vms" && o.power_state === "Running") return o.uuid;
+  if (o?.kind === "hosts" && o.live) return o.control_domain ?? "";
+  return "";
+});
+const tabInfo = { general: { label: "General", icon: "000_Info3_h32bit_16" }, console: { label: "Console", icon: "console_16" } } as const;
+const tabs = computed(() => (consoleVm.value ? ["general", "console"] : ["general"]) as ("general" | "console")[]);
+watch(tabs, (t) => { if (!t.includes(tab.value)) tab.value = "general"; });
 
 async function runHost(c: HostCommand, n: Node | null) {
   menu.value = null; vmMenuOpen.value = false; serverMenuOpen.value = false;
@@ -323,9 +336,13 @@ onMounted(async () => { await refreshServers(); });
         <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
           <img :src="`/icons/${selected?.icon ?? 'Logo'}.png`" alt="" class="h-4 w-4" />{{ selected?.label ?? "XCP-ng Center" }}
         </div>
-        <div class="flex border-b border-line bg-pane px-2 pt-1">
-          <span class="border border-b-0 border-line bg-white px-3 py-0.5">General</span>
+        <div class="tabstrip" role="tablist">
+          <button v-for="t in tabs" :key="t" role="tab" :aria-selected="tab === t" class="tab" :class="{ active: tab === t }" @click="tab = t">
+            <img :src="`/icons/${tabInfo[t].icon}.png`" alt="" class="h-4 w-4" />{{ tabInfo[t].label }}
+          </button>
         </div>
+        <ConsoleView v-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
+        <template v-else>
         <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">General Properties</div>
         <div class="overflow-auto p-3">
           <table v-if="selected" class="w-full max-w-3xl border border-line">
@@ -336,6 +353,7 @@ onMounted(async () => { await refreshServers(); });
           </table>
           <p v-else class="text-neutral-500">Select a server, host, VM or SR. Use Add New Server to connect.</p>
         </div>
+        </template>
       </main>
     </div>
     <footer class="flex gap-4 border-t border-line bg-pane px-2 py-0.5 text-xs">

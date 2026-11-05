@@ -12,7 +12,7 @@ ICONS    := ../branding-xcp-ng/Images/Logo.png $(addprefix ../XenAdmin/Images/,0
             000_PoolConnected_h32bit_16.png 000_TreeConnected_h32bit_16.png 000_StartVM_h32bit_16.png \
             000_StoppedVM_h32bit_16.png 000_SuspendVM_h32bit_16.png 000_Storage_h32bit_16.png \
             000_AddApplicationServer_h32bit_16.png \
-            000_ServerMaintenance_h32bit_16.png $(foreach i,alert1 alert2 alert3 alert4 alert5 alert6 infra_view notif_none notif_alerts,$(i)_16.png) infra_view_24.png notif_none_24.png \
+            000_ServerMaintenance_h32bit_16.png 000_Info3_h32bit_16.png console_16.png $(foreach i,alert1 alert2 alert3 alert4 alert5 alert6 infra_view notif_none notif_alerts,$(i)_16.png) infra_view_24.png notif_none_24.png \
             $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_Paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_24.png) \
             $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_16.png))
 
