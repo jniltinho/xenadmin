@@ -255,6 +255,28 @@ namespace XenAdmin.Actions.OvfActions
             }
         }
 
+        /// <summary>
+        /// Opens a disk image by its format's own class: VirtualDisk.OpenDisk(path) builds the directory with '\\' and
+        /// fails outside Windows; the format classes use the platform's paths.
+        /// </summary>
+        private static VirtualDisk OpenDisk(string path, FileAccess access)
+        {
+            // the format classes prepend the file's directory again to a relative path
+            path = Path.GetFullPath(path);
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            switch (ext)
+            {
+                case ".vhd":
+                    return new DiscUtils.Vhd.Disk(path, access);
+                case ".vhdx":
+                    return new DiscUtils.Vhdx.Disk(path, access);
+                case ".vmdk":
+                    return new DiscUtils.Vmdk.Disk(path, access);
+                default:
+                    return VirtualDisk.OpenDisk(path, access);
+            }
+        }
+
         private XenRef<VDI> ImportFile(string diskName, string pathToOvf, string filename, CompressionFactory.Type? compression, string sruuid, string description, string vdiuuid, bool isEncrypted, Action<float> updatePercentage)
         {
             if (filename == null)
@@ -316,7 +338,7 @@ namespace XenAdmin.Actions.OvfActions
 
                 if (ext.ToLower().EndsWith("vhd"))
                 {
-                    vhdDisk = VirtualDisk.OpenDisk(sourcefile, FileAccess.Read);
+                    vhdDisk = OpenDisk(sourcefile, FileAccess.Read);
                     virtualSize = vhdDisk.Capacity;
                     dataStream = File.OpenRead(sourcefile);
                     dataLength = dataStream.Length;
@@ -335,7 +357,7 @@ namespace XenAdmin.Actions.OvfActions
                 }
                 else if (VirtualDiskManager.SupportedDiskFormats.Any(f => ext.ToLower().EndsWith(f.ToLower())))
                 {
-                    vhdDisk = VirtualDisk.OpenDisk(sourcefile, FileAccess.Read);
+                    vhdDisk = OpenDisk(sourcefile, FileAccess.Read);
                     dataStream = vhdDisk.Content;
                     dataLength = virtualSize = vhdDisk.Capacity;
                 }

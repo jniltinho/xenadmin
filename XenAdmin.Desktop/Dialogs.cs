@@ -715,8 +715,11 @@ namespace XenAdmin.Desktop
                     { Title = title, SuggestedFileName = suggested, DefaultExtension = "xva", ShowOverwritePrompt = true, FileTypeChoices = new[] { plain } });
                 return f == null ? null : Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(f);
             }
+            // ImportSourcePage: XVA files and OVF/OVA appliances
+            var all = new Avalonia.Platform.Storage.FilePickerFileType("All supported files") { Patterns = new[] { "*.xva", "*.xva.gz", "*.ovf", "*.ova", "*.ova.gz" } };
             var xva = new Avalonia.Platform.Storage.FilePickerFileType("XVA (*.xva, *.xva.gz)") { Patterns = new[] { "*.xva", "*.xva.gz" } };
-            var files = await sp.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions { Title = title, AllowMultiple = false, FileTypeFilter = new[] { xva } });
+            var ovf = new Avalonia.Platform.Storage.FilePickerFileType("OVF/OVA (*.ovf, *.ova, *.ova.gz)") { Patterns = new[] { "*.ovf", "*.ova", "*.ova.gz" } };
+            var files = await sp.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions { Title = title, AllowMultiple = false, FileTypeFilter = new[] { all, xva, ovf } });
             return files.Count == 0 ? null : Avalonia.Platform.Storage.StorageProviderExtensions.TryGetLocalPath(files[0]);
         }
 
@@ -743,9 +746,10 @@ namespace XenAdmin.Desktop
         }
 
         /// <summary>The import wizard's XVA path: the file, the server (a pool or one of its servers) and the SR, and Start.</summary>
-        public static async Task<(XenAdmin.Actions.ImportVmAction Action, bool Start)> ImportVm(Window owner, IEnumerable<XenAdmin.Network.IXenConnection> connections)
+        /// <returns>The XVA import, or (Appliance) the OVF/OVA file the user chose, imported by <see cref="ImportAppliance"/>.</returns>
+        public static async Task<(XenAdmin.Actions.ImportVmAction Action, bool Start, string Appliance)> ImportVm(Window owner, IEnumerable<XenAdmin.Network.IXenConnection> connections)
         {
-            var file = new TextBox { Watermark = "File to import (.xva)" };
+            var file = new TextBox { Watermark = "File to import (.xva, .ovf, .ova)" };
             var browse = new Button { Content = M("&Browse...") };
             // the pool (or standalone server) itself, then each server of a pool as the affinity
             var targets = new List<(XenAdmin.Network.IXenConnection Connection, XenAPI.Host Host, string Text)>();
@@ -780,7 +784,7 @@ namespace XenAdmin.Desktop
             fileRow.Children.Add(browse);
             fileRow.Children.Add(file);
             var panel = new StackPanel { Spacing = 10 };
-            panel.Children.Add(new TextBlock { Text = "Import a VM from an XVA file to a pool or server, on the storage you choose." });
+            panel.Children.Add(new TextBlock { Text = "Import a VM from an XVA file, or an appliance from an OVF/OVA package, to a pool or server.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
             panel.Children.Add(fileRow);
             panel.Children.Add(new TextBlock { Text = "Import to:" });
             panel.Children.Add(server);
@@ -790,16 +794,120 @@ namespace XenAdmin.Desktop
             panel.Children.Add(error);
             panel.Children.Add(Buttons(ok, cancel));
             var w = Frame("Import VM", panel, 560);
-            (XenAdmin.Actions.ImportVmAction, bool) result = (null, false);
+            (XenAdmin.Actions.ImportVmAction, bool, string) result = (null, false, null);
             ok.Click += (_, _) =>
             {
+                if (OvfRules.IsAppliance(file.Text?.Trim()))
+                {
+                    // the appliance path of the import wizard has its own pages
+                    result = (null, false, file.Text.Trim());
+                    w.Close();
+                    return;
+                }
                 var err = XvaRules.FileError(file.Text?.Trim());
                 if (err == null && server.SelectedIndex < 0) err = "Select the pool or server to import to.";
                 if (err == null && (srList.SelectedIndex < 0 || srList.SelectedIndex >= srs.Count)) err = "Select a storage repository.";
                 var t = server.SelectedIndex >= 0 ? targets[server.SelectedIndex] : default;
                 if (err == null) err = XvaRules.TargetError(t.Connection, t.Host, srs[srList.SelectedIndex]);
                 if (err != null) { error.Text = err; return; }
-                result = (XvaRules.ImportAction(t.Connection, t.Host, file.Text.Trim(), srs[srList.SelectedIndex]), start.IsChecked == true);
+                result = (XvaRules.ImportAction(t.Connection, t.Host, file.Text.Trim(), srs[srList.SelectedIndex]), start.IsChecked == true, null);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
+        /// <summary>
+        /// The import wizard's appliance path in one dialog: the package's VMs, its EULA to accept, the pool or server, the
+        /// SR for the disks, the network for the interfaces, manifest verification and Start, then ImportApplianceAction.
+        /// </summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> ImportAppliance(Window owner, IEnumerable<XenAdmin.Network.IXenConnection> connections, string path)
+        {
+            // ImportSourcePage reads the package in the background (an .ova.gz is decompressed to be read)
+            var info = await System.Threading.Tasks.Task.Run(() => OvfRules.Load(path));
+            if (info.Package == null)
+            {
+                await Info(owner, "Import Appliance", info.Error);
+                return null;
+            }
+            var package = info.Package;
+            var warnings = info.Warnings;
+            var vms = info.Vms;
+            var (disks, vifs) = (info.Disks, info.Interfaces);
+            var eulas = info.Eulas;
+            var targets = new List<(XenAdmin.Network.IXenConnection Connection, XenAPI.IXenObject Target, XenAPI.Host Host, string Text)>();
+            foreach (var c in connections.Where(c => c.IsConnected))
+            {
+                var pool = XenAdmin.Core.Helpers.GetPoolOfOne(c);
+                if (pool == null) continue;
+                targets.Add((c, XenAdmin.Core.Helpers.GetPool(c) != null ? pool : (XenAPI.IXenObject)XenAdmin.Core.Helpers.GetCoordinator(c), null, XenAdmin.Core.Helpers.GetName(c)));
+                if (XenAdmin.Core.Helpers.GetPool(c) != null)
+                    targets.AddRange(c.Cache.Hosts.OrderBy(h => h.Name()).Select(h => (c, (XenAPI.IXenObject)h, h, "    " + h.Name())));
+            }
+            var server = new ComboBox { ItemsSource = targets.Select(t => t.Text).ToList(), SelectedIndex = targets.Count > 0 ? 0 : -1, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var srList = new ListBox { Height = 110 };
+            var network = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+            var verify = new CheckBox { Content = M("&Verify manifest content"), IsEnabled = info.HasManifest };
+            var start = new CheckBox { Content = M("&Start VM(s) after import") };
+            var accept = new CheckBox { Content = M("I &accept the EULA(s)"), IsVisible = eulas.Count > 0 };
+            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+            var ok = new Button { Content = M("&Import"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            List<XenAPI.SR> srs = new List<XenAPI.SR>();
+            List<XenAPI.Network> networks = new List<XenAPI.Network>();
+            void Fill()
+            {
+                if (server.SelectedIndex < 0) return;
+                var t = targets[server.SelectedIndex];
+                srs = XvaRules.Targets(t.Connection, t.Host);
+                srList.ItemsSource = srs.Select(sr => $"{sr.NameWithLocation()}   {XenAdmin.Util.DiskSizeString(sr.FreeSpace())} free").ToList();
+                var def = t.Connection.Resolve(XenAdmin.Core.Helpers.GetPoolOfOne(t.Connection)?.default_SR);
+                srList.SelectedIndex = srs.Count == 0 ? -1 : Math.Max(0, srs.FindIndex(sr => sr.opaque_ref == def?.opaque_ref));
+                networks = OvfRules.Networks(t.Connection, t.Host);
+                network.ItemsSource = networks.Select(n => n.Name()).ToList();
+                network.SelectedIndex = networks.Count > 0 ? 0 : -1;
+            }
+            server.SelectionChanged += (_, _) => Fill();
+            Fill();
+
+            var panel = new StackPanel { Spacing = 8 };
+            panel.Children.Add(new TextBlock { Text = $"Appliance '{package.Name}': {vms.Count} VM(s) ({string.Join(", ", vms.Select(v => v.Name))}), {disks} disk(s), {vifs} network interface(s).", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            if (warnings != null && warnings.Count > 0)
+                panel.Children.Add(new TextBlock { Text = string.Join("\n", warnings), Foreground = Avalonia.Media.Brushes.DarkGoldenrod, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            if (eulas.Count > 0)
+            {
+                panel.Children.Add(new TextBlock { Text = "End User License Agreement:", FontWeight = Avalonia.Media.FontWeight.SemiBold });
+                panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#828790"), BorderThickness = new Thickness(1),
+                    Child = new ScrollViewer { MaxHeight = 140, Content = new TextBlock { Text = string.Join("\n\n", eulas), TextWrapping = Avalonia.Media.TextWrapping.Wrap, Margin = new Thickness(6) } } });
+                panel.Children.Add(accept);
+            }
+            panel.Children.Add(new TextBlock { Text = "Import to:" });
+            panel.Children.Add(server);
+            panel.Children.Add(new TextBlock { Text = "Storage for the virtual disks:" });
+            panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#828790"), BorderThickness = new Thickness(1), Child = srList });
+            panel.Children.Add(new TextBlock { Text = "Network for the network interfaces:" });
+            panel.Children.Add(network);
+            panel.Children.Add(verify);
+            panel.Children.Add(start);
+            panel.Children.Add(error);
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame("Import Appliance", panel, 600);
+            XenAdmin.Actions.AsyncAction result = null;
+            ok.Click += (_, _) =>
+            {
+                string err = null;
+                if (eulas.Count > 0 && accept.IsChecked != true) err = "You must accept the EULA(s) to import this appliance.";
+                if (err == null && server.SelectedIndex < 0) err = "Select the pool or server to import to.";
+                if (err == null && (srList.SelectedIndex < 0 || srList.SelectedIndex >= srs.Count)) err = "Select a storage repository.";
+                if (err == null && vifs > 0 && (network.SelectedIndex < 0 || network.SelectedIndex >= networks.Count)) err = "Select a network.";
+                var t = server.SelectedIndex >= 0 ? targets[server.SelectedIndex] : default;
+                if (err == null) err = XvaRules.TargetError(t.Connection, t.Host, srs[srList.SelectedIndex]);
+                if (err == null) err = OvfRules.SpaceError(srs[srList.SelectedIndex], info.RequiredSpace);
+                if (err != null) { error.Text = err; return; }
+                var net = network.SelectedIndex >= 0 ? networks[network.SelectedIndex] : null;
+                var mappings = OvfRules.Mappings(package, t.Target, srs[srList.SelectedIndex], net);
+                result = OvfRules.ImportAction(t.Connection, package, mappings, verify.IsChecked == true, start.IsChecked == true);
                 w.Close();
             };
             cancel.Click += (_, _) => w.Close();

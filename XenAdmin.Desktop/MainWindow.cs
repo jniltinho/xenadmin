@@ -1389,10 +1389,18 @@ namespace XenAdmin.Desktop
             action.RunAsync();
         }
 
-        /// <summary>File > Import (XVA): the import, then "Start VM after import" as its own tracked action.</summary>
+        /// <summary>
+        /// File > Import: an XVA import, then "Start VM after import" as its own tracked action; or an OVF/OVA appliance
+        /// (ImportApplianceAction starts its VMs itself when asked).
+        /// </summary>
         private async void ImportVm()
         {
-            var (import, start) = await Dialogs.ImportVm(this, _connections);
+            var (import, start, appliance) = await Dialogs.ImportVm(this, _connections);
+            if (appliance != null)
+            {
+                if (await Dialogs.ImportAppliance(this, _connections, appliance) is AsyncAction a) RunTracked(a);
+                return;
+            }
             if (import == null) return;
             if (start)
                 import.Completed += _ => Dispatcher.UIThread.Post(() =>

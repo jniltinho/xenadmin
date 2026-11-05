@@ -581,6 +581,79 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>File > Import of an OVF appliance (one VM, a small VHD disk, one interface) to the pool, then cleanup.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void ImportOvfApplianceOnThrowawayVm()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString());
+            System.IO.Directory.CreateDirectory(dir);
+            const string name = VmName + "-ovf";
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            try
+            {
+                var ovf = LinuxAppTests.WriteSampleAppliance(dir, name);
+                var vhd = System.IO.Path.Combine(dir, "disk1.vhd");
+
+                Assert.IsTrue(OvfRules.IsAppliance(ovf));
+                var (package, error, _) = OvfRules.Open(ovf);
+                Assert.IsNull(error, error);
+                var vms = OvfRules.Vms(package);
+                Assert.AreEqual(1, vms.Count);
+                Assert.AreEqual(name, vms[0].Name);
+                Assert.AreEqual(0, OvfRules.Eulas(package).Count);
+
+                var pool = XenAdmin.Core.Helpers.GetPoolOfOne(c);
+                var sr = XvaRules.Targets(c, null).First();
+                var net = OvfRules.Networks(c, null).First();
+                Assert.IsNull(OvfRules.SpaceError(sr, OvfRules.RequiredSpace(package)), "8 MB fits");
+                Assert.AreEqual(8UL << 20, OvfRules.RequiredSpace(package));
+                var mappings = OvfRules.Mappings(package, pool, sr, net);
+                Assert.AreEqual(1, mappings.Values.Single().Storage.Count, "the disk is mapped");
+                var action = OvfRules.ImportAction(c, package, mappings, false, false);
+                Run(action);
+                Assert.IsTrue(action.Succeeded, "import: " + action.Exception?.Message);
+                var vm = WaitForVm(c, name);
+                Assert.AreEqual(1, c.ResolveAll(vm.VBDs).Count(b => b.type == vbd_type.Disk), "the VM has the disk");
+                CleanupNamed(c, session, name);
+                foreach (var app in c.Cache.VM_appliances.Where(a => a.name_label == name).ToList())
+                    VM_appliance.destroy(session, app.opaque_ref);
+
+                // the same appliance as an OVA (a tar with the descriptor first)
+                var ova = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid() + ".ova");
+                try
+                {
+                    using (var tar = new System.Formats.Tar.TarWriter(System.IO.File.Create(ova), System.Formats.Tar.TarEntryFormat.Ustar, false))
+                    {
+                        tar.WriteEntry(ovf, System.IO.Path.GetFileName(ovf));
+                        tar.WriteEntry(vhd, "disk1.vhd");
+                    }
+                    var (ovaPackage, ovaError, _) = OvfRules.Open(ova);
+                    Assert.IsNull(ovaError, ovaError);
+                    var ovaAction = OvfRules.ImportAction(c, ovaPackage, OvfRules.Mappings(ovaPackage, pool, sr, net), false, false);
+                    Run(ovaAction);
+                    Assert.IsTrue(ovaAction.Succeeded, "OVA import: " + ovaAction.Exception?.Message);
+                    WaitForVm(c, name);
+                }
+                finally
+                {
+                    System.IO.File.Delete(ova);
+                }
+            }
+            finally
+            {
+                CleanupNamed(c, session, name);
+                // ImportApplianceAction also creates a vApp named after the package
+                foreach (var app in c.Cache.VM_appliances.Where(a => a.name_label == name).ToList())
+                    try { VM_appliance.destroy(session, app.opaque_ref); } catch { }
+                try { System.IO.Directory.Delete(dir, true); } catch { }
+                c.EndConnect();
+            }
+        }
+
         /// <summary>Host Networking tab: create a single-server private network (New Network wizard) and remove it.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void HostNetworkPrivateCreateRemove()

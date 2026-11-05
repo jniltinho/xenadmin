@@ -109,6 +109,44 @@ namespace XenAdmin.Desktop.Tests
             Assert.AreEqual(45000, new DesktopConfigProvider { Options = again.Options }.ConnectionTimeout);
         }
 
+        /// <summary>An appliance like the VHD import path builds: one VM, an 8 MB dynamic VHD (disk1.vhd) and its envelope.</summary>
+        internal static string WriteSampleAppliance(string dir, string name)
+        {
+            Directory.CreateDirectory(dir);
+            var vhd = Path.Combine(dir, "disk1.vhd");
+            const long capacity = 8L << 20;
+            using (var stream = File.Create(vhd))
+            using (DiscUtils.Vhd.Disk.InitializeDynamic(stream, DiscUtils.Streams.Ownership.None, capacity)) { }
+            var env = XenOvf.OVF.CreateOvfEnvelope(Guid.NewGuid().ToString(), name, 1, 256UL << 20, "", "",
+                (ulong)capacity, "disk1.vhd", (ulong)new FileInfo(vhd).Length, XenAdmin.Core.BrandManager.ProductBrand);
+            var ovf = Path.Combine(dir, name + ".ovf");
+            XenOvf.OVF.SaveAs(env, ovf);
+            return ovf;
+        }
+
+        [TestMethod]
+        public void OvfApplianceOpensWithoutServer()
+        {
+            // XCP_SAMPLE_OVF_DIR keeps the appliance for a manual check of the import dialog
+            var keep = Environment.GetEnvironmentVariable("XCP_SAMPLE_OVF_DIR");
+            var dir = string.IsNullOrEmpty(keep) ? Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()) : keep;
+            try
+            {
+                var ovf = WriteSampleAppliance(dir, "sample-appliance");
+                Assert.IsTrue(OvfRules.IsAppliance(ovf));
+                Assert.IsFalse(OvfRules.IsAppliance("vm.xva"));
+                var (package, error, _) = OvfRules.Open(ovf);
+                Assert.IsNull(error, error);
+                CollectionAssert.AreEqual(new[] { "sample-appliance" }, OvfRules.Vms(package).Select(v => v.Name).ToArray());
+                Assert.AreEqual((1, 1), OvfRules.Counts(package), "one disk and the interface CreateOvfEnvelope adds");
+                Assert.IsNotNull(OvfRules.Open(Path.Combine(dir, "missing.ova")).Error);
+            }
+            finally
+            {
+                if (string.IsNullOrEmpty(keep)) Directory.Delete(dir, true);
+            }
+        }
+
         [TestMethod]
         public void SearchEditorBuildExportImport()
         {

@@ -44,6 +44,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   Properties.
 - VM > Export (an XVA file, optionally verified on completion) and File > Import of an XVA file to a pool or one of
   its servers, on the SR you choose, optionally starting the VM.
+- File > Import of OVF/OVA appliances: the package's VMs, its EULA to accept, the pool or server, one SR for the disks
+  (with a free space check) and one network for the interfaces, manifest verification and Start.
 - Tools > Options: Security (warn on new or changed server certificates, the rotate-secret reminder), Connection
   (proxy: none, the system's or a given server, with bypass for servers; connection timeout), Confirmations (dismiss
   alerts) and Display (area or line performance graphs, remember the last tab per object). Saved in config.json.
@@ -63,6 +65,7 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   when it cannot be used). New VMs get an auto-add SR-IOV network when their template recommends SR-IOV.
 
 ### Fixed
+- OVF disk images (VHD, VHDX, VMDK) open on Linux and macOS (DiscUtils built their path with a backslash).
 - A wrong password no longer leaves "Connecting to..." open forever: the server's login dialog comes back with
   "Incorrect user name and/or password" (as in Windows); Cancel ends the attempt.
 - VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).
