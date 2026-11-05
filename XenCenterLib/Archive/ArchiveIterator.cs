@@ -50,6 +50,10 @@ namespace XenCenterLib.Archive
             if (string.IsNullOrEmpty(pathToExtractTo))
                 throw new ArgumentNullException();
 
+            // every entry must stay inside the extraction directory ("../x" or "/x" in an archive must not escape it)
+            var root = Path.GetFullPath(pathToExtractTo).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var comparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
             while (HasNext())
             {
                 //make the path Windows friendly
@@ -58,6 +62,10 @@ namespace XenCenterLib.Archive
 
                 var sanitizedName = fileName.Replace('/', Path.DirectorySeparatorChar);
                 var conflatedPath = Path.Combine(pathToExtractTo, sanitizedName);
+
+                var fullPath = Path.GetFullPath(conflatedPath);
+                if (!(fullPath + (isDirectory ? Path.DirectorySeparatorChar.ToString() : "")).StartsWith(root, comparison))
+                    throw new IOException($"The archive entry '{fileName}' points outside the extraction directory.");
 
                 var dir = isDirectory ? conflatedPath : Path.GetDirectoryName(conflatedPath);
                 dir = StringUtility.ToLongWindowsPath(dir, true);

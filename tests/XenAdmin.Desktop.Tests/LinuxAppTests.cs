@@ -125,6 +125,31 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void ArchiveEntriesCannotEscapeTheExtractionDirectory()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            var absolute = Path.Combine(dir, "absolute-escape.txt");
+            // a relative climb and an absolute path (Path.Combine keeps the absolute one)
+            foreach (var evilName in new[] { "../escape.txt", absolute })
+            {
+                var target = Path.Combine(dir, "extract");
+                Directory.CreateDirectory(target);
+                var tar = Path.Combine(dir, "evil.ova");
+                using (var writer = new System.Formats.Tar.TarWriter(File.Create(tar), System.Formats.Tar.TarEntryFormat.Ustar, false))
+                {
+                    writer.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "inside.txt") { DataStream = new MemoryStream(new byte[] { 1 }) });
+                    writer.WriteEntry(new System.Formats.Tar.UstarTarEntry(System.Formats.Tar.TarEntryType.RegularFile, evilName) { DataStream = new MemoryStream(new byte[] { 2 }) });
+                }
+                using (var stream = File.OpenRead(tar))
+                using (var iterator = XenCenterLib.Archive.ArchiveFactory.Reader(XenCenterLib.Archive.ArchiveFactory.Type.Tar, stream))
+                    Assert.ThrowsException<IOException>(() => iterator.ExtractAllContents(target), evilName);
+                Assert.IsTrue(File.Exists(Path.Combine(target, "inside.txt")), "entries inside are extracted");
+                Assert.IsFalse(File.Exists(Path.Combine(dir, "escape.txt")) || File.Exists(absolute), "nothing is written outside: " + evilName);
+            }
+            Directory.Delete(dir, true);
+        }
+
+        [TestMethod]
         public void OvfApplianceOpensWithoutServer()
         {
             // XCP_SAMPLE_OVF_DIR keeps the appliance for a manual check of the import dialog

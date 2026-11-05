@@ -230,7 +230,8 @@ namespace XenCenterLib
         /// <param name="isDirectory">Whether the input path is a directory</param>
         public static string ToLongWindowsPath(string inputPath, bool isDirectory)
         {
-            if (string.IsNullOrEmpty(inputPath) || inputPath.StartsWith(@"\\?\"))
+            // \\?\ only means something on Windows; elsewhere it would turn an absolute path into a relative one
+            if (string.IsNullOrEmpty(inputPath) || inputPath.StartsWith(@"\\?\") || Path.DirectorySeparatorChar != '\\')
                 return inputPath;
 
             if (isDirectory)
@@ -252,6 +253,9 @@ namespace XenCenterLib
         /// <param name="inputPath">The input path</param>
         public static string ToLongWindowsPathUnchecked(string inputPath)
         {
+            // a UNC path \\server\share\... becomes \\?\UNC\server\share\...
+            if (inputPath.StartsWith(@"\\") && !inputPath.StartsWith(@"\\?\"))
+                return $@"\\?\UNC\{inputPath.Substring(2)}";
             return $@"\\?\{inputPath}";
         }
     }

@@ -68,6 +68,10 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   when it cannot be used). New VMs get an auto-add SR-IOV network when their template recommends SR-IOV.
 
 ### Fixed
+- OVA archives can no longer write outside their extraction folder ("../" or absolute entry names are refused), and
+  an import removes only the temporary copies it created, never a file of the package.
+- Long-path handling no longer prefixes Linux and macOS paths with the Windows-only "\\?\" form; long UNC paths on
+  Windows use the "\\?\UNC\" form.
 - OVF disk images (VHD, VHDX, VMDK) open on Linux and macOS (DiscUtils built their path with a backslash).
 - A wrong password no longer leaves "Connecting to..." open forever: the server's login dialog comes back with
   "Incorrect user name and/or password" (as in Windows); Cancel ends the attempt.

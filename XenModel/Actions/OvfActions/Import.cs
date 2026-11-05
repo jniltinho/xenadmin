@@ -289,6 +289,7 @@ namespace XenAdmin.Actions.OvfActions
 
             string ext = Path.GetExtension(filename);
             string sourcefile = filePath;
+            var createdFiles = new List<string>(); // the temporary copies this import created, removed at the end
             VirtualDisk vhdDisk = null;
             Stream dataStream = null;
             XenRef<VDI> vdiRef = null;
@@ -305,6 +306,8 @@ namespace XenAdmin.Actions.OvfActions
                     Description = string.Format(Messages.START_FILE_DECRYPTION, filename);
                     log.Debug($"Decrypting {filename} to temporary file enc_{filename}");
                     sourcefile = Path.Combine(pathToOvf, "enc_" + filename);
+                    if (!File.Exists(sourcefile))
+                        createdFiles.Add(sourcefile);
                     OVF.DecryptToTempFile(m_encryptionClass, filePath, m_encryptionVersion, m_password, sourcefile);
                 }
 
@@ -325,6 +328,8 @@ namespace XenAdmin.Actions.OvfActions
                         ext = Path.GetExtension(sourcefile);
                     }
 
+                    if (sourcefile != filePath && !File.Exists(sourcefile))
+                        createdFiles.Add(sourcefile);
                     CompressionFactory.UncompressFile(filePath, sourcefile, compression.Value, CheckForCancellation);
                 }
 
@@ -487,10 +492,10 @@ namespace XenAdmin.Actions.OvfActions
 
                 try
                 {
-                    var sourcefileName = Path.GetFileName(sourcefile);
-                    
-                    if ((sourcefileName.StartsWith("enc_") || sourcefileName.StartsWith("unc_")) && File.Exists(sourcefile))
-                        File.Delete(sourcefile);
+                    // only the temporary copies this import made (decrypted or uncompressed), never a file of the package
+                    foreach (var created in createdFiles)
+                        if (File.Exists(created))
+                            File.Delete(created);
                 }
                 catch
                 {
