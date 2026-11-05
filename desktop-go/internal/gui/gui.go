@@ -25,12 +25,16 @@ func Run(s *config.Settings, p *trust.Policy) error {
 	}
 	ws := NewWorkspace(s, p)
 	defer ws.Close()
+	icon, _ := fs.ReadFile(dist, "icons/app.png")
 	app := application.New(application.Options{
 		Name:     "XCP-ng Center",
+		Icon:     icon,
+		Linux:    application.LinuxOptions{ProgramName: "xcp-ng-center-go"}, // matches the AppImage's .desktop file
 		Services: []application.Service{application.NewService(ws)},
 		Assets:   application.AssetOptions{Handler: application.AssetFileServerFS(dist)},
 		Mac:      application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
+	setWindowIcon(app, dist)
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "XCP-ng Center",
 		Width:  1280,

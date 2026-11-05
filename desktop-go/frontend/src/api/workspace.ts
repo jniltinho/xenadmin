@@ -20,6 +20,9 @@ export interface VMProperties { name: string; description: string; halted: boole
   vcpus_at_startup: number; cores_per_socket: number; priority: number; min_vcpus: number; max_physical: number;
   vcpu_choices: { vcpus: number; topologies: { sockets: number; cores: number; text: string }[] }[];
   home_server: string; servers: { uuid: string; name: string; live: boolean }[]; can_have_none: boolean }
+export interface Performance { times: number[]; start: number; end: number;
+  graphs: { title: string; max: number; divisor: number; label: string; series: { name: string; values: (number | null)[] }[] }[];
+  events: { time: string; name: string; text: string }[] }
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
@@ -56,6 +59,7 @@ export const api = {
   takeSnapshot: (key: string, vm: string, name: string, description: string, memory: boolean) => call<void>("TakeSnapshot", key, vm, name, description, memory),
   revertSnapshot: (key: string, snapshot: string) => call<void>("RevertSnapshot", key, snapshot),
   deleteSnapshot: (key: string, snapshot: string) => call<void>("DeleteSnapshot", key, snapshot),
+  performance: (key: string, kind: string, uuid: string, zoom: string) => call<Performance>("Performance", key, kind, uuid, zoom),
   openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),

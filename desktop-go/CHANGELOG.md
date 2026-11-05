@@ -5,6 +5,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Performance tab of VMs and servers: the C# default graphs, zoom from 10 minutes to 1 year, lifecycle events, in
+  the server's time; RRDs read from the member that holds them, through the coordinator's certificate list.
+- The XCP-ng window icon (written as _NET_WM_ICON on X11; the .desktop file on Wayland), the C# tree expanders, a
+  draggable splitter for the navigation pane.
 - The main window laid out as the C# app: menus, the toolbar with its power-button rules, Back/Forward, the tree's
   search box, the navigation pane (Objects view), Home and Search tabs of the root, saved servers shown disconnected
   with Connect (password focused), Disconnect and Remove.

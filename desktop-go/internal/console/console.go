@@ -62,21 +62,7 @@ func Locate(c *xapi.Connection, vmUUID string) (Target, error) {
 			}
 		}
 		t := Target{URL: u, HostKey: xapi.HostKey(u.Hostname(), port)}
-		hosts, err := xenapi.Host.GetAllRecords(s)
-		if err != nil {
-			return Target{}, xapi.Sanitize(err)
-		}
-		for _, h := range hosts {
-			if h.Address != u.Hostname() {
-				continue
-			}
-			for _, cr := range h.Certificates {
-				cert, err := xenapi.Certificate.GetRecord(s, cr)
-				if err == nil && cert.Type == xenapi.CertificateTypeHost {
-					t.Vouched = append(t.Vouched, trust.Normalize(cert.FingerprintSha256), trust.Normalize(cert.Fingerprint))
-				}
-			}
-		}
+		t.Vouched = xapi.VouchedFingerprints(s, u.Hostname())
 		return t, nil
 	}
 	return Target{}, errors.New("this VM has no graphical console now (is it running?)")
@@ -86,24 +72,7 @@ func Locate(c *xapi.Connection, vmUUID string) (Target, error) {
 // prompt) or a pool member whose certificate the coordinator vouches for; then "CONNECT path" with the session
 // cookie. Bytes the server sent after its HTTP answer stay in the returned connection.
 func Dial(ctx context.Context, policy *trust.Policy, t Target, session string) (net.Conn, error) {
-	conf := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true, // checked below
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return errors.New("the console host sent no certificate")
-			}
-			fp := trust.Fingerprint(cs.PeerCertificates[0].Raw)
-			if policy.Evaluate(t.HostKey, fp, false) == trust.Trusted {
-				return nil
-			}
-			if _, pinned := policy.Expected(t.HostKey); !pinned {
-				for _, v := range t.Vouched {
-					if v != "" && v == fp {
-						return nil
-					}
-				}
-			}
-			return &trust.UntrustedError{HostKey: t.HostKey, Fingerprint: fp}
-		}}
+	conf := xapi.MemberTLS(policy, t.HostKey, t.Vouched)
 	d := tls.Dialer{NetDialer: &net.Dialer{Timeout: 20 * time.Second}, Config: conf}
 	raw, err := d.DialContext(ctx, "tcp", t.HostKey)
 	if err != nil {

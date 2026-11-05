@@ -4,7 +4,7 @@ FROM ubuntu:24.04
 ARG APPIMAGETOOL_VERSION=1.9.1
 ARG APPIMAGE_RUNTIME_VERSION=20251108
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ca-certificates curl zip file desktop-file-utils build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev \
+      ca-certificates curl zip file desktop-file-utils build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL -o /usr/local/bin/appimagetool \
          https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage \

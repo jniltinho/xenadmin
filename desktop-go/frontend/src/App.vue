@@ -8,6 +8,7 @@ import ConsoleView from "./ConsoleView.vue";
 import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
+import PerformanceView from "./PerformanceView.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
 interface MenuItem { label: string; icon?: string; enabled?: boolean; run?: () => void; sep?: boolean }
@@ -140,7 +141,7 @@ const hostCanRun = (c: HostCommand, n: Node | null) =>
 function closeMenus() { menu.value = null; openMenu.value = ""; }
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
-type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "console" | "snapshots";
+type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "console" | "performance" | "snapshots";
 const tab = ref<Tab>("general");
 const consoleVm = computed(() => {
   const o = selected.value?.object;
@@ -156,6 +157,7 @@ const tabInfo = {
   storage: { label: "Storage", icon: "000_VirtualStorage_h32bit_16" },
   networking: { label: "Networking", icon: "000_Network_h32bit_16" },
   console: { label: "Console", icon: "console_16" },
+  performance: { label: "Performance", icon: "001_PerformanceGraph_h32bit_16" },
   snapshots: { label: "Snapshots", icon: "000_VMSnapShotDiskOnly_h32bit_16" },
 } as const;
 // VMTabs: General, Console, Snapshots for a VM; General, Console for a server
@@ -167,6 +169,7 @@ const tabs = computed<Tab[]>(() => {
   const t: Tab[] = ["general"];
   if (selected.value?.object?.kind === "vms") t.push("memory", "storage", "networking");
   if (consoleVm.value) t.push("console");
+  if (selected.value?.object?.kind === "vms" || selected.value?.object?.kind === "hosts") t.push("performance");
   if (selected.value?.object?.kind === "vms") t.push("snapshots");
   return t;
 });
@@ -320,6 +323,21 @@ async function forget(n: Node) {
   try { await api.forget(n.server); delete data[n.server]; await refreshServers(); selected.value = tree.value; } catch (e) { failure.value = String(e); }
 }
 
+// the splitter's position (MainWindow's SplitContainer), kept for the next start
+const sideWidth = ref(260);
+try { sideWidth.value = Math.min(800, Math.max(160, Number(localStorage.getItem("sideWidth")) || 260)); } catch { /* no storage */ }
+function startResize(e: MouseEvent) {
+  const x0 = e.clientX, w0 = sideWidth.value;
+  const move = (m: MouseEvent) => { sideWidth.value = Math.min(800, Math.max(160, w0 + m.clientX - x0)); };
+  const up = () => {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+    try { localStorage.setItem("sideWidth", String(sideWidth.value)); } catch { /* no storage */ }
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+}
+
 // the Properties dialog of a VM
 const propsOf = ref<Node | null>(null);
 async function propertiesClosed(saved: boolean) {
@@ -452,7 +470,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <button class="tool" disabled><img src="/icons/000_Paused_h32bit_24_green.png" alt="" />Pause</button>
     </div>
     <div class="flex min-h-0 flex-1">
-      <aside class="flex w-64 flex-col border-r border-line bg-pane">
+      <aside class="flex shrink-0 flex-col bg-pane" :style="{ width: `${sideWidth}px` }">
         <div v-if="view === 'infrastructure' || view === 'objects'" class="m-1 flex items-center border border-line bg-white">
           <input v-model="filter" placeholder="Search..." class="min-w-0 flex-1 px-1 py-0.5 outline-none" />
           <img src="/icons/000_Search_h32bit_16.png" alt="" class="mx-1 h-4 w-4" />
@@ -465,8 +483,11 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
                  :style="{ paddingLeft: `${0.25 + depth * 1.1}rem` }"
                  @click="selected = node" @dblclick="activate(node)"
                  @contextmenu.prevent.stop="selected = node; menu = contextItems(node).length ? { x: $event.clientX, y: $event.clientY, items: contextItems(node) } : null">
-              <span class="w-3 text-center text-[10px]" @click.stop="toggle(node)">{{ node.children.length ? (expanded.has(node.id) ? "−" : "+") : "" }}</span>
-              <img :src="`/icons/${node.icon}.png`" alt="" class="h-4 w-4" />
+              <!-- the C# tree's boxed expander -->
+              <span class="flex h-4 w-4 shrink-0 items-center justify-center" @click.stop="toggle(node)">
+                <img v-if="node.children.length" :src="`/icons/${expanded.has(node.id) ? 'tree_minus' : 'tree_plus'}.png`" alt="" />
+              </span>
+              <img :src="`/icons/${node.icon}.png`" alt="" class="h-4 w-4 shrink-0" />
               <span>{{ node.label }}</span>
             </div>
           </template>
@@ -483,6 +504,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
           </div>
         </div>
       </aside>
+      <!-- the splitter between the navigation pane and the tabs: drag it to resize -->
+      <div class="w-1 shrink-0 cursor-col-resize border-r border-line bg-pane hover:bg-neutral-300" @mousedown.prevent="startResize"></div>
       <main v-if="view === 'alerts'" class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
           <img src="/icons/notif_alerts_16.png" alt="" class="h-4 w-4" />Alerts
@@ -513,7 +536,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       </main>
       <main v-else class="flex min-w-0 flex-1 flex-col">
         <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
-          <img :src="`/icons/${selected?.icon ?? 'infra_view_16_textured'}.png`" alt="" class="h-4 w-4" />{{ selected?.label ?? "XCP-ng Center" }}
+          <img :src="`/icons/${!selected || selected.id === 'root' ? 'Logo' : selected.icon}.png`" alt="" class="h-4 w-4" />{{ selected?.label ?? "XCP-ng Center" }}
         </div>
         <div class="tabstrip" role="tablist">
           <button v-for="t in tabs" :key="t" role="tab" :aria-selected="tab === t" class="tab" :class="{ active: tab === t }" @click="tab = t">
@@ -540,6 +563,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
           <p v-if="!overview.length" class="p-3 text-neutral-500">No connected server. Use Add New Server, or double-click a server of the tree to connect.</p>
         </div>
         <ConsoleView v-else-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
+        <PerformanceView v-else-if="tab === 'performance' && selected?.object && selected.server" :key="`perf/${selected.id}`"
+                         :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" />
         <VmTab v-else-if="(tab === 'memory' || tab === 'storage' || tab === 'networking') && selected?.object && selected.server"
                :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :vm="selected.object.uuid" :kind="tab"
                @status="onTabStatus" />

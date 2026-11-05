@@ -388,6 +388,12 @@ func (w *Workspace) ChangeISO(key, dvdUUID, isoUUID string) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.ChangeISO(c, dvdUUID, isoUUID) })
 }
 
+// Performance is the Performance tab of a VM or a server ("vms" or "hosts") for a zoom (10m, 1h, 1d, 1w, 1mo, 1y).
+func (w *Workspace) Performance(key, kind, uuid, zoom string) (out app.Performance, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadPerformance(c, w.policy, kind, uuid, zoom); return err })
+	return out, err
+}
+
 // OpenConsole returns a one-time ws:// URL for the VM's graphical console (noVNC connects to it within 30 s); it is
 // revoked, and an open console closed, when the server is disconnected.
 func (w *Workspace) OpenConsole(key, vmUUID string) (ticket string, err error) {
