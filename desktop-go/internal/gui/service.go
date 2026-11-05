@@ -468,3 +468,32 @@ func (w *Workspace) Close() {
 		_ = c.Close()
 	}
 }
+
+// NewSRKinds is the New Storage wizard's Type page.
+func (w *Workspace) NewSRKinds(key string) (out []app.NewSRKind, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadNewSRKinds(c); return err })
+	return out, err
+}
+
+// CheckSRLocation is the Location page's check before Finish: "" when the share can be used.
+func (w *Workspace) CheckSRLocation(key, kind, path string) (problem string, err error) {
+	if !rules.SRValidLocation(rules.SRKind(kind), path) {
+		if kind == string(rules.SRNfs) || kind == string(rules.SRNfsIso) {
+			return "Enter the share as server:/path.", nil
+		}
+		return `Enter the share as \\server\share.`, nil
+	}
+	err = w.with(key, func(c *xapi.Connection) error {
+		if e := ops.ISOAlreadyAttached(c, rules.SRKind(kind), path); e != nil {
+			problem = e.Error()
+		}
+		return nil
+	})
+	return problem, err
+}
+
+// CreateSR creates the SR the wizard describes and returns its uuid.
+func (w *Workspace) CreateSR(key string, spec ops.NewSR) (uuid string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { uuid, err = ops.CreateSR(c, spec); return err })
+	return uuid, err
+}

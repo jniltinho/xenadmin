@@ -11,6 +11,7 @@ import (
 
 	"xcpng-center/internal/config"
 	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/trust"
 	"xcpng-center/internal/xapi"
 )
@@ -301,4 +302,119 @@ func TestLabCreateVM(t *testing.T) {
 		}
 	}
 	t.Fatal("the new VM is not listed")
+}
+
+// TestLabCreateSR creates an NFS ISO library on XCP_LAB_NFS/iso (a second one on that share is refused) and an NFS SR
+// on XCP_LAB_NFS (server:/path, XCP_ALLOW_WRITE=1): shared, plugged and not the default (the lab has a shared SR
+// already); then forgets the library and destroys the SR.
+func TestLabCreateSR(t *testing.T) {
+	c := labConnection(t)
+	share := os.Getenv("XCP_LAB_NFS")
+	if share == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_NFS and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	iso := ops.NewSR{Kind: rules.SRNfsIso, Name: "xcpng-center-go-test-iso", AutoDesc: true, Path: share + "/iso"}
+	isoUUID, err := ops.CreateSR(c, iso)
+	if isoUUID != "" {
+		defer func() {
+			ref, _ := xenapi.SR.GetByUUID(s, isoUUID)
+			pbds, _ := xenapi.SR.GetPBDs(s, ref)
+			for _, p := range pbds {
+				_ = xenapi.PBD.Unplug(s, p)
+			}
+			if err := xenapi.SR.Forget(s, ref); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, _ := xenapi.SR.GetByUUID(s, isoUUID); true {
+		if rec, _ := xenapi.SR.GetRecord(s, ref); rec.OtherConfig["auto-scan"] != "true" || rec.ContentType != "iso" {
+			t.Fatalf("%+v", rec)
+		}
+	}
+	if _, err := ops.CreateSR(c, iso); err == nil || !strings.Contains(err.Error(), "already") {
+		t.Fatalf("ISO library attached twice: %v", err)
+	}
+	kinds, err := ReadNewSRKinds(c)
+	if err != nil || len(kinds) != 4 || kinds[0].DefaultName == "" {
+		t.Fatalf("%+v %v", kinds, err)
+	}
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	uuid, err := ops.CreateSR(c, ops.NewSR{Kind: rules.SRNfs, Name: "xcpng-center-go-test-sr", AutoDesc: true, Path: share, NFSVersion: "4"})
+	if uuid != "" {
+		defer func() {
+			ref, _ := xenapi.SR.GetByUUID(s, uuid)
+			pbds, _ := xenapi.SR.GetPBDs(s, ref)
+			for _, p := range pbds {
+				_ = xenapi.PBD.Unplug(s, p)
+			}
+			if err := xenapi.SR.Destroy(s, ref); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := xenapi.SR.GetByUUID(s, uuid)
+	rec, err := xenapi.SR.GetRecord(s, ref)
+	if err != nil || !rec.Shared || rec.Type != "nfs" || rec.NameDescription != "NFS SR ["+share+"]" || rec.OtherConfig["auto-scan"] != "false" {
+		t.Fatalf("%+v %v", rec, err)
+	}
+	for _, p := range rec.PBDs {
+		if pbd, _ := xenapi.PBD.GetRecord(s, p); !pbd.CurrentlyAttached || pbd.DeviceConfig["nfsversion"] != "4" {
+			t.Fatalf("PBD %+v", pbd)
+		}
+	}
+	for ref, p := range pools {
+		if now, _ := xenapi.Pool.GetDefaultSR(s, ref); now != p.DefaultSR {
+			t.Fatal("the default SR changed")
+		}
+	}
+}
+
+// TestLabCreateSMBSR creates an SMB SR on XCP_LAB_SMB (\\server\share, user xcp with the lab password, which goes
+// through a secret) and destroys it (XCP_ALLOW_WRITE=1); no secret is left behind.
+func TestLabCreateSMBSR(t *testing.T) {
+	c := labConnection(t)
+	share := os.Getenv("XCP_LAB_SMB")
+	if share == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_SMB and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	secrets, _ := xenapi.Secret.GetAll(s)
+	uuid, err := ops.CreateSR(c, ops.NewSR{Kind: rules.SRSmb, Name: "xcpng-center-go-test-smb", AutoDesc: true, Path: share, User: "xcp", Password: os.Getenv("XCP_PASS")})
+	if uuid != "" {
+		defer func() {
+			ref, _ := xenapi.SR.GetByUUID(s, uuid)
+			pbds, _ := xenapi.SR.GetPBDs(s, ref)
+			for _, p := range pbds {
+				_ = xenapi.PBD.Unplug(s, p)
+			}
+			if err := xenapi.SR.Destroy(s, ref); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := xenapi.SR.GetByUUID(s, uuid)
+	if rec, _ := xenapi.SR.GetRecord(s, ref); rec.Type != "smb" || !rec.Shared || len(rec.PBDs) != 2 {
+		t.Fatalf("%+v", rec)
+	}
+	// the PBDs keep their own copy of the secret (SR.create); the one given to SR.create is gone
+	pbds, _ := xenapi.SR.GetPBDs(s, ref)
+	pbd, _ := xenapi.PBD.GetRecord(s, pbds[0])
+	if pbd.DeviceConfig["password"] != "" || pbd.DeviceConfig["password_secret"] == "" {
+		t.Fatal("the password is in the device_config")
+	}
+	after, _ := xenapi.Secret.GetAll(s)
+	if len(after) > len(secrets)+len(pbds) {
+		t.Fatalf("secrets: %d before, %d after", len(secrets), len(after))
+	}
 }

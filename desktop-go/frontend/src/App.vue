@@ -10,6 +10,7 @@ import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
 import PerformanceView from "./PerformanceView.vue";
 import NewVmWizard from "./NewVmWizard.vue";
+import NewSrWizard from "./NewSrWizard.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
 interface MenuItem { label: string; icon?: string; enabled?: boolean; run?: () => void; sep?: boolean }
@@ -350,6 +351,16 @@ async function newVmClosed(uuid: string, startError: string) {
   if (startError) failure.value = `The VM was created, but it did not start: ${startError}`;
 }
 
+// New Storage (NewSRCommand): on the same server as New VM
+const newSrOn = ref("");
+const poolLabel = (key: string) => tree.value.children.find((n) => n.id === key)?.label ?? key;
+function openNewSr() { closeMenus(); if (targetServer.value) newSrOn.value = targetServer.value; }
+async function newSrClosed(uuid: string) {
+  const key = newSrOn.value;
+  newSrOn.value = "";
+  if (uuid) { await load(key); reselect(`${key}/${uuid}`); }
+}
+
 // the Properties dialog of a VM
 const propsOf = ref<Node | null>(null);
 async function propertiesClosed(saved: boolean) {
@@ -377,7 +388,7 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     { label: "Disconnect", enabled: !!serverNode.value && !serverNode.value.disconnected, run: () => { closeMenus(); disconnect(serverNode.value!); } },
     { label: "", sep: true }, ...hostItems(selectedHost.value)] },
   { label: "VM", items: [{ label: "New VM...", icon: "001_CreateVM_h32bit_16", enabled: !!targetServer.value, run: openNewVm }, { label: "", sep: true }, ...vmItems(selectedVm.value)] },
-  { label: "Storage", items: [{ label: "New SR...", enabled: false }] },
+  { label: "Storage", items: [{ label: "New SR...", icon: "000_Storage_h32bit_16", enabled: !!targetServer.value, run: openNewSr }] },
   { label: "Templates", items: [{ label: "New VM from Template...", enabled: false }] },
   { label: "Tools", items: [{ label: "Options...", enabled: false }] },
   { label: "Help", items: [{ label: "About XCP-ng Center", enabled: true, run: () => { closeMenus(); choose({ title: "About XCP-ng Center", text: "XCP-ng Center (Go)\nThe XCP-ng Center desktop app in Go, Wails and Vue." }, ["OK"]); } }] },
@@ -475,7 +486,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <button class="tool" @click="openAdd()"><img src="/icons/000_AddApplicationServer_h32bit_24.png" alt="" />Add New Server</button>
       <span class="toolsep"></span>
       <button class="tool" disabled :title="soon"><img src="/icons/000_PoolNew_h32bit_24.png" alt="" />New Pool</button>
-      <button class="tool" disabled :title="soon"><img src="/icons/000_NewStorage_h32bit_24.png" alt="" />New Storage</button>
+      <button class="tool" :disabled="!targetServer" @click="openNewSr"><img src="/icons/000_NewStorage_h32bit_24.png" alt="" />New Storage</button>
       <button class="tool" :disabled="!targetServer" @click="openNewVm"><img src="/icons/000_CreateVM_h32bit_24.png" alt="" />New VM</button>
       <span class="toolsep"></span>
       <button v-for="b in powerButtons" :key="b.op" class="tool" :disabled="!b.enabled" @click="b.run()"><img :src="`/icons/${b.icon}_h32bit_24.png`" alt="" />{{ b.label }}</button>
@@ -612,6 +623,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     </div>
 
     <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />
+    <NewSrWizard v-if="newSrOn" :server="newSrOn" :pool="poolLabel(newSrOn)" @close="newSrClosed" />
     <PropertiesDialog v-if="propsOf?.object && propsOf.server" :server="propsOf.server" :vm="propsOf.object.uuid" @close="propertiesClosed" />
     <div v-if="ask" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
       <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">

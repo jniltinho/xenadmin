@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- New Storage wizard (Type, Name, Location) for NFS and SMB storage and the NFS and SMB ISO libraries, as
+  SrCreateAction: the password in a secret only for SR.create, an unplugged PBD plugged or the SR forgotten, the
+  pool's first shared SR made its default. Scan/Reattach and iSCSI are not there yet.
 - New VM wizard (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish) with the
   C# defaults; the VM is created as CreateVMAction does and removed again if a step fails.
 - The navigation pane's splitter is wider, with a grip.

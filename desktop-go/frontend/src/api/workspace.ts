@@ -30,6 +30,7 @@ export interface NewVMDefaults { name: string; description: string; hvm: boolean
   networks: { network: string; device?: string; qos_type?: string; qos_params?: Record<string, string> }[]; no_dvd: boolean; eliloader: boolean }
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
+export interface NewSRKind { kind: string; name: string; blurb: string; default_name: string; iso: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
 
 export const api = {
@@ -68,6 +69,9 @@ export const api = {
   newVmOptions: (key: string) => call<NewVMOptions>("NewVMOptions", key),
   newVmDefaults: (key: string, template: string, home: string) => call<NewVMDefaults>("NewVMDefaults", key, template, home),
   createVm: (key: string, spec: Record<string, unknown>) => call<{ uuid: string; start_error?: string }>("CreateVM", key, spec),
+  newSrKinds: (key: string) => call<NewSRKind[]>("NewSRKinds", key),
+  checkSrLocation: (key: string, kind: string, path: string) => call<string>("CheckSRLocation", key, kind, path),
+  createSr: (key: string, spec: Record<string, unknown>) => call<string>("CreateSR", key, spec),
   openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),
