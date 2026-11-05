@@ -51,7 +51,7 @@
 
 ## 6. Abas e Properties
 
-- [~] 6.1 (feito: tabela de discos do `Details.Storage`, Activate/Deactivate, drive de DVD (criar, ISO, Eject) com o aviso de reinício do C#, testado no lab KVM; faltam novo, anexar, mover, desanexar, excluir disco e Properties) Storage da VM (novo, anexar, ativar, desativar, desanexar, excluir disco; DVD e ISO) — `StorageRules`
+- [~] 6.1 (feito: tabela de discos do `Details.Storage`, Add (NewDiskDialog), Activate/Deactivate, Detach, Delete com as regras e perguntas do C#, drive de DVD (criar, ISO, Eject) com os avisos de reinício, testado no lab KVM; faltam Attach, Move e Properties do disco) Storage da VM (novo, anexar, ativar, desativar, desanexar, excluir disco; DVD e ISO) — `StorageRules`
 - [~] 6.2 (feito: Networking (tabela do `Details.Networking`) e Memory (valores), sem edição ainda; Snapshots com Take Snapshot (disco ou disco e memória, com o motivo quando não disponível), Revert To com "tirar snapshot antes" e volta do estado de energia, Delete só de snapshots com os discos próprios, testado no lab KVM e pelo MCP; faltam Networking, Memory, Search) Snapshots (tirar, reverter, excluir), Networking, Memory, Search
 - [ ] 6.3 Performance (`internal/rrd`, `PerformanceRules`, uPlot, zoom de 10 min a 1 ano, eventos de ciclo de vida)
 - [ ] 6.4 Properties: General, CPU, Boot Options, Home Server

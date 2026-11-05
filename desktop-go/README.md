@@ -21,7 +21,7 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
   Selected and Dismiss All; Server Shut Down, Reboot and Enter/Exit Maintenance Mode (evacuation, restoring the VMs);
   the Console tab (noVNC) for VMs and servers, through a loopback WebSocket with one-time tickets (the session and the
   certificates stay in the Go side); the Snapshots tab (take with or without memory, revert, delete); the Memory,
-  Storage (disks, Activate/Deactivate, the DVD drive and its ISO) and Networking tabs of a VM.
+  Storage (Add, Activate/Deactivate, Detach and Delete a disk; the DVD drive and its ISO) and Networking tabs of a VM.
 - CLI: `server add|list`, `pool|host|vm|template|sr|network list` (table or `--json`), `version`.
 - MCP (`mcp`, stdio): `list_servers`, `connect`, `disconnect`, `list_objects` — the names and arguments of the C# app's
   MCP server, plus `list_alerts` and `list_snapshots`; `mcp --allow-write` adds `vm_power`, `vm_snapshot`,

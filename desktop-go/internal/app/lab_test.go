@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	xenapi "go/xenapi"
+
 	"xcpng-center/internal/config"
 	"xcpng-center/internal/ops"
 	"xcpng-center/internal/trust"
@@ -86,6 +88,81 @@ func TestLabChangeISO(t *testing.T) {
 		}
 		if st, _ = ListVMStorage(c, vm.UUID); st.ISO != "" {
 			t.Fatalf("still holds %q after eject", st.ISO)
+		}
+		return
+	}
+	t.Fatalf("no VM named %q", name)
+}
+
+// TestLabDiskLifecycle adds a 64 MB disk to the throwaway VM, detaches it and deletes it.
+func TestLabDiskLifecycle(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	vms, _ := ListObjects(c, "vms")
+	for _, vm := range vms {
+		if vm.Name != name {
+			continue
+		}
+		opts, err := NewDiskOptions(c, vm.UUID)
+		if err != nil || opts.DefaultSR == "" || opts.Name == "" {
+			t.Fatalf("options %+v %v", opts, err)
+		}
+		notice, err := ops.AddDisk(c, vm.UUID, "go-lab-disk", "lab test", opts.DefaultSR, 64<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, _ := ListVMStorage(c, vm.UUID)
+		var d Disk
+		for _, x := range st.Disks {
+			if x.Name == "go-lab-disk" {
+				d = x
+			}
+		}
+		if d.VBD == "" || (notice == "" && !d.Attached) || d.System {
+			t.Fatalf("added disk %+v (notice %q)", d, notice)
+		}
+		if !d.CanDetach || d.CanDelete != !d.Attached {
+			t.Fatalf("rules for the new disk: %+v", d)
+		}
+		if d.Attached {
+			if err := ops.SetDiskActive(c, d.VBD, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := ops.DeleteDisk(c, vm.UUID, d.VBD); err != nil {
+			t.Fatal(err)
+		}
+		st, _ = ListVMStorage(c, vm.UUID)
+		for _, x := range st.Disks {
+			if x.Name == "go-lab-disk" {
+				t.Fatal("the disk is still attached")
+			}
+		}
+		// Detach keeps the disk: it leaves the VM and stays on the SR (removed here by the test)
+		if _, err := ops.AddDisk(c, vm.UUID, "go-lab-detach", "", opts.DefaultSR, 64<<20); err != nil {
+			t.Fatal(err)
+		}
+		st, _ = ListVMStorage(c, vm.UUID)
+		for _, x := range st.Disks {
+			if x.Name == "go-lab-detach" {
+				d = x
+			}
+		}
+		if err := ops.DetachDisk(c, d.VBD); err != nil {
+			t.Fatal(err)
+		}
+		vdi, err := xenapi.VDI.GetByUUID(c.Session, d.VDI)
+		if err != nil {
+			t.Fatalf("the detached disk is gone: %v", err)
+		}
+		if vbds, _ := xenapi.VDI.GetVBDs(c.Session, vdi); len(vbds) != 0 {
+			t.Fatal("the detached disk still has a VBD")
+		}
+		if err := xenapi.VDI.Destroy(c.Session, vdi); err != nil {
+			t.Fatal(err)
 		}
 		return
 	}

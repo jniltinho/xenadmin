@@ -312,6 +312,37 @@ func (w *Workspace) SetDiskActive(key, vbdUUID string, active bool) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.SetDiskActive(c, vbdUUID, active) })
 }
 
+// NewDiskOptions is what the Add Virtual Disk dialog offers.
+func (w *Workspace) NewDiskOptions(key, vmUUID string) (out app.NewDisk, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.NewDiskOptions(c, vmUUID); return err })
+	return out, err
+}
+
+// AddDisk creates a disk and attaches it to the VM; the notice says when the VM needs a restart first.
+func (w *Workspace) AddDisk(key, vmUUID, name, description, srUUID string, size int) (notice string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		notice, err = ops.AddDisk(c, vmUUID, name, description, srUUID, size)
+		return err
+	})
+	return notice, err
+}
+
+// DiskQuestion is the Detach or Delete question of a disk.
+func (w *Workspace) DiskQuestion(del, system bool) Confirm {
+	title, text := rules.DiskQuestion(del, system)
+	return Confirm{Title: title, Text: text}
+}
+
+// DetachDisk detaches a disk from its VM (the disk stays).
+func (w *Workspace) DetachDisk(key, vbdUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.DetachDisk(c, vbdUUID) })
+}
+
+// DeleteDisk deletes the disk of a VM's VBD (re-checked on the server).
+func (w *Workspace) DeleteDisk(key, vmUUID, vbdUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.DeleteDisk(c, vmUUID, vbdUUID) })
+}
+
 // CreateDVDDrive adds a DVD drive to a VM that has none; the notice says when it comes only after a reboot.
 func (w *Workspace) CreateDVDDrive(key, vmUUID string) (notice string, err error) {
 	err = w.with(key, func(c *xapi.Connection) error { notice, err = ops.CreateDVDDrive(c, vmUUID); return err })

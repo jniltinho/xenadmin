@@ -11,7 +11,10 @@ export interface XenObject { kind: string; uuid: string; name: string; descripti
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
 export interface Table { title: string; headers: string[]; rows: string[][]; keys: string[] }
-export interface VMStorage { table: Table; disks: { vbd: string; attached: boolean; can_activate: boolean; can_deactivate: boolean }[];
+export interface Disk { vbd: string; attached: boolean; can_activate: boolean; can_deactivate: boolean; vdi: string; name: string;
+  system: boolean; can_detach: boolean; can_delete: boolean }
+export interface NewDisk { name: string; srs: { uuid: string; text: string }[]; default_sr: string }
+export interface VMStorage { table: Table; disks: Disk[];
   dvd?: string; dvd_name?: string; can_add_dvd: boolean; iso: string; isos: { vdi: string; text: string }[] }
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
@@ -32,6 +35,11 @@ export const api = {
   networking: (key: string, vm: string) => call<Table>("Networking", key, vm),
   memory: (key: string, vm: string) => call<Table>("Memory", key, vm),
   setDiskActive: (key: string, vbd: string, active: boolean) => call<void>("SetDiskActive", key, vbd, active),
+  newDiskOptions: (key: string, vm: string) => call<NewDisk>("NewDiskOptions", key, vm),
+  addDisk: (key: string, vm: string, name: string, description: string, sr: string, size: number) => call<string>("AddDisk", key, vm, name, description, sr, size),
+  diskQuestion: (del: boolean, system: boolean) => call<Confirm>("DiskQuestion", del, system),
+  detachDisk: (key: string, vbd: string) => call<void>("DetachDisk", key, vbd),
+  deleteDisk: (key: string, vm: string, vbd: string) => call<void>("DeleteDisk", key, vm, vbd),
   createDvdDrive: (key: string, vm: string) => call<string>("CreateDVDDrive", key, vm),
   changeIso: (key: string, dvd: string, iso: string) => call<void>("ChangeISO", key, dvd, iso),
   snapshots: (key: string, vm: string) => call<VMSnapshots>("Snapshots", key, vm),

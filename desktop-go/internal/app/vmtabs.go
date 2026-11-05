@@ -9,6 +9,8 @@ import (
 	xenapi "go/xenapi"
 
 	"xcpng-center/internal/messages"
+	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
@@ -29,6 +31,11 @@ type Disk struct {
 	Attached      bool   `json:"attached"`
 	CanActivate   bool   `json:"can_activate"`   // StorageRules.CanActivate
 	CanDeactivate bool   `json:"can_deactivate"` // StorageRules.CanDeactivate
+	VDI           string `json:"vdi"`
+	Name          string `json:"name"`
+	System        bool   `json:"system"`     // bootable or a system disk: the Detach/Delete questions warn
+	CanDetach     bool   `json:"can_detach"` // StorageRules.CanDetach
+	CanDelete     bool   `json:"can_delete"` // StorageRules.CanDelete
 }
 
 // ISO is one choice of the DVD drive (StorageRules.IsoChoices); an empty VDI is "<empty>".
@@ -132,7 +139,7 @@ func ListVMStorage(c *xapi.Connection, vmUUID string) (VMStorage, error) {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].vbd.Userdevice < rows[j].vbd.Userdevice }) // ordinal, as VmDisks
 	for _, r := range rows {
-		sr, _ := xenapi.SR.GetRecord(s, r.vdi.SR)
+		sr, srErr := xenapi.SR.GetRecord(s, r.vdi.SR)
 		srName := sr.NameLabel
 		if sr.Shared && loc != "" { // SR.NameWithLocation: local SRs show their name only
 			srName += " " + loc
@@ -163,9 +170,15 @@ func ListVMStorage(c *xapi.Connection, vmUUID string) (VMStorage, error) {
 			}
 			return false
 		}
+		info, infoErr := ops.DiskInfo(s, ref, r.vdi, sr) // on a failed read the disk can be neither detached nor deleted
+		if srErr != nil {
+			infoErr = srErr
+		}
 		out.Disks = append(out.Disks, Disk{VBD: r.vbd.UUID, Attached: r.vbd.CurrentlyAttached,
 			CanActivate:   real && running && !r.vbd.CurrentlyAttached && has(xenapi.VbdOperationsPlug),
-			CanDeactivate: real && running && r.vbd.CurrentlyAttached && has(xenapi.VbdOperationsUnplug)})
+			CanDeactivate: real && running && r.vbd.CurrentlyAttached && has(xenapi.VbdOperationsUnplug),
+			VDI:           r.vdi.UUID, Name: r.vdi.NameLabel, System: r.vbd.Bootable || r.vdi.Type == xenapi.VdiTypeSystem,
+			CanDetach: infoErr == nil && rules.CanDetachDisk(info), CanDelete: infoErr == nil && rules.CanDeleteDisk(info)})
 	}
 	out.CanAddDVD = out.DVD == "" && real
 	if out.DVD != "" {
@@ -176,6 +189,109 @@ func ListVMStorage(c *xapi.Connection, vmUUID string) (VMStorage, error) {
 		out.ISOs = append(out.ISOs, isos...)
 	}
 	return out, nil
+}
+
+// NewDisk is what the Add Virtual Disk dialog offers (NewDiskDialog): a unique default name, the SRs that can hold the
+// disk with their free space, and the pool's default SR.
+type NewDisk struct {
+	Name      string  `json:"name"`
+	SRs       []SRUse `json:"srs"`
+	DefaultSR string  `json:"default_sr"`
+}
+
+// SRUse is one SR of the picker.
+type SRUse struct {
+	UUID string `json:"uuid"`
+	Text string `json:"text"` // "name   10.0 GB free of 20.0 GB"
+}
+
+// NewDiskOptions is NewDiskDialog's defaults and StorageRules.NewDiskTargets for the VM's home server.
+func NewDiskOptions(c *xapi.Connection, vmUUID string) (NewDisk, error) {
+	s := c.Session
+	ref, err := xenapi.VM.GetByUUID(s, vmUUID)
+	if err != nil {
+		return NewDisk{}, xapi.Sanitize(err)
+	}
+	vm, err := xenapi.VM.GetRecord(s, ref)
+	if err != nil {
+		return NewDisk{}, xapi.Sanitize(err)
+	}
+	vdis, err := xenapi.VDI.GetAllRecords(s)
+	if err != nil {
+		return NewDisk{}, xapi.Sanitize(err)
+	}
+	taken := map[string]bool{}
+	for _, v := range vdis {
+		taken[v.NameLabel] = true
+	}
+	out := NewDisk{Name: rules.UniqueName(messages.Get("DEFAULT_VDI_NAME"), taken), SRs: []SRUse{}}
+	sms, _ := xenapi.SM.GetAllRecords(s)
+	canCreate := map[string]bool{}
+	for _, sm := range sms {
+		for _, c := range sm.Capabilities {
+			canCreate[sm.Type] = canCreate[sm.Type] || c == "VDI_CREATE"
+		}
+	}
+	srs, err := xenapi.SR.GetAllRecords(s)
+	if err != nil {
+		return NewDisk{}, xapi.Sanitize(err)
+	}
+	home := vmHome(s, vm)
+	hosts, _ := xenapi.Host.GetAll(s)
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	var def xenapi.SRRef
+	for _, p := range pools {
+		def = p.DefaultSR
+	}
+	loc := location(s)
+	type row struct {
+		ref xenapi.SRRef
+		rec xenapi.SRRecord
+	}
+	var list []row
+	for r, sr := range srs {
+		// StorageRules.CanHoldNewDisk: VDI_CREATE, not ISO nor memory, plugged everywhere, shown, seen from home
+		if !canCreate[sr.Type] || sr.ContentType == "iso" || !srShown(sr) {
+			continue
+		}
+		if broken(s, sr, len(hosts)) || (home != "" && !seenFrom(s, sr, home)) {
+			continue
+		}
+		list = append(list, row{r, sr})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].rec.NameLabel < list[j].rec.NameLabel })
+	for _, r := range list {
+		name := r.rec.NameLabel
+		if r.rec.Shared && loc != "" {
+			name += " " + loc
+		}
+		out.SRs = append(out.SRs, SRUse{UUID: r.rec.UUID, Text: fmt.Sprintf("%s   %s free of %s", name,
+			diskSize(r.rec.PhysicalSize-r.rec.PhysicalUtilisation), diskSize(r.rec.PhysicalSize))})
+		if r.ref == def {
+			out.DefaultSR = r.rec.UUID
+		}
+	}
+	return out, nil
+}
+
+// srShown is SR.Show(false): not a temporary "__gui__" SR, not the old local CD type nor memory, not introduced by a
+// disaster recovery task, not hidden.
+func srShown(sr xenapi.SRRecord) bool {
+	return !strings.HasPrefix(sr.NameLabel, "__gui__") && sr.Type != "local" && sr.Type != "tmpfs" &&
+		(sr.IntroducedBy == "" || sr.IntroducedBy == nullRef) && sr.OtherConfig["HideFromXenCenter"] != "true"
+}
+
+// broken is SR.IsBroken: no PBD, a local SR with more than one, a shared SR without one per server, or one unplugged.
+func broken(s *xenapi.Session, sr xenapi.SRRecord, hosts int) bool {
+	if len(sr.PBDs) == 0 || (!sr.Shared && len(sr.PBDs) != 1) || (sr.Shared && len(sr.PBDs) != hosts) {
+		return true
+	}
+	for _, p := range sr.PBDs {
+		if attached, err := xenapi.PBD.GetCurrentlyAttached(s, p); err != nil || !attached {
+			return true
+		}
+	}
+	return false
 }
 
 // ioNice is VBD.GetIoNice: the "class" of the I/O scheduling parameters, 0 when unset.
@@ -198,7 +314,7 @@ func isoChoices(s *xenapi.Session, vm xenapi.VMRecord) ([]ISO, error) {
 	}
 	var list []srRow
 	for r, sr := range srs {
-		if sr.ContentType != "iso" || sr.IsToolsSr || sr.OtherConfig["HideFromXenCenter"] == "true" {
+		if sr.ContentType != "iso" || sr.IsToolsSr || !srShown(sr) {
 			continue
 		}
 		if home != "" && home != nullRef && !seenFrom(s, sr, home) { // SR.CanBeSeenFrom, shared SRs too
