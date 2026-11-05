@@ -139,6 +139,21 @@ namespace XenAdmin.Desktop
             return new ScrollViewer { Content = MaxWidth(panel, 924) };
         }
 
+        /// <summary>
+        /// Repaints the selected row of a grid whose data cells are Borders tagged with their row key. Selecting must not
+        /// rebuild the cells: a double click needs both clicks on the same control (Avalonia's Gestures).
+        /// </summary>
+        public static void PaintSelection(Panel rows, string selectedKey)
+        {
+            foreach (var b in rows.Children.OfType<Border>().Where(b => b.Tag is string))
+            {
+                var on = (string)b.Tag == selectedKey;
+                b.Background = on ? Selection : Brushes.White;
+                if (b.Child is TextBlock t)
+                    t.Foreground = on ? Brushes.White : Brushes.Black;
+            }
+        }
+
         /// <summary>Read-only list with column headers, sized like the WinForms DataGridView (one Fill column).</summary>
         public static Control TableView(Table t, string empty = "None")
         {

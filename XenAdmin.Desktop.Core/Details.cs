@@ -357,11 +357,22 @@ namespace XenAdmin.Desktop
                 }
                 case SR sr:
                 {
-                    var t = new Table { Title = "Virtual Disks", Headers = new[] { "Name", "Description", "Size", "VM" } };
-                    foreach (var vdi in sr.Connection.ResolveAll(sr.VDIs).Where(v => v.Show(false)).OrderBy(v => v.Name()))
+                    // SrStoragePage: Storage Volume only when a disk has one, Changed Block Tracking only when licensed
+                    var vdis = StorageRules.SrDisks(sr);
+                    var volume = vdis.Any(v => v.sm_config.ContainsKey("SVID"));
+                    var cbt = !Helpers.FeatureForbidden(sr.Connection, Host.RestrictChangedBlockTracking);
+                    var headers = new List<string> { "Name" };
+                    if (volume) headers.Add("Storage Volume");
+                    headers.AddRange(new[] { "Description", "Size", "Virtual Machine" });
+                    if (cbt) headers.Add("Changed Block Tracking");
+                    var t = new Table { Title = "Virtual Disks", Headers = headers.ToArray(), Fill = volume ? 2 : 1 };
+                    foreach (var vdi in vdis)
                     {
-                        var vms = vdi.Connection.ResolveAll(vdi.VBDs).Select(b => vdi.Connection.Resolve(b.VM)).Where(v => v != null).Select(v => v.Name());
-                        t.Rows.Add(new[] { vdi.Name(), vdi.Description(), vdi.SizeText(), string.Join(", ", vms) });
+                        var row = new List<string> { vdi.Name() };
+                        if (volume) row.Add(vdi.sm_config.TryGetValue("displayname", out var display) ? display : "");
+                        row.AddRange(new[] { vdi.Description(), vdi.SizeText(), vdi.VMsOfVDI() });
+                        if (cbt) row.Add(vdi.cbt_enabled ? Messages.ENABLED : Messages.DISABLED);
+                        t.Rows.Add(row.ToArray());
                     }
                     return t;
                 }

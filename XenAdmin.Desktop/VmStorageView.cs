@@ -103,7 +103,11 @@ namespace XenAdmin.Desktop
                     Cell(r, c, values[c], vbd);
                 r++;
             }
+            UpdateButtons();
+        }
 
+        private void UpdateButtons()
+        {
             var sel = SelectedVbd;
             var selVdi = SelectedVdi;
             var room = _vm.VBDs.Count < _vm.MaxVBDsAllowed() && !_vm.Locked;
@@ -126,11 +130,12 @@ namespace XenAdmin.Desktop
                 BorderBrush = Brush.Parse("#E3E3E3"),
                 BorderThickness = header ? new Thickness(0, 0, 1, 1) : new Thickness(0),
                 Padding = new Thickness(6, 3, 14, 3),
+                Tag = vbd?.opaque_ref,
                 Child = new TextBlock { Text = text ?? "", Foreground = selected ? Brushes.White : Brushes.Black, TextTrimming = TextTrimming.CharacterEllipsis }
             };
             if (vbd != null)
             {
-                b.PointerPressed += (_, _) => { _selected = vbd.opaque_ref; Refresh(); };
+                b.PointerPressed += (_, _) => { _selected = vbd.opaque_ref; Views.PaintSelection(_rows, _selected); UpdateButtons(); };
                 b.DoubleTapped += (_, _) => { if (SelectedVdi is VDI v) _properties(v); };
             }
             Grid.SetRow(b, row);

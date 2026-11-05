@@ -408,17 +408,22 @@ namespace XenAdmin.Desktop
         }
 
         /// <summary>NewDiskDialog ("Add Virtual Disk"): CreateDiskAction + VbdCreateAndPlugAction, as the original.</summary>
-        public static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.VM vm)
+        public static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.VM vm) => await NewDisk(owner, vm, null);
+
+        /// <summary>NewDiskDialog(connection, sr) from the SR Storage tab: a disk on that SR, not attached to any VM.</summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.SR sr) => await NewDisk(owner, null, sr);
+
+        private static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.VM vm, XenAPI.SR target)
         {
-            var c = vm.Connection;
+            var c = vm?.Connection ?? target.Connection;
             var name = new TextBox { Text = XenAdmin.Core.Helpers.MakeUniqueName(Messages.DEFAULT_VDI_NAME, c.Cache.VDIs.Select(v => v.Name()).ToList()) };
             var description = new TextBox();
             var size = new NumericUpDown { Value = 10, Minimum = 0.01m, Maximum = 2040, Increment = 1, FormatString = "0.##", Width = 110 };
             var unit = new ComboBox { ItemsSource = new[] { "GB", "MB" }, SelectedIndex = 0, Width = 70 };
-            var home = vm.Home();
-            var srs = StorageRules.NewDiskTargets(c, home);
+            var home = vm?.Home();
+            var srs = StorageRules.NewDiskTargets(c, home);  // the SR picker preselects target only when it can hold a disk
             var srList = new ListBox { ItemsSource = srs.Select(sr => $"{sr.NameWithLocation()}   {Util.DiskSizeString(sr.FreeSpace())} free of {Util.DiskSizeString(sr.physical_size)}").ToList(), Height = 140 };
-            var def = c.Resolve(XenAdmin.Core.Helpers.GetPoolOfOne(c)?.default_SR);
+            var def = target ?? c.Resolve(XenAdmin.Core.Helpers.GetPoolOfOne(c)?.default_SR);
             srList.SelectedIndex = Math.Max(0, srs.FindIndex(sr => def != null && sr.opaque_ref == def.opaque_ref));
             var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
             var ok = new Button { Content = M("&Add"), IsDefault = true };
@@ -456,6 +461,12 @@ namespace XenAdmin.Desktop
                     Connection = c, read_only = false, SR = new XenAPI.XenRef<XenAPI.SR>(sr), virtual_size = bytes,
                     name_label = name.Text.Trim(), name_description = description.Text ?? "", sharable = false, type = XenAPI.vdi_type.user
                 };
+                if (vm == null)
+                {
+                    result = new XenAdmin.Actions.CreateDiskAction(vdi);
+                    w.Close();
+                    return;
+                }
                 vdi.SetVmHint(vm.uuid);
                 var vbd = new XenAPI.VBD { Connection = c, device = "", empty = false, type = XenAPI.vbd_type.Disk, mode = XenAPI.vbd_mode.RW, unpluggable = true };
                 vbd.SetIsOwner(true);

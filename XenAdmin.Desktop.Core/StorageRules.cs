@@ -33,14 +33,17 @@ namespace XenAdmin.Desktop
             vdi != null && !vdi.Locked && vdi.Connection.ResolveAll(vdi.VBDs)
                 .Where(b => b.VM.opaque_ref == vm.opaque_ref && b.currently_attached).All(b => CanDeactivate(vm, b));
 
-        /// <summary>DeleteVirtualDiskCommand.CanRun (AllowRunningVMDelete = false).</summary>
-        public static bool CanDelete(VDI vdi)
+        /// <summary>
+        /// DeleteVirtualDiskCommand.CanRun (AllowRunningVMDelete = false); the SR Storage tab sets AllowMultipleVBDDelete
+        /// (a disk shown with several VMs can be deleted there).
+        /// </summary>
+        public static bool CanDelete(VDI vdi, bool allowMultipleVbds = false)
         {
             var sr = vdi?.Connection.Resolve(vdi.SR);
             if (sr == null || vdi.Locked || sr.Physical() || sr.IsToolsSR() || vdi.IsUsedByHA())
                 return false;
             var vbds = vdi.Connection.ResolveAll(vdi.VBDs);
-            if (vbds.Count > 1)
+            if (vbds.Count > 1 && !allowMultipleVbds)
                 return false;
             foreach (var vbd in vbds)
             {
@@ -50,9 +53,46 @@ namespace XenAdmin.Desktop
                 if (vbd.Locked || vbd.currently_attached)
                     return false;
             }
-            return true;
+            return sr.HBALunPerVDI() || vdi.allowed_operations.Contains(vdi_operations.destroy);
         }
 
+        /// <summary>SrStoragePage.RefreshButtons: Rescan, and its tooltip when disabled (null when none).</summary>
+        public static (bool Enabled, string Tooltip) CanRescan(SR sr, bool beingScanned)
+        {
+            if (sr == null || sr.Locked)
+                return (false, null);
+            if (sr.IsDetached())
+                return (false, Messages.SR_DETACHED);
+            if (beingScanned)
+                return (false, Messages.SCAN_IN_PROGRESS_TOOLTIP);
+            return (true, null);
+        }
+
+        /// <summary>SrStoragePage: Add needs an unlocked SR; Properties one unlocked disk that is not a snapshot.</summary>
+        public static bool CanAddDisk(SR sr) => sr != null && !sr.Locked;
+
+        public static bool CanEditDisk(SR sr, VDI vdi) => sr != null && !sr.Locked && vdi != null && !vdi.is_a_snapshot && !vdi.Locked;
+
+        /// <summary>The disks of the SR Storage tab (SrStoragePage.GetCurrentData).</summary>
+        public static List<VDI> SrDisks(SR sr) =>
+            sr.Connection.ResolveAll(sr.VDIs).Where(v => v.Show(false) && !v.IsAnIntermediateStorageMotionSnapshot()).OrderBy(v => v.Name()).ToList();
+
+        /// <summary>DeleteVirtualDiskCommand.ConfirmationDialogText for one disk (title, text).</summary>
+        public static (string Title, string Text) DeleteConfirmation(VDI vdi) => vdi.VDIType() switch
+        {
+            VDI.FriendlyType.SNAPSHOT => (Messages.MESSAGEBOX_DELETE_SNAPSHOT_TITLE, Messages.MESSAGEBOX_DELETE_SNAPSHOT),
+            VDI.FriendlyType.ISO => (Messages.MESSAGEBOX_DELETE_ISO_TITLE, string.Format(Messages.MESSAGEBOX_DELETE_ISO, vdi.Name())),
+            VDI.FriendlyType.SYSTEM_DISK => (Messages.MESSAGEBOX_DELETE_SYS_DISK_TITLE, Messages.MESSAGEBOX_DELETE_SYS_DISK),
+            _ => (Messages.MESSAGEBOX_DELETE_VD_TITLE, Messages.MESSAGEBOX_DELETE_VD)
+        };
+
+        /// <summary>DeleteVirtualDiskCommand.getDestroyVDIAction: a snapshot disk deletes its VM snapshots, others the disk.</summary>
+        public static List<AsyncAction> DeleteActions(VDI vdi)
+        {
+            if (vdi.is_a_snapshot && vdi.GetVMs().Count >= 1)
+                return vdi.GetVMs().Where(vm => vm.is_a_snapshot).Select(vm => (AsyncAction)new VMSnapshotDeleteAction(vm)).ToList();
+            return new List<AsyncAction> { new DestroyDiskAction(vdi) };
+        }
 
         /// <summary>One item of the DVD drive's ISO list (CDChanger): the ISO, or null for "&lt;empty&gt;".</summary>
         public sealed class IsoChoice

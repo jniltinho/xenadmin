@@ -605,7 +605,7 @@ namespace XenAdmin.Desktop
                     return Body(st.Title, o switch
                     {
                         VM vmStorage => new VmStorageView(vmStorage, RunTracked, ShowProperties),
-                        SR _ => Views.GridPage(st, null, "Add...", "Rescan", "Move...", "Delete", "Properties"),
+                        SR srStorage => new SrStorageView(srStorage, RunTracked, ShowProperties),
                         _ => Views.GridPage(st, null, "New SR...", "Reclaim freed space", "Properties")
                     });
                 case "Networking":

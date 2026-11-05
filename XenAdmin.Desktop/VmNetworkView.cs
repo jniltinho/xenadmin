@@ -107,7 +107,11 @@ namespace XenAdmin.Desktop
                 for (int c = 0; c < table.Headers.Length; c++)
                     Cell(r + 1, c, table.Rows[r][c], vifs[r]);
             }
+            UpdateButtons();
+        }
 
+        private void UpdateButtons()
+        {
             var vif = Selected;
             _add.IsEnabled = NetworkRules.CanAdd(_vm);
             _edit.IsEnabled = NetworkRules.CanEdit(_vm, vif);
@@ -130,11 +134,12 @@ namespace XenAdmin.Desktop
                 BorderBrush = Brush.Parse("#E3E3E3"),
                 BorderThickness = header ? new Thickness(0, 0, 1, 1) : new Thickness(0),
                 Padding = new Thickness(6, 3, 14, 3),
+                Tag = vif?.device,
                 Child = new TextBlock { Text = text ?? "", Foreground = selected ? Brushes.White : Brushes.Black, TextTrimming = TextTrimming.CharacterEllipsis }
             };
             if (vif != null)
             {
-                b.PointerPressed += (_, _) => { _selected = vif.device; EditInFlight.Remove(_vm.opaque_ref); Refresh(); };
+                b.PointerPressed += (_, _) => { _selected = vif.device; EditInFlight.Remove(_vm.opaque_ref); Views.PaintSelection(_rows, _selected); UpdateButtons(); };
                 b.DoubleTapped += async (_, _) => { if (NetworkRules.CanEdit(_vm, Selected)) await Edit(); };
             }
             Grid.SetRow(b, row);

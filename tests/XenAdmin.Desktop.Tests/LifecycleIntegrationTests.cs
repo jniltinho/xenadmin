@@ -206,6 +206,60 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>SR Storage tab: add an unattached disk on the SR, rescan, then delete it (SrStoragePage).</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void SrStorageTabAddRescanDelete()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            const string diskName = VmName + "-sr-disk";
+            string vdiRef = null;
+            try
+            {
+                foreach (var old in c.Cache.VDIs.Where(v => v.name_label == diskName))
+                    VDI.destroy(session, old.opaque_ref);
+                var sr = StorageRules.NewDiskTargets(c, null).First(s => !s.IsToolsSR() && StorageRules.CanAddDisk(s));
+                Assert.IsTrue(StorageRules.CanRescan(sr, false).Enabled);
+                Assert.IsFalse(StorageRules.CanRescan(sr, true).Enabled);
+
+                var vdi = new VDI { Connection = c, SR = new XenRef<SR>(sr), virtual_size = 64L * 1024 * 1024, name_label = diskName, name_description = "", type = vdi_type.user, sharable = false, read_only = false };
+                var create = new CreateDiskAction(vdi);
+                Run(create);
+                Assert.IsTrue(create.Succeeded, create.Exception?.ToString());
+                var deadline = DateTime.Now.AddSeconds(60);
+                VDI disk;
+                while ((disk = StorageRules.SrDisks(sr).FirstOrDefault(v => v.name_label == diskName)) == null && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsNotNull(disk, "the new disk is listed on the SR Storage tab");
+                vdiRef = disk.opaque_ref;
+                Assert.IsTrue(Details.Storage(sr).Rows.Any(r => r[0] == diskName));
+                Assert.IsTrue(StorageRules.CanEditDisk(sr, disk));
+
+                var rescan = new SrRefreshAction(sr);
+                Run(rescan);
+                Assert.IsTrue(rescan.Succeeded, rescan.Exception?.ToString());
+
+                deadline = DateTime.Now.AddSeconds(30);
+                while (!StorageRules.CanDelete(disk = c.Resolve(new XenRef<VDI>(vdiRef)), true) && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsTrue(StorageRules.CanDelete(disk, true), "an unattached user disk can be deleted");
+                Assert.AreEqual(Messages.MESSAGEBOX_DELETE_VD, StorageRules.DeleteConfirmation(disk).Text);
+                var delete = StorageRules.DeleteActions(disk).Single();
+                Run(delete);
+                Assert.IsTrue(delete.Succeeded, delete.Exception?.ToString());
+                vdiRef = null;
+            }
+            finally
+            {
+                if (vdiRef != null)
+                    try { VDI.destroy(session, vdiRef); } catch { }
+                c.EndConnect();
+            }
+        }
+
         /// <summary>Storage tab: DVD drive + ISO + eject, add disk, detach, re-attach, delete.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void StorageTabDiskAndDvd()

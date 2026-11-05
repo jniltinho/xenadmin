@@ -8,9 +8,12 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 ### Added
 - VM Networking tab: Add Interface, Properties (network, MAC, QoS limit), Remove Interface and Activate/Deactivate,
   with the rules, tooltips and confirmations of the Windows app, and the Limit column.
+- SR Storage tab: Rescan, Add (a disk on that SR), Delete and Properties with the Windows rules and confirmations;
+  the Storage Volume and Changed Block Tracking columns when they apply.
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).
+- Delete Virtual Disk also requires the server to allow `destroy` on the disk, as the Windows app does.
 
 ## [0.2.0] — 2026-11-05
 
