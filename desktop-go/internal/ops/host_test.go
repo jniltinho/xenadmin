@@ -20,3 +20,11 @@ func TestEvacuatedVMsByListAndPowerState(t *testing.T) {
 		t.Errorf("migrated %v halted %v suspended %v", m, ha, su)
 	}
 }
+
+func TestResultRef(t *testing.T) {
+	for in, want := range map[string]string{"<value>OpaqueRef:ab-1</value>": "OpaqueRef:ab-1", "OpaqueRef:x": "OpaqueRef:x", "": ""} {
+		if got := resultRef(in); got != want {
+			t.Errorf("resultRef(%q) = %q", in, got)
+		}
+	}
+}

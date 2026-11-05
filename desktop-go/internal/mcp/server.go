@@ -1,6 +1,6 @@
 // Package mcp is the MCP server of the app (xcp-ng-center-go mcp), on the official Go SDK
 // (github.com/modelcontextprotocol/go-sdk). The tools keep the names and arguments of the C# app's MCP server
-// (XenAdmin.Desktop.Core/Mcp/XcpTools.cs). The write tools (vm_power, host_power, host_maintenance, dismiss_alerts) are listed only with --allow-write and run only
+// (XenAdmin.Desktop.Core/Mcp/XcpTools.cs). The write tools (vm_power, vm_snapshot, snapshot_revert, snapshot_delete, host_power, host_maintenance, dismiss_alerts) are listed only with --allow-write and run only
 // with confirm: true, as McpServer.cs.
 package mcp
 
@@ -189,9 +189,20 @@ func (s *Server) Register(m *sdk.Server) {
 			}
 			return nil, out, nil
 		})
+	sdk.AddTool(m, &sdk.Tool{Name: "list_snapshots", Annotations: readOnly(), Description: "The snapshots of a VM, newest first." + DataNote},
+		func(ctx context.Context, _ *sdk.CallToolRequest, in vmIn) (*sdk.CallToolResult, listSnapshotsOut, error) {
+			out, err := s.ListSnapshots(in)
+			if err != nil {
+				return nil, out, s.fail(err)
+			}
+			return nil, out, nil
+		})
 	if !s.write {
 		return
 	}
+	writeTool(s, m, "vm_snapshot", "Takes a snapshot of a VM (disks; with memory when asked and the VM allows it).", s.VMSnapshot)
+	writeTool(s, m, "snapshot_revert", "Reverts a VM to one of its snapshots (the VM's current state is lost).", s.SnapshotRevert)
+	writeTool(s, m, "snapshot_delete", "Deletes a snapshot and its disks. Only snapshots are accepted, never a VM.", s.SnapshotDelete)
 	writeTool(s, m, "host_power", "Reboots or shuts down a host (its VMs are shut down or moved by XAPI first).", s.HostPower)
 	writeTool(s, m, "host_maintenance", "Enters maintenance mode (moves the VMs away) or exits it (optionally bringing the VMs back).", s.HostMaintenance)
 	writeTool(s, m, "dismiss_alerts", "Dismisses (deletes) alerts by their uuid (list_alerts).", s.DismissAlerts)
@@ -293,6 +304,61 @@ func (s *Server) onObject(confirm bool, uuid string, has func(*xapi.Connection, 
 		}
 	}
 	return statusOut{}, errors.New("no connected server has this object")
+}
+
+// shortcut: the VM is given by uuid (the C# tool also takes an exact name)
+type vmIn struct {
+	VM string `json:"vm" jsonschema:"VM uuid."`
+}
+
+type listSnapshotsOut struct {
+	Snapshots []app.Snapshot `json:"snapshots"`
+}
+
+// ListSnapshots is the list_snapshots tool.
+func (s *Server) ListSnapshots(in vmIn) (listSnapshotsOut, error) {
+	var out listSnapshotsOut
+	_, err := s.onObject(true, in.VM, ops.HasVM, func(c *xapi.Connection) error {
+		snaps, err := app.ListSnapshots(c, in.VM)
+		out.Snapshots = snaps.Snapshots
+		for i := range out.Snapshots {
+			out.Snapshots[i].Name, out.Snapshots[i].Description = s.redact(out.Snapshots[i].Name), s.redact(out.Snapshots[i].Description)
+		}
+		return err
+	})
+	return out, err
+}
+
+type vmSnapshotIn struct {
+	VM          string `json:"vm" jsonschema:"VM uuid."`
+	Name        string `json:"name" jsonschema:"Snapshot name."`
+	Description string `json:"description,omitempty" jsonschema:"Optional."`
+	Memory      bool   `json:"memory,omitempty" jsonschema:"Include the memory (checkpoint)."`
+	Confirm     bool   `json:"confirm" jsonschema:"Must be true: the user agreed to this change."`
+	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Accepted for the C# schema; this version always waits for the end."`
+}
+
+type snapshotIn struct {
+	Snapshot    string `json:"snapshot" jsonschema:"Snapshot uuid (list_snapshots)."`
+	Confirm     bool   `json:"confirm" jsonschema:"Must be true: the user agreed to this change."`
+	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Accepted for the C# schema; this version always waits for the end."`
+}
+
+// VMSnapshot is the vm_snapshot tool.
+func (s *Server) VMSnapshot(in vmSnapshotIn) (statusOut, error) {
+	return s.onObject(in.Confirm, in.VM, ops.HasVM, func(c *xapi.Connection) error {
+		return ops.TakeSnapshot(c, in.VM, in.Name, in.Description, in.Memory)
+	})
+}
+
+// SnapshotRevert is the snapshot_revert tool.
+func (s *Server) SnapshotRevert(in snapshotIn) (statusOut, error) {
+	return s.onObject(in.Confirm, in.Snapshot, ops.HasVM, func(c *xapi.Connection) error { return ops.RevertSnapshot(c, in.Snapshot) })
+}
+
+// SnapshotDelete is the snapshot_delete tool (ops.DeleteSnapshot refuses anything but a snapshot).
+func (s *Server) SnapshotDelete(in snapshotIn) (statusOut, error) {
+	return s.onObject(in.Confirm, in.Snapshot, ops.HasVM, func(c *xapi.Connection) error { return ops.DeleteSnapshot(c, in.Snapshot) })
 }
 
 type listAlertsIn struct {

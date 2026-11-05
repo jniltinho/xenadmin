@@ -20,11 +20,12 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
   allowed operations and with the C# confirmations; Notifications > Alerts with the C# texts, Dismiss, Dismiss
   Selected and Dismiss All; Server Shut Down, Reboot and Enter/Exit Maintenance Mode (evacuation, restoring the VMs);
   the Console tab (noVNC) for VMs and servers, through a loopback WebSocket with one-time tickets (the session and the
-  certificates stay in the Go side).
+  certificates stay in the Go side); the Snapshots tab (take with or without memory, revert, delete).
 - CLI: `server add|list`, `pool|host|vm|template|sr|network list` (table or `--json`), `version`.
 - MCP (`mcp`, stdio): `list_servers`, `connect`, `disconnect`, `list_objects` — the names and arguments of the C# app's
-  MCP server, plus `list_alerts`; `mcp --allow-write` adds `vm_power`, `host_power`, `host_maintenance` and
-  `dismiss_alerts`, which run only with `confirm: true`. The operator's
+  MCP server, plus `list_alerts` and `list_snapshots`; `mcp --allow-write` adds `vm_power`, `vm_snapshot`,
+  `snapshot_revert`, `snapshot_delete`, `host_power`, `host_maintenance` and `dismiss_alerts`, which run only with
+  `confirm: true`. The operator's
   password comes from `XCP_PASS`; the agent never sees it.
 
 ## Use

@@ -4,6 +4,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 import ConsoleView from "./ConsoleView.vue";
+import SnapshotsView from "./SnapshotsView.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[] }
 
@@ -124,15 +125,29 @@ const hostCanRun = (c: HostCommand, n: Node | null) =>
 const serverMenuOpen = ref(false);
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
-const tab = ref<"general" | "console">("general");
+type Tab = "general" | "console" | "snapshots";
+const tab = ref<Tab>("general");
 const consoleVm = computed(() => {
   const o = selected.value?.object;
   if (o?.kind === "vms" && o.power_state === "Running") return o.uuid;
   if (o?.kind === "hosts" && o.live) return o.control_domain ?? "";
   return "";
 });
-const tabInfo = { general: { label: "General", icon: "000_Info3_h32bit_16" }, console: { label: "Console", icon: "console_16" } } as const;
-const tabs = computed(() => (consoleVm.value ? ["general", "console"] : ["general"]) as ("general" | "console")[]);
+const tabInfo = {
+  general: { label: "General", icon: "000_Info3_h32bit_16" },
+  console: { label: "Console", icon: "console_16" },
+  snapshots: { label: "Snapshots", icon: "000_VMSnapShotDiskOnly_h32bit_16" },
+} as const;
+// VMTabs: General, Console, Snapshots for a VM; General, Console for a server
+const tabs = computed<Tab[]>(() => {
+  const t: Tab[] = ["general"];
+  if (consoleVm.value) t.push("console");
+  if (selected.value?.object?.kind === "vms") t.push("snapshots");
+  return t;
+});
+function onTabStatus(text: string, error: boolean) {
+  if (error) failure.value = text; else { status.value = text || "Ready"; if (!text) failure.value = ""; }
+}
 watch(tabs, (t) => { if (!t.includes(tab.value)) tab.value = "general"; });
 
 async function runHost(c: HostCommand, n: Node | null) {
@@ -342,6 +357,10 @@ onMounted(async () => { await refreshServers(); });
           </button>
         </div>
         <ConsoleView v-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
+        <!-- keyed: another VM gets a new tab, never the previous VM's rows or selection -->
+        <SnapshotsView v-else-if="tab === 'snapshots' && selected?.object && selected.server" :key="selected.server + '/' + selected.object.uuid"
+                       :server="selected.server" :vm="selected.object.uuid"
+                       @status="onTabStatus" @changed="selected?.server && load(selected.server).then(() => reselect(selected!.id))" />
         <template v-else>
         <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">General Properties</div>
         <div class="overflow-auto p-3">

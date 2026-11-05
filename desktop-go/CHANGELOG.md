@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Snapshots tab: Take Snapshot (disks, or disks and memory, with the reason when not available), Revert To (optionally
+  taking a snapshot first; the VM is started or resumed again when it was running), Delete (snapshots only, with the
+  disks they own); MCP `list_snapshots`, `vm_snapshot`, `snapshot_revert`, `snapshot_delete`.
 - Console tab: the graphical console of a running VM or of a server (its control domain) with noVNC, Send
   Ctrl+Alt+Del and Scale; `internal/console` dials the console host with the trust policy (pool members vouched by
   the coordinator) and serves it on 127.0.0.1 to the webview's origin with a one-time ticket.

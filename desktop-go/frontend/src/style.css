@@ -23,11 +23,14 @@
    joined to the page under it and marked by an accent line on top. */
 @layer components {
   .tabstrip { @apply flex items-end gap-1 border-b border-line bg-pane px-2 pt-2; }
+  /* every tab is a closed box (1px on all sides); the inactive ones a shade darker than the strip */
   .tab {
-    @apply relative -mb-px flex cursor-default items-center gap-1.5 border border-line bg-neutral-100 px-4 py-1.5 font-semibold text-neutral-700;
-    border-top: 3px solid transparent;
+    @apply relative -mb-px flex cursor-default items-center gap-1.5 border border-line px-4 py-1.5 font-semibold text-neutral-600;
+    background: linear-gradient(#f4f4f4, #e4e4e4);
   }
-  .tab:hover:not(.active) { @apply bg-white text-neutral-900; }
-  .tab.active { @apply z-10 border-b-white bg-white text-neutral-900; border-top-color: var(--color-accent); }
+  .tab:hover:not(.active) { @apply text-neutral-900; background: linear-gradient(#ffffff, #ececec); border-color: #b0b0b0; }
+  /* the selected one: white, open at the bottom into its page, the accent line drawn inside its top border */
+  .tab.active { @apply z-10 border-b-white bg-white pt-2 text-neutral-900; background: #fff; box-shadow: inset 0 3px 0 var(--color-accent); }
+  .btn { @apply border border-neutral-400 bg-white px-3 py-0.5 hover:bg-neutral-100 disabled:text-neutral-400 disabled:hover:bg-white; }
   .tab:focus-visible { @apply outline-1 outline-offset-[-4px] outline-dotted outline-neutral-500; }
 }

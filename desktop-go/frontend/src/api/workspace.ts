@@ -9,7 +9,9 @@ export interface ConnectResult { connected: boolean; key?: string; fingerprint?:
 export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean;
   maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string }
 export interface Confirm { title: string; text: string }
-export interface HostQuestion { error?: string; title?: string; text?: string }
+export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
+export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
+export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
 
 export const api = {
@@ -23,6 +25,11 @@ export const api = {
   dismissConfirmation: (count: number, all: boolean) => call<Confirm>("DismissConfirmation", count, all),
   hostQuestion: (key: string, uuid: string, op: string) => call<HostQuestion>("HostQuestion", key, uuid, op),
   hostCommand: (key: string, uuid: string, op: string, restore: boolean) => call<void>("HostCommand", key, uuid, op, restore),
+  snapshots: (key: string, vm: string) => call<VMSnapshots>("Snapshots", key, vm),
+  snapshotQuestion: (op: string, name: string, snapshotAllowed: boolean) => call<HostQuestion>("SnapshotQuestion", op, name, snapshotAllowed),
+  takeSnapshot: (key: string, vm: string, name: string, description: string, memory: boolean) => call<void>("TakeSnapshot", key, vm, name, description, memory),
+  revertSnapshot: (key: string, snapshot: string) => call<void>("RevertSnapshot", key, snapshot),
+  deleteSnapshot: (key: string, snapshot: string) => call<void>("DeleteSnapshot", key, snapshot),
   openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),

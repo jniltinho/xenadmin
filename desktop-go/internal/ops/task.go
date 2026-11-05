@@ -3,6 +3,7 @@ package ops
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	xenapi "go/xenapi"
@@ -27,7 +28,34 @@ func wait(s *xenapi.Session) func(xenapi.TaskRef, error) error {
 	return func(task xenapi.TaskRef, err error) error { return poll(s, task, err) }
 }
 
+// waitResult is wait for a task whose result is wanted (the new object's reference, as an XML-RPC value).
+func waitResult(s *xenapi.Session) func(xenapi.TaskRef, error) (string, error) {
+	return func(task xenapi.TaskRef, err error) (string, error) {
+		var result string
+		err = pollThen(s, task, err, func() { result, _ = xenapi.Task.GetResult(s, task) })
+		return result, err
+	}
+}
+
+// resultRef is the OpaqueRef in a task result such as "<value>OpaqueRef:...</value>".
+func resultRef(result string) string {
+	i := strings.Index(result, "OpaqueRef:")
+	if i < 0 {
+		return ""
+	}
+	end := strings.IndexAny(result[i:], "<\" ")
+	if end < 0 {
+		return result[i:]
+	}
+	return result[i : i+end]
+}
+
 func poll(s *xenapi.Session, task xenapi.TaskRef, err error) error {
+	return pollThen(s, task, err, nil)
+}
+
+// pollThen polls the task; on success it calls done (before the task is destroyed) to read its result.
+func pollThen(s *xenapi.Session, task xenapi.TaskRef, err error, done func()) error {
 	if err != nil {
 		return err
 	}
@@ -46,6 +74,9 @@ func poll(s *xenapi.Session, task xenapi.TaskRef, err error) error {
 		}
 		switch status {
 		case xenapi.TaskStatusTypeSuccess:
+			if done != nil {
+				done()
+			}
 			return nil
 		case xenapi.TaskStatusTypeFailure:
 			info, err := xenapi.Task.GetErrorInfo(s, task)

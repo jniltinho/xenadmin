@@ -212,6 +212,8 @@ type HostQuestion struct {
 	Error string `json:"error,omitempty"`
 	Title string `json:"title,omitempty"`
 	Text  string `json:"text,omitempty"`
+	// Option is a check box shown with the question (Revert: take a snapshot first), "" for none
+	Option string `json:"option,omitempty"`
 }
 
 // HostQuestion for op "shutdown", "reboot", "enter_maintenance" or "exit_maintenance".
@@ -255,6 +257,36 @@ func (w *Workspace) HostCommand(key, uuid, op string, restore bool) error {
 		}
 		return fmt.Errorf("unknown server command %q", op)
 	})
+}
+
+// Snapshots is the Snapshots tab of a VM.
+func (w *Workspace) Snapshots(key, vmUUID string) (out app.VMSnapshots, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListSnapshots(c, vmUUID); return err })
+	return out, err
+}
+
+// SnapshotQuestion is the question of Revert ("revert", with the snapshot-first option) or Delete ("delete").
+func (w *Workspace) SnapshotQuestion(op, name string, snapshotAllowed bool) HostQuestion {
+	if op == "revert" {
+		text, option := rules.RevertQuestion(name, snapshotAllowed)
+		return HostQuestion{Title: "XCP-ng Center", Text: text, Option: option}
+	}
+	return HostQuestion{Title: "XCP-ng Center", Text: rules.DeleteSnapshotQuestion(name)}
+}
+
+// TakeSnapshot takes a disk snapshot, or a disk and memory one.
+func (w *Workspace) TakeSnapshot(key, vmUUID, name, description string, memory bool) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.TakeSnapshot(c, vmUUID, name, description, memory) })
+}
+
+// RevertSnapshot reverts the VM to a snapshot (the window asked SnapshotQuestion first).
+func (w *Workspace) RevertSnapshot(key, snapshotUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.RevertSnapshot(c, snapshotUUID) })
+}
+
+// DeleteSnapshot deletes a snapshot and its disks (the window asked SnapshotQuestion first).
+func (w *Workspace) DeleteSnapshot(key, snapshotUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.DeleteSnapshot(c, snapshotUUID) })
 }
 
 // OpenConsole returns a one-time ws:// URL for the VM's graphical console (noVNC connects to it within 30 s); it is

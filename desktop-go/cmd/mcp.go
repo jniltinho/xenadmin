@@ -24,6 +24,6 @@ func init() {
 			return srv.Run(cmd.Context())
 		},
 	}
-	c.Flags().BoolVar(&allowWrite, "allow-write", false, "also list the tools that change the servers (vm_power, host_power, host_maintenance, dismiss_alerts); each needs confirm: true")
+	c.Flags().BoolVar(&allowWrite, "allow-write", false, "also list the tools that change the servers (VM power and snapshots, host power and maintenance, dismiss_alerts); each needs confirm: true")
 	rootCmd.AddCommand(c)
 }

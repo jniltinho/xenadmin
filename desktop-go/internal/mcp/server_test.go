@@ -76,7 +76,7 @@ func TestWriteToolsNeedAllowWriteAndConfirm(t *testing.T) {
 	for _, tool := range all.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"list_alerts", "vm_power", "host_power", "host_maintenance", "dismiss_alerts"} {
+	for _, want := range []string{"list_alerts", "list_snapshots", "vm_power", "vm_snapshot", "snapshot_revert", "snapshot_delete", "host_power", "host_maintenance", "dismiss_alerts"} {
 		if !names[want] {
 			t.Errorf("missing tool %s (XcpTools.cs)", want)
 		}
