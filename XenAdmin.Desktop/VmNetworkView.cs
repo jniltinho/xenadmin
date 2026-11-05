@@ -19,7 +19,7 @@ namespace XenAdmin.Desktop
     {
         private readonly VM _vm;
         private readonly Action<AsyncAction> _run;
-        private readonly Grid _rows = new Grid();
+        private readonly SelectableGrid _grid = new SelectableGrid();
         private readonly Button _add, _edit, _remove, _toggle;
         // the selected device per VM: edits recreate the VIF (new opaque_ref) and the tab is rebuilt after each action
         private static readonly System.Collections.Generic.Dictionary<string, string> SelectedDevice = new System.Collections.Generic.Dictionary<string, string>();
@@ -56,22 +56,13 @@ namespace XenAdmin.Desktop
                 ToolTip.SetShowOnDisabled(b, true);
                 bar.Children.Add(b);
             }
-            var table = new Border { Focusable = true, BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Background = Brushes.White, Child = new ScrollViewer { Content = _rows, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto } };
             var grid = new Grid { Margin = new Thickness(12), RowDefinitions = new RowDefinitions("3*,Auto,*"), MaxWidth = 924, HorizontalAlignment = HorizontalAlignment.Left };
             Grid.SetRow(bar, 1);
-            grid.Children.Add(table);
+            grid.Children.Add(_grid);
             grid.Children.Add(bar);
             Children.Add(grid);
-            // keyboard selection, as in the DataGridView: Up/Down move, Enter opens Properties
-            table.KeyDown += async (_, e) =>
-            {
-                var vifs = Vifs();
-                var i = Array.FindIndex(vifs, v => v.device == _selected);
-                if (e.Key == Avalonia.Input.Key.Down && i < vifs.Length - 1) { _selected = vifs[i + 1].device; Refresh(); e.Handled = true; }
-                else if (e.Key == Avalonia.Input.Key.Up && i > 0) { _selected = vifs[i - 1].device; Refresh(); e.Handled = true; }
-                else if (e.Key == Avalonia.Input.Key.Enter && NetworkRules.CanEdit(_vm, Selected)) { e.Handled = true; await Edit(); }
-            };
-            table.PointerPressed += (_, _) => table.Focus();
+            _grid.SelectionChanged += () => { _selected = _grid.Selected; EditInFlight.Remove(_vm.opaque_ref); UpdateButtons(); };
+            _grid.Activated += async () => { if (NetworkRules.CanEdit(_vm, Selected)) await Edit(); };
             Refresh();
         }
 
@@ -93,20 +84,8 @@ namespace XenAdmin.Desktop
                     pending = edit.Device;
             }
             _selected = NetworkRules.Selection(vifs.Select(v => v.device).ToList(), _selected, pending);
-            var table = Details.Networking(_vm);
-            _rows.Children.Clear();
-            _rows.RowDefinitions.Clear();
-            _rows.ColumnDefinitions = new ColumnDefinitions(string.Join(",", table.Headers.Select((_, i) => i == 4 ? "*" : "Auto")));
-            _rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            for (int c = 0; c < table.Headers.Length; c++)
-                Cell(0, c, table.Headers[c], null);
             // Details.Networking lists the VIFs in the same device order as Vifs()
-            for (int r = 0; r < table.Rows.Count && r < vifs.Length; r++)
-            {
-                _rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                for (int c = 0; c < table.Headers.Length; c++)
-                    Cell(r + 1, c, table.Rows[r][c], vifs[r]);
-            }
+            _grid.Fill(Details.Networking(_vm), vifs.Select(v => v.device).ToList(), _selected, keepMissing: true);
             UpdateButtons();
         }
 
@@ -122,29 +101,6 @@ namespace XenAdmin.Desktop
             ToolTip.SetTip(_edit, tips.Edit);
             ToolTip.SetTip(_remove, tips.Remove);
             ToolTip.SetTip(_toggle, tips.Toggle);
-        }
-
-        private void Cell(int row, int col, string text, VIF vif)
-        {
-            var header = vif == null;
-            var selected = vif != null && vif.device == _selected;
-            var b = new Border
-            {
-                Background = selected ? Brush.Parse("#0078D7") : Brushes.White,
-                BorderBrush = Brush.Parse("#E3E3E3"),
-                BorderThickness = header ? new Thickness(0, 0, 1, 1) : new Thickness(0),
-                Padding = new Thickness(6, 3, 14, 3),
-                Tag = vif?.device,
-                Child = new TextBlock { Text = text ?? "", Foreground = selected ? Brushes.White : Brushes.Black, TextTrimming = TextTrimming.CharacterEllipsis }
-            };
-            if (vif != null)
-            {
-                b.PointerPressed += (_, _) => { _selected = vif.device; EditInFlight.Remove(_vm.opaque_ref); Views.PaintSelection(_rows, _selected); UpdateButtons(); };
-                b.DoubleTapped += async (_, _) => { if (NetworkRules.CanEdit(_vm, Selected)) await Edit(); };
-            }
-            Grid.SetRow(b, row);
-            Grid.SetColumn(b, col);
-            _rows.Children.Add(b);
         }
 
         // ---------- commands (NetworkList button handlers) ----------

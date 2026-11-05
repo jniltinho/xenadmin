@@ -19,9 +19,16 @@ namespace XenAdmin.Desktop
         private readonly Action<AsyncAction> _run;
         private readonly Action<IXenObject> _properties;
         private readonly ContentControl _dvd = new ContentControl();
-        private readonly Grid _rows = new Grid();
+        private readonly SelectableGrid _grid = new SelectableGrid();
         private readonly Button _add, _attach, _activate, _move, _detach, _delete, _props;
-        private string _selected; // VBD opaque_ref
+        // the selected disk per VM: the tab is rebuilt after each action
+        private static readonly Dictionary<string, string> SelectedVbdRef = new Dictionary<string, string>();
+
+        private string _selected // VBD opaque_ref
+        {
+            get => SelectedVbdRef.TryGetValue(_vm.opaque_ref, out var r) ? r : null;
+            set => SelectedVbdRef[_vm.opaque_ref] = value;
+        }
         private bool _updatingDvd;
 
         public VmStorageView(VM vm, Action<AsyncAction> run, Action<IXenObject> properties)
@@ -49,60 +56,27 @@ namespace XenAdmin.Desktop
             var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
             foreach (var b in new[] { _add, _attach, _activate, _move, _detach, _delete, _props })
                 bar.Children.Add(b);
-            var table = new Border { BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Background = Brushes.White, Child = new ScrollViewer { Content = _rows, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto } };
             var grid = new Grid { Margin = new Thickness(12), RowDefinitions = new RowDefinitions("Auto,3*,Auto,*"), MaxWidth = 924, HorizontalAlignment = HorizontalAlignment.Left };
-            Grid.SetRow(table, 1);
+            Grid.SetRow(_grid, 1);
             Grid.SetRow(bar, 2);
             grid.Children.Add(_dvd);
-            grid.Children.Add(table);
+            grid.Children.Add(_grid);
             grid.Children.Add(bar);
             Children.Add(grid);
+            _grid.SelectionChanged += () => { _selected = _grid.Selected; UpdateButtons(); };
+            _grid.Activated += () => { if (SelectedVdi is VDI v) _properties(v); };
             Refresh();
         }
 
-        // ---------- rules (as the WinForms commands' CanRun) ----------
-
-
-
-
-
-        private List<VBD> DiskVbds() =>
-            _vm.Connection.ResolveAll(_vm.VBDs).Where(b => b.type != vbd_type.CD && b.type != vbd_type.Floppy).OrderBy(b => b.userdevice, StringComparer.Ordinal).ToList();
-
-        private VBD SelectedVbd => DiskVbds().FirstOrDefault(b => b.opaque_ref == _selected);
+        private VBD SelectedVbd => StorageRules.VmDisks(_vm).Select(d => d.Vbd).FirstOrDefault(b => b.opaque_ref == _selected);
         private VDI SelectedVdi => SelectedVbd is VBD b ? _vm.Connection.Resolve(b.VDI) : null;
 
         public void Refresh()
         {
             RefreshDvd();
-            var vbds = DiskVbds();
-            if (vbds.All(b => b.opaque_ref != _selected))
-                _selected = vbds.FirstOrDefault()?.opaque_ref;
-            _rows.Children.Clear();
-            _rows.RowDefinitions.Clear();
-            _rows.ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto");
-            var headers = new[] { "Position", "Name", "Description", "SR", "Size", "Read Only", "Priority", "Active", "Device Path" };
-            _rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            for (int c = 0; c < headers.Length; c++)
-                Cell(0, c, headers[c], null);
-            int r = 1;
-            foreach (var vbd in vbds)
-            {
-                var vdi = _vm.Connection.Resolve(vbd.VDI);
-                if (vdi == null) continue;
-                var sr = _vm.Connection.Resolve(vdi.SR);
-                _rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                var values = new[]
-                {
-                    vbd.userdevice, vdi.Name(), string.IsNullOrEmpty(vdi.Description()) ? "No description" : vdi.Description(),
-                    sr?.NameWithLocation() ?? "", vdi.SizeText(), vbd.IsReadOnly() ? Messages.YES : Messages.NO,
-                    vbd.GetIoNice() switch { 0 => Messages.STORAGE_WORST, 7 => Messages.STORAGE_BEST, var p => p.ToString() },
-                    vbd.currently_attached ? Messages.YES : Messages.NO, string.IsNullOrEmpty(vbd.device) ? "" : "/dev/" + vbd.device
-                };
-                for (int c = 0; c < values.Length; c++)
-                    Cell(r, c, values[c], vbd);
-                r++;
-            }
+            // Details.Storage lists the same disks in the same order as StorageRules.VmDisks
+            _grid.Fill(Details.Storage(_vm), StorageRules.VmDisks(_vm).Select(d => d.Vbd.opaque_ref).ToList(), _selected);
+            _selected = _grid.Selected;
             UpdateButtons();
         }
 
@@ -118,29 +92,6 @@ namespace XenAdmin.Desktop
             _detach.IsEnabled = selVdi != null && StorageRules.CanDetach(_vm, selVdi);
             _delete.IsEnabled = selVdi != null && StorageRules.CanDelete(selVdi);
             _props.IsEnabled = selVdi != null && !selVdi.Locked;
-        }
-
-        private void Cell(int row, int col, string text, VBD vbd)
-        {
-            var header = vbd == null;
-            var selected = vbd != null && vbd.opaque_ref == _selected;
-            var b = new Border
-            {
-                Background = selected ? Brush.Parse("#0078D7") : Brushes.White,
-                BorderBrush = Brush.Parse("#E3E3E3"),
-                BorderThickness = header ? new Thickness(0, 0, 1, 1) : new Thickness(0),
-                Padding = new Thickness(6, 3, 14, 3),
-                Tag = vbd?.opaque_ref,
-                Child = new TextBlock { Text = text ?? "", Foreground = selected ? Brushes.White : Brushes.Black, TextTrimming = TextTrimming.CharacterEllipsis }
-            };
-            if (vbd != null)
-            {
-                b.PointerPressed += (_, _) => { _selected = vbd.opaque_ref; Views.PaintSelection(_rows, _selected); UpdateButtons(); };
-                b.DoubleTapped += (_, _) => { if (SelectedVdi is VDI v) _properties(v); };
-            }
-            Grid.SetRow(b, row);
-            Grid.SetColumn(b, col);
-            _rows.Children.Add(b);
         }
 
         // ---------- DVD drive (CD changer) ----------

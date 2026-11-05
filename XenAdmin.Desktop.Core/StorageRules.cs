@@ -68,6 +68,23 @@ namespace XenAdmin.Desktop
             return (true, null);
         }
 
+        /// <summary>VMStoragePage: the VM's disks (no DVD or floppy drives, nor VBDs whose disk is gone), by position.</summary>
+        public static List<(VBD Vbd, VDI Vdi)> VmDisks(VM vm) =>
+            vm.Connection.ResolveAll(vm.VBDs).Where(b => b.type != vbd_type.CD && b.type != vbd_type.Floppy)
+                .OrderBy(b => b.userdevice, StringComparer.Ordinal)
+                .Select(b => (b, vm.Connection.Resolve(b.VDI))).Where(d => d.Item2 != null).ToList();
+
+        /// <summary>PhysicalStoragePage: the SRs of a pool, or the shared ones and its own of a host.</summary>
+        public static List<SR> PhysicalSrs(IXenObject o)
+        {
+            var host = o as Host;
+            return o.Connection.Cache.SRs.Where(s => s.Show(false) && !s.IsToolsSR())
+                .Where(s => host == null || s.shared || s.Home()?.opaque_ref == host.opaque_ref).OrderBy(s => s.Name()).ToList();
+        }
+
+        /// <summary>TrimSRCommand.CanRun: Reclaim freed space needs an SR that supports trim and is attached to a host.</summary>
+        public static bool CanTrim(SR sr) => sr != null && sr.SupportsTrim() && sr.GetFirstAttachedStorageHost() != null;
+
         /// <summary>SrStoragePage: Add needs an unlocked SR; Properties one unlocked disk that is not a snapshot.</summary>
         public static bool CanAddDisk(SR sr) => sr != null && !sr.Locked;
 

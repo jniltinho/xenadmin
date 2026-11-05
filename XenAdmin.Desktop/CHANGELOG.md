@@ -10,6 +10,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   with the rules, tooltips and confirmations of the Windows app, and the Limit column.
 - SR Storage tab: Rescan, Add (a disk on that SR), Delete and Properties with the Windows rules and confirmations;
   the Storage Volume and Changed Block Tracking columns when they apply.
+- Host and pool Storage tab: New SR, Reclaim freed space (with confirmation) and Properties.
+- The storage and network grids select rows with the keyboard (Up/Down, Enter) and open Properties on double click.
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).

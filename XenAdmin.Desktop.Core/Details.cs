@@ -342,12 +342,11 @@ namespace XenAdmin.Desktop
                 case VM vm:
                 {
                     var t = new Table { Title = "Virtual Disks", Fill = 2, Headers = new[] { "Position", "Name", "Description", "SR", "Size", "Read Only", "Priority", "Active", "Device Path" } };
-                    foreach (var vbd in vm.Connection.ResolveAll(vm.VBDs).Where(b => b.type != vbd_type.CD).OrderBy(b => b.userdevice))
+                    foreach (var (vbd, vdi) in StorageRules.VmDisks(vm))
                     {
-                        var vdi = vm.Connection.Resolve(vbd.VDI);
-                        if (vdi == null) continue;
                         var sr = vm.Connection.Resolve(vdi.SR);
-                        t.Rows.Add(new[] { vbd.userdevice, vdi.Name(), vdi.Description(), sr?.NameWithLocation() ?? "", vdi.SizeText(),
+                        t.Rows.Add(new[] { vbd.userdevice, vdi.Name(), string.IsNullOrEmpty(vdi.Description()) ? "No description" : vdi.Description(),
+                            sr?.NameWithLocation() ?? "", vdi.SizeText(),
                             vbd.IsReadOnly() ? Messages.YES : Messages.NO,
                             vbd.GetIoNice() switch { 0 => Messages.STORAGE_WORST, 7 => Messages.STORAGE_BEST, var p => p.ToString() },
                             vbd.currently_attached ? Messages.YES : Messages.NO,
@@ -380,10 +379,8 @@ namespace XenAdmin.Desktop
                 case Pool _:
                 {
                     var t = new Table { Title = "Storage Repositories", Headers = new[] { "Name", "Description", "Type", "Shared", "Usage", "Size", "Virtual allocation" } };
-                    var host = o as Host;
-                    foreach (var sr in o.Connection.Cache.SRs.Where(s => s.Show(false) && !s.IsToolsSR()).OrderBy(s => s.Name()))
+                    foreach (var sr in StorageRules.PhysicalSrs(o))
                     {
-                        if (host != null && !sr.shared && sr.Home()?.opaque_ref != host.opaque_ref) continue;
                         var pct = sr.physical_size > 0 ? $"{sr.physical_utilisation * 100 / sr.physical_size}% ({Util.DiskSizeString(sr.physical_utilisation)} used)" : "";
                         t.Rows.Add(new[] { sr.Name(), sr.Description(), sr.FriendlyTypeName(), sr.shared ? Messages.YES : Messages.NO,
                             pct, Util.DiskSizeString(sr.physical_size), Util.DiskSizeString(sr.virtual_allocation) });
@@ -398,7 +395,7 @@ namespace XenAdmin.Desktop
         {
             if (o is VM vm)
             {
-                var t = new Table { Title = "Virtual Network Interfaces", Headers = new[] { "Device", "MAC", "Limit", "Network", "IP Address", "Active" } };
+                var t = new Table { Title = "Virtual Network Interfaces", Fill = 4, Headers = new[] { "Device", "MAC", "Limit", "Network", "IP Address", "Active" } };
                 var gm = vm.Connection.Resolve(vm.guest_metrics);
                 foreach (var vif in vm.Connection.ResolveAll(vm.VIFs).OrderBy(v => v.device))
                 {

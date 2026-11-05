@@ -93,5 +93,6 @@
 - [x] 8.4f QA de paridade (agente; relatório em `_output/qa/report.md`): corrigidos New VM sem Add de disco, confirmações de Shut Down/Reboot/Suspend e de modo manutenção, ações de SR (Set as Default, Detach, Forget, Destroy), faixa de DVD do console, seleção na ordem de boot, Esc nos diálogos, layout de Events, IP duplicado, separadores, SSH para Alpine
 - [x] 8.4g1 Ações de rede da VM (Add Interface/Properties/Remove/Activate, coluna Limit), testadas no .110
 - [x] 8.4g2 Aba Storage do SR (Rescan, Add, Delete, Properties; colunas Storage Volume e CBT), testada no .110
+- [x] 8.4g3 Aba Storage de host e pool (New SR, Reclaim freed space, Properties) e grade selecionável comum (`SelectableGrid`)
 - [ ] 8.4g Restantes do QA: botões das abas Networking/Storage de host, pool e SR, menus Pool/Server/VM/Templates/Help completos (HA, DR, Restart Toolstack, Export, Convert to Template, vApp, vTPM), abas NICs/GPU/USB e Console do host, barras da aba Memory, Search editável, Tree View de snapshots, Objects/Organization Views/Saved Searches, HBA/FCoE/Local no New Storage, Undock/Fullscreen do console, filtro de data e Export de alertas, ícones de SO no New VM
 - [ ] 8.4d Assinatura e notarização do app macOS (precisa de Mac com Developer ID), assinatura Authenticode no Windows; FreeBSD — fora do escopo atual
