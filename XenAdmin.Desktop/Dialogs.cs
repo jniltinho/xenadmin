@@ -573,6 +573,76 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        /// <summary>
+        /// DateFilterDialog ("Select Date Filter"): a start and an end (not set, 24 hours, 3, 7 or 30 days ago, or a custom
+        /// date and time); the end must be after the start. Returns the range, or null when cancelled.
+        /// </summary>
+        public static async Task<(DateTime? From, DateTime? To)?> DateFilter(Window owner, DateTime? from, DateTime? to)
+        {
+            (ComboBox Choice, DatePicker Date, TimePicker Time) Bound(DateTime? value)
+            {
+                var combo = new ComboBox { ItemsSource = NotificationRules.DateBoundChoices, SelectedIndex = value == null ? 0 : NotificationRules.CustomBound, Width = 140 };
+                var date = new DatePicker { SelectedDate = value ?? DateTime.Now, MinWidth = 230 };
+                var time = new TimePicker { SelectedTime = (value ?? DateTime.Now).TimeOfDay, ClockIdentifier = "24HourClock" };
+                return (combo, date, time);
+            }
+            var start = Bound(from);
+            var end = Bound(to);
+            var warning = new TextBlock { Text = "End date must be after the start date.", Foreground = Avalonia.Media.Brushes.Red, IsVisible = false };
+            var apply = new Button { Content = M("&Apply Filter"), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            DateTime? Value((ComboBox Choice, DatePicker Date, TimePicker Time) b, bool isStart, DateTime now)
+            {
+                var custom = (b.Date.SelectedDate?.Date ?? DateTime.Today) + (b.Time.SelectedTime ?? TimeSpan.Zero);
+                return NotificationRules.DateBound(b.Choice.SelectedIndex, isStart, now, custom);
+            }
+            // both bounds from one clock reading, so "24 hours ago" to "24 hours ago" is never a valid range
+            (DateTime? From, DateTime? To) Range() { var now = DateTime.Now; return (Value(start, true, now), Value(end, false, now)); }
+            void Validate()
+            {
+                foreach (var b in new[] { start, end })
+                    b.Date.IsEnabled = b.Time.IsEnabled = b.Choice.SelectedIndex == NotificationRules.CustomBound;
+                var (f, t) = Range();
+                var ok = NotificationRules.ValidRange(f, t);
+                warning.IsVisible = !ok;
+                apply.IsEnabled = ok;
+            }
+            foreach (var b in new[] { start, end })
+            {
+                b.Choice.SelectionChanged += (_, _) => Validate();
+                b.Date.SelectedDateChanged += (_, _) => Validate();
+                b.Time.SelectedTimeChanged += (_, _) => Validate();
+            }
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto"), RowDefinitions = new RowDefinitions("Auto,Auto"), RowSpacing = 8, ColumnSpacing = 8 };
+            void Row(int r, string label, (ComboBox Choice, DatePicker Date, TimePicker Time) b)
+            {
+                var l = new Label { Content = M(label), Target = b.Choice, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0) };
+                Control[] cells = { l, b.Choice, b.Date, b.Time };
+                for (int c = 0; c < cells.Length; c++) { Grid.SetRow(cells[c], r); Grid.SetColumn(cells[c], c); grid.Children.Add(cells[c]); }
+            }
+            Row(0, "&Start date:", start);
+            Row(1, "&End date:", end);
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(new TextBlock { Text = "Set the filter to show results from a specific time period by altering the start and end dates below", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(grid);
+            panel.Children.Add(warning);
+            panel.Children.Add(Buttons(apply, cancel));
+            var w = Frame("Select Date Filter", panel, 720);
+            Validate();
+            (DateTime?, DateTime?)? result = null;
+            apply.Click += (_, _) =>
+            {
+                // validate the exact pair that is applied (time has passed since the last check)
+                var range = Range();
+                if (!NotificationRules.ValidRange(range.From, range.To)) { Validate(); return; }
+                result = range;
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>DestroyBondCommand: the warning for the management interfaces (or the HA error), then DestroyBondAction.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> DeleteBond(Window owner, XenAPI.Network network)
         {

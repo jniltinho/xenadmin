@@ -97,7 +97,7 @@
 - [x] 8.4g4 Aba Networking de host e pool e wizard New Network (External/VLAN e Single-Server Private), VLAN testada no lab num host sozinho e no pool; Bonded, SR-IOV e Delete Bond pendentes
 - [x] 8.4g5 Aba NICs do host (lista e Rescan); Create/Delete Bond pendentes
 - [x] 8.4g6 Menus: Restart Toolstack, Remove From Pool, Take a Snapshot, Convert to Template (testados no .110 e no lab)
-- [x] 8.4g7 Alertas: filtro por data (presets) e Export CSV; intervalo personalizado pendente
+- [x] 8.4g7 Alertas: filtro por data (presets e intervalo personalizado) e Export CSV
 - [x] 8.4g8 Move/Migrate Virtual Disk (abas Storage de VM e SR), testado no lab (local → NFS)
 - [x] 8.4g9 Menu Templates (Create VM From Selection, Copy, Delete Template, Properties); Export to File pendente
 - [x] 8.4g10 Bonded network (wizard e Create Bond), Delete Bond, testados no pool do lab (eth1+eth2)

@@ -51,6 +51,33 @@ namespace XenAdmin.Desktop
             _ => null
         };
 
+        /// <summary>DateFilterDialog's start and end choices.</summary>
+        public static readonly string[] DateBoundChoices = { "Not set", "24 hours ago", "3 days ago", "7 days ago", "30 days ago", "Custom" };
+
+        public const int CustomBound = 5;
+
+        /// <summary>
+        /// DateFilterDialog.parseStartDate / parseEndDate: choice 0 is not set (null), 1 is 24 hours ago, 2..4 the
+        /// beginning (start) or end (end) of the day 3, 7 or 30 days ago, 5 the custom date and time.
+        /// </summary>
+        public static DateTime? DateBound(int choice, bool start, DateTime now, DateTime custom) => choice switch
+        {
+            1 => now.AddDays(-1),
+            2 => Day(now.AddDays(-3), start),
+            3 => Day(now.AddDays(-7), start),
+            4 => Day(now.AddDays(-30), start),
+            CustomBound => custom,
+            _ => null
+        };
+
+        private static DateTime Day(DateTime d, bool start) => start ? d.Date : d.Date.AddDays(1).AddTicks(-1);
+
+        /// <summary>DateFilterDialog.validateInterval: the end must be after the start (unset bounds always pass).</summary>
+        public static bool ValidRange(DateTime? from, DateTime? to) => from == null || to == null || from < to;
+
+        /// <summary>FilterDatesToolStripDropDownButton.HideByDate.</summary>
+        public static bool HideByDate(DateTime time, DateTime? from, DateTime? to) => from > time || to < time;
+
         /// <summary>AlertSummaryPage's CSV export: the header line.</summary>
         public static string CsvHeader() =>
             string.Join(",", Messages.TITLE, Messages.SEVERITY, Messages.DESCRIPTION, Messages.APPLIES_TO, Messages.TIMESTAMP);

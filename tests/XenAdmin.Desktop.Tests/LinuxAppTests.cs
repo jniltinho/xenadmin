@@ -370,6 +370,18 @@ namespace XenAdmin.Desktop.Tests
             StringAssert.StartsWith(line, "\"Disk \"\"sda\"\" full\",");
             StringAssert.Contains(line, "\"a, b\",\"host1\",");
             Assert.AreEqual(5, NotificationRules.CsvHeader().Split(',').Length);
+
+            // DateFilterDialog: start at the beginning and end at the end of the day; unset bounds never hide
+            Assert.AreEqual(new DateTime(2026, 11, 2), NotificationRules.DateBound(2, true, now, now));
+            Assert.AreEqual(new DateTime(2026, 11, 2, 23, 59, 59).AddTicks(9999999), NotificationRules.DateBound(2, false, now, now));
+            Assert.IsNull(NotificationRules.DateBound(0, true, now, now));
+            var custom = new DateTime(2026, 1, 2, 3, 4, 5);
+            Assert.AreEqual(custom, NotificationRules.DateBound(NotificationRules.CustomBound, true, now, custom));
+            Assert.IsFalse(NotificationRules.ValidRange(now, now.AddDays(-1)), "the end must be after the start");
+            Assert.IsTrue(NotificationRules.ValidRange(null, now));
+            Assert.IsTrue(NotificationRules.HideByDate(now, now.AddHours(1), null));
+            Assert.IsTrue(NotificationRules.HideByDate(now, null, now.AddHours(-1)));
+            Assert.IsFalse(NotificationRules.HideByDate(now, null, null));
         }
 
         [TestMethod]

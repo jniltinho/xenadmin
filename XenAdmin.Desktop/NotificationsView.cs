@@ -18,8 +18,8 @@ namespace XenAdmin.Desktop
     /// <summary>
     /// AlertSummaryPage: the alerts grid (severity, message, server/pool, date, Dismiss), severity and server filters,
     /// Refresh and Dismiss All / Dismiss Selected.
-    /// shortcut: the date filter has the presets but not the custom range (DateFilterDialog); no column sorting or keyboard
-    /// expansion, and the dismiss confirmations have no "do not show again" setting; add them with the rest of AlertSummaryPage.
+    /// shortcut: no column sorting or keyboard expansion, and the dismiss confirmations have no "do not show again"
+    /// setting; add them with the rest of AlertSummaryPage.
     /// </summary>
     public class NotificationsView : DockPanel, ILiveView
     {
@@ -34,6 +34,8 @@ namespace XenAdmin.Desktop
         private List<NotificationRules.AlertRow> _rows = new List<NotificationRules.AlertRow>();
         private string _signature;
         private NotificationRules.DateFilter _dateFilter = NotificationRules.DateFilter.All;
+        private DateTime? _customFrom, _customTo; // DateFilterDialog's range when "Custom..." is chosen
+        private bool _custom;
 
         /// <summary>Raised when the visible alerts or the filters change, so the title band and the left list follow.</summary>
         public event Action Changed;
@@ -54,8 +56,11 @@ namespace XenAdmin.Desktop
                 Check(h.Name(), !_hiddenServers.Contains(h.uuid), on => Toggle(_hiddenServers, h.uuid, on))));
             // FilterDatesToolStripDropDownButton order: the periods, then Show All
             var date = MenuButton("Filter by &Date", () => Enum.GetValues<NotificationRules.DateFilter>()
-                .OrderBy(f => f == NotificationRules.DateFilter.All).Select(f =>
-                    Check(Dialogs.M(NotificationRules.DateFilterText(f)), _dateFilter == f, on => _dateFilter = on ? f : NotificationRules.DateFilter.All)));
+                .Where(f => f != NotificationRules.DateFilter.All).Select(f =>
+                    Check(Dialogs.M(NotificationRules.DateFilterText(f)), !_custom && _dateFilter == f, on => { _custom = false; _dateFilter = on ? f : NotificationRules.DateFilter.All; }))
+                .Append(Check(Dialogs.M(Messages.DATE_FILTER_CUSTOM), _custom, _ => CustomDates()))
+                .Append(Check(Dialogs.M(NotificationRules.DateFilterText(NotificationRules.DateFilter.All)), !_custom && _dateFilter == NotificationRules.DateFilter.All,
+                    _ => { _custom = false; _dateFilter = NotificationRules.DateFilter.All; })));
             var export = new Button { Content = Dialogs.M("E&xport") };
             export.Click += async (_, _) => await Export();
             var refresh = new Button { Content = Dialogs.M("&Refresh") };
@@ -120,7 +125,19 @@ namespace XenAdmin.Desktop
         private const string Title = "Dismiss Alerts";
         private IEnumerable<NotificationRules.AlertRow> Shown => _rows;
         private Window Owner => TopLevel.GetTopLevel(this) as Window;
-        private bool FilterIsOn => _hiddenSeverities.Count + _hiddenServers.Count > 0 || _dateFilter != NotificationRules.DateFilter.All;
+        private bool FilterIsOn => _hiddenSeverities.Count + _hiddenServers.Count > 0
+                                   || (_custom ? _customFrom != null || _customTo != null : _dateFilter != NotificationRules.DateFilter.All);
+
+        /// <summary>FilterDatesToolStripDropDownButton "Custom...": the DateFilterDialog range.</summary>
+        private async void CustomDates()
+        {
+            var range = await Dialogs.DateFilter(Owner, _customFrom, _customTo);
+            if (range == null) return;
+            (_customFrom, _customTo) = range.Value;
+            _custom = true;
+            _signature = null;
+            Refresh();
+        }
 
         /// <summary>
         /// toolStripButtonExportAll_Click: with filters on, all alerts or only the shown ones; then a .csv file chosen by
@@ -203,10 +220,11 @@ namespace XenAdmin.Desktop
             var all = NotificationRules.AlertMessages(_connections()).Where(m => !_dismissing.Contains(m.opaque_ref)).ToList();
             Total = all.Count;
             // filter and cut first, then format only the rows that change (MessageAlert texts resolve objects by uuid)
-            var from = NotificationRules.DateFrom(_dateFilter, DateTime.Now);
+            var from = _custom ? _customFrom : NotificationRules.DateFrom(_dateFilter, DateTime.Now);
+            var to = _custom ? _customTo : null;
             var shown = all.Where(m => !_hiddenSeverities.Contains(NotificationRules.PriorityOf(m))
                     && (_hiddenServers.Count == 0 || !_hiddenServers.Contains(NotificationRules.HostUuid(m)))
-                    && (from == null || m.TimestampLocal() >= from))
+                    && !NotificationRules.HideByDate(m.TimestampLocal(), from, to))
                 .OrderByDescending(m => m.timestamp).Take(MaxRows).ToList();
             var signature = string.Join("|", shown.Select(m => m.opaque_ref)) + "#" + string.Join(",", _expanded) + "#" + string.Join(",", _selected) + "#" + Total;
             if (signature == _signature) return;
