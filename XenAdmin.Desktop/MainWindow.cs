@@ -229,9 +229,10 @@ namespace XenAdmin.Desktop
 
         private Menu BuildMenu()
         {
-            MenuItem Item(string header, Action onClick = null, string gesture = null)
+            MenuItem Item(string header, Action onClick = null, string gesture = null, string icon = null)
             {
                 var m = new MenuItem { Header = header, IsEnabled = onClick != null };
+                if (icon != null) m.Icon = Views.Icon(icon, 16); // the WinForms command's MenuImage
                 if (gesture != null) m.InputGesture = Avalonia.Input.KeyGesture.Parse(gesture);
                 if (onClick != null) m.Click += (_, _) => onClick();
                 return m;
@@ -245,30 +246,31 @@ namespace XenAdmin.Desktop
             _connectMenu = Item("_Connect", async () => { if (SelectedConnection() is XenConnection c) await Connect(c); });
             _disconnectMenu = Item("_Disconnect", () => { if (SelectedConnection() is XenConnection c) Disconnect(c); });
             _removeMenu = Item("_Remove from XCP-ng Center", RemoveSelected);
-            foreach (var (op, text) in new[] { (VmOp.Start, "S_tart"), (VmOp.Shutdown, "_Shut Down"), (VmOp.Reboot, "_Reboot"),
-                (VmOp.Suspend, "S_uspend"), (VmOp.Resume, "Resu_me"), (VmOp.ForceShutdown, "_Force Shutdown"), (VmOp.ForceReboot, "Force Re_boot") })
+            foreach (var (op, text, icon) in new[] { (VmOp.Start, "S_tart", "001_PowerOn_h32bit_16"), (VmOp.Shutdown, "_Shut Down", "001_ShutDown_h32bit_16"),
+                (VmOp.Reboot, "_Reboot", "001_Reboot_h32bit_16"), (VmOp.Suspend, "S_uspend", "000_paused_h32bit_16"), (VmOp.Resume, "Resu_me", "000_Resumed_h32bit_16"),
+                (VmOp.ForceShutdown, "_Force Shutdown", "001_ForceShutDown_h32bit_16"), (VmOp.ForceReboot, "Force Re_boot", "001_ForceReboot_h32bit_16") })
             {
                 var captured = op;
-                _vmMenu[op] = Item(text, () => RunVmOp(captured));
+                _vmMenu[op] = Item(text, () => RunVmOp(captured), icon: icon);
             }
             return new Menu
             {
                 Background = Brush.Parse("#F5F5F5"),
                 ItemsSource = new[]
                 {
-                    Top("_File", Item("_Add...", async () => await AddServer()), "-", Item("E_xit", Close, "Alt+F4")),
+                    Top("_File", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", Item("E_xit", Close, "Alt+F4")),
                     Top("_View", Item("_Infrastructure", () => { _showEvents = false; UpdateContent(); }),
                         Item("_Notifications", () => { _showEvents = true; UpdateContent(); })),
-                    Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool()), "-", _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool))),
-                    Top("_Server", Item("_Add...", async () => await AddServer()), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
-                        _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host))),
-                    Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm()), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
+                    Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool(), icon: "000_PoolNew_h32bit_16"), "-", _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
+                    Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
+                        _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host), icon: "edit_16")),
+                    Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
                         _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
                         _migrateMenu = MigrateMenu(() => SelectedNode()?.XenObject as VM), "-",
                         _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
-                        _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM))),
-                    Top("S_torage", _newSrMenu = Item("New SR...", () => ShowNewSr())),
+                        _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
+                    Top("S_torage", _newSrMenu = Item("New SR...", () => ShowNewSr(), icon: "000_NewStorage_h32bit_16")),
                     Top("_Templates", Item("New VM from Template...")),
                     Top("T_ools", Item("Server Status Report...")),
                     Top("_Help", Item("_About XCP-ng Center", async () => await Dialogs.Info(this, "About XCP-ng Center",
@@ -591,9 +593,10 @@ namespace XenAdmin.Desktop
         private List<object> ContextMenuFor(TreeNode n)
         {
             var items = new List<object>();
-            MenuItem Item(string text, Action a, bool bold = false)
+            MenuItem Item(string text, Action a, bool bold = false, string icon = null)
             {
                 var m = new MenuItem { Header = Dialogs.M(text) };
+                if (icon != null) m.Icon = Views.Icon(icon, 16);
                 if (bold) m.FontWeight = FontWeight.Bold;
                 m.Click += (_, _) => a();
                 return m;
@@ -601,7 +604,14 @@ namespace XenAdmin.Desktop
             var c = n.Connection as XenConnection;
             if (n.XenObject is VM vm)
             {
-                void Add(VmOp op, string text, bool bold = false) { if (VmOperations.IsAllowed(vm, op)) items.Add(Item(text, () => RunVmOp(op), bold)); }
+                // the WinForms commands' MenuImage
+                string IconOf(VmOp op) => op switch
+                {
+                    VmOp.Start => "001_PowerOn_h32bit_16", VmOp.Shutdown => "001_ShutDown_h32bit_16", VmOp.Reboot => "001_Reboot_h32bit_16",
+                    VmOp.Suspend => "000_paused_h32bit_16", VmOp.Resume => "000_Resumed_h32bit_16",
+                    VmOp.ForceShutdown => "001_ForceShutDown_h32bit_16", VmOp.ForceReboot => "001_ForceReboot_h32bit_16", _ => null
+                };
+                void Add(VmOp op, string text, bool bold = false) { if (VmOperations.IsAllowed(vm, op)) items.Add(Item(text, () => RunVmOp(op), bold, IconOf(op))); }
                 Add(VmOp.Shutdown, Messages.MAINWINDOW_SHUTDOWN);
                 Add(VmOp.Start, Messages.MAINWINDOW_START, vm.power_state == vm_power_state.Halted);
                 Add(VmOp.Resume, Messages.MAINWINDOW_RESUME);
@@ -612,6 +622,12 @@ namespace XenAdmin.Desktop
                 Add(VmOp.ForceReboot, Messages.MAINWINDOW_FORCE_REBOOT);
                 if (before > 0 && items.Count > before) items.Insert(before, new Separator());
                 if (MigrateRules.CanMigrate(vm)) { items.Add(new Separator()); items.Add(MigrateMenu(() => vm)); }
+                // shortcut: Assign to Snapshot Schedule / vApp are not ported yet
+                if (VmRules.SnapshotModesFor(vm) is var modes && (modes.Disk || modes.Memory))
+                {
+                    items.Add(new Separator());
+                    items.Add(Item("Take a S&napshot...", async () => { if (await Dialogs.TakeSnapshot(this, vm) is AsyncAction a) RunTracked(a); }));
+                }
                 if (VmRules.CanCopy(vm)) { items.Add(new Separator()); items.Add(Item("Cop&y VM...", () => CopyVm(vm))); }
                 if (VmRules.CanDeleteVm(vm)) { items.Add(new Separator()); items.Add(Item("&Delete VM...", () => DeleteVm(vm))); }
             }
@@ -629,14 +645,14 @@ namespace XenAdmin.Desktop
             }
             else if (c != null && c.IsConnected && (n.XenObject is Pool || n.XenObject is Host h && Helpers.GetPool(c) == null))
             {
-                items.Add(Item("&New VM...", () => ShowNewVm()));
+                items.Add(Item("&New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"));
                 items.Add(new Separator());
                 items.Add(Item(n.XenObject is Pool ? Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU_POOL : Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU, () => Disconnect(c)));
             }
             if (VmRules.CanEditProperties(n.XenObject))
             {
                 if (items.Count > 0) items.Add(new Separator());
-                items.Add(Item("P&roperties", () => ShowProperties(n.XenObject)));
+                items.Add(Item("P&roperties", () => ShowProperties(n.XenObject), icon: "edit_16"));
             }
             return items;
         }
@@ -664,12 +680,21 @@ namespace XenAdmin.Desktop
                 System.Threading.ThreadPool.QueueUserWorkItem(_ =>
                 {
                     List<(Host Host, string Reason)> targets;
-                    try { targets = MigrateRules.Targets(vm, vm.Connection.DuplicateSession()); } // shared session: never log it out
-                    catch { targets = new List<(Host, string)>(); }
+                    (Host Host, string Reason) home;
+                    try
+                    {
+                        var session = vm.Connection.DuplicateSession(); // shared session: never log it out
+                        home = MigrateRules.HomeServerTarget(vm, session);
+                        targets = MigrateRules.Targets(vm, session);
+                    }
+                    catch { home = (null, Messages.HOST_MENU_UNKNOWN_ERROR); targets = new List<(Host, string)>(); }
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (mine != generation) return;
                         menu.Items.Clear();
+                        var homeItem = new MenuItem { Header = Dialogs.M(MigrateRules.HomeServerMenuText(home.Reason).Replace("_", "__")), IsEnabled = home.Reason == null, Icon = Views.Icon("000_ServerHome_h32bit_16", 16) };
+                        homeItem.Click += (_, _) => { if (mine == generation && home.Host != null && MigrateRules.CanMigrate(vm)) RunTracked(MigrateRules.Migrate(vm, home.Host)); };
+                        menu.Items.Add(homeItem);
                         foreach (var (host, reason) in targets)
                         {
                             var item = new MenuItem { Header = MigrateRules.MenuText(host, reason).Replace("_", "__"), IsEnabled = reason == null, Icon = Views.Icon("000_TreeConnected_h32bit_16", 16) };
@@ -677,7 +702,7 @@ namespace XenAdmin.Desktop
                             menu.Items.Add(item);
                         }
                         menu.Items.Add(new Separator());
-                        menu.Items.Add(new MenuItem { Header = Dialogs.M("&Migrate VM wizard..."), IsEnabled = false });
+                        menu.Items.Add(new MenuItem { Header = Dialogs.M("&Migrate VM wizard..."), IsEnabled = false, Icon = Views.Icon("000_MigrateVM_h32bit_16", 16) });
                     });
                 });
             };

@@ -55,6 +55,13 @@ namespace XenAdmin.Desktop
             }
         }
 
+        /// <summary>VMOperationHomeServerCommand: the first item targets the VM's home server (affinity), if any.</summary>
+        public static (Host Host, string Reason) HomeServerTarget(VM vm, Session session) =>
+            vm.Connection.Resolve(vm.affinity) is Host home ? (home, CannotBootReason(vm, home, session)) : (null, Messages.NO_HOME_SERVER);
+
+        public static string HomeServerMenuText(string reason) =>
+            reason == null ? Messages.HOME_SERVER_MENU_ITEM : string.Format(Messages.MAINWINDOW_CONTEXT_REASON, Messages.HOME_SERVER_MENU_ITEM, reason);
+
         /// <summary>"xcp-lab-2 (Current server)" — MAINWINDOW_CONTEXT_REASON.</summary>
         public static string MenuText(Host host, string reason) =>
             reason == null ? host.Name() : string.Format(Messages.MAINWINDOW_CONTEXT_REASON, host.Name(), reason);

@@ -12,7 +12,7 @@ namespace XenAdmin.Desktop.Tests
     /// <summary>
     /// New Storage wizard flows on the lab pool (tools/vagrant/xcp-ng-lab: lab.sh storage-up): create a shared NFS or SMB
     /// SR, add and delete a disk, detach, find it again with Scan, reattach, destroy. Needs XCP_LAB_HOSTS (pool
-    /// coordinator first), XCP_ALLOW_WRITE=1 and the lab storage at 192.168.56.1; never point it at real servers.
+    /// coordinator first), XCP_ALLOW_WRITE=1 and the lab storage on the lab network's .1; never point it at real servers.
     /// </summary>
     [TestClass]
     public class StorageIntegrationTests
@@ -61,13 +61,18 @@ namespace XenAdmin.Desktop.Tests
             return c;
         }
 
+        /// <summary>lab.sh storage-up serves NFS and SMB on the lab network's gateway (x.y.z.1).</summary>
+        private static string StorageHost() =>
+            Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',')[0].Trim() is string h && h.Count(ch => ch == '.') == 3
+                ? h.Substring(0, h.LastIndexOf('.')) + ".1" : "192.168.56.1";
+
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void NfsSharedSrLifecycleOnLabPool() =>
-            Lifecycle(SrRules.Kind.Nfs, "192.168.56.1:/export", null, null);
+            Lifecycle(SrRules.Kind.Nfs, StorageHost() + ":/export", null, null);
 
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void SmbSharedSrLifecycleOnLabPool() =>
-            Lifecycle(SrRules.Kind.Smb, @"\\192.168.56.1\sr", "xcp", Environment.GetEnvironmentVariable("XCP_PASS"));
+            Lifecycle(SrRules.Kind.Smb, @"\\" + StorageHost() + @"\sr", "xcp", Environment.GetEnvironmentVariable("XCP_PASS"));
 
         private static void Lifecycle(SrRules.Kind kind, string path, string user, string password)
         {

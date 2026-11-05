@@ -267,7 +267,7 @@ namespace XenAdmin.Desktop
             {
                 fields.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
                 var top = field is StackPanel;
-                var l = new Label { Content = Dialogs.M(label), Target = field, VerticalAlignment = top ? VerticalAlignment.Top : VerticalAlignment.Center, Padding = new Thickness(0, top ? 2 : 0, 0, 0) };
+                var l = new Label { Content = Dialogs.M(label), Target = field, VerticalAlignment = top ? VerticalAlignment.Top : VerticalAlignment.Center, VerticalContentAlignment = top ? VerticalAlignment.Top : VerticalAlignment.Center, Padding = new Thickness(0, top ? 2 : 0, 0, 0) };
                 Grid.SetRow(l, r); Grid.SetRow(field, r); Grid.SetColumn(field, 1);
                 fields.Children.Add(l); fields.Children.Add(field);
                 if (extra != null) { Grid.SetRow(extra, r); Grid.SetColumn(extra, 2); fields.Children.Add(extra); }

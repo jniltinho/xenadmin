@@ -3,12 +3,13 @@
 # usage: tools/linux/container.sh build|test|build-win [extra dotnet args]
 # build-win compiles the core for net481 (Windows app) to catch regressions.
 # Integration tests read XCP_HOST/XCP_USER/XCP_PASS from ./.env (never committed).
+# XCP_DOCKER_NETWORK=xcp-kvm-lab runs the container on the KVM lab's Docker network (Docker isolates bridges).
 set -e
 cd "$(dirname "$0")/../.."
 cmd=${1:-build}; [ $# -gt 0 ] && shift
 envfile=""; [ -f .env ] && envfile="--env-file .env"
 # forward shell overrides only when set: a bare "-e VAR" would unset the .env value
-for v in XCP_HOST XCP_USER XCP_PASS XCP_RO_HOST XCP_ALLOW_WRITE XCP_LAB_HOSTS; do eval "[ -n \"\${$v+x}\" ]" && envfile="$envfile -e $v"; done
+for v in XCP_HOST XCP_USER XCP_PASS XCP_RO_HOST XCP_ALLOW_WRITE XCP_LAB_HOSTS XCP_LAB_GUEST_ISO; do eval "[ -n \"\${$v+x}\" ]" && envfile="$envfile -e $v"; done
 case $cmd in
   build) run="dotnet build tests/XenAdmin.Desktop.Tests -f net10.0 $*" ;;
   test)  run="dotnet test tests/XenAdmin.Desktop.Tests --logger 'console;verbosity=normal' $*" ;;
@@ -17,6 +18,7 @@ case $cmd in
     run="[ -d $refs ] || (mkdir -p /tmp/r && cd /tmp/r && dotnet new classlib -o . >/dev/null && dotnet add package Microsoft.NETFramework.ReferenceAssemblies.net481 --version 1.0.3 >/dev/null); dotnet build XenModel/XenModel.csproj -f net481 -p:FrameworkPathOverride=$refs $*" ;;
   *) echo "usage: $0 build|test|build-win" >&2; exit 2 ;;
 esac
-docker run --rm $envfile \
+net=""; [ -n "$XCP_DOCKER_NETWORK" ] && net="--network $XCP_DOCKER_NETWORK"
+docker run --rm $envfile $net \
   -e NUGET_PACKAGES=/src/_output/nuget -v "$PWD":/src -w /src \
   mcr.microsoft.com/dotnet/sdk:10.0 sh -c "$run; rc=\$?; chown -R $(id -u):$(id -g) /src; exit \$rc"

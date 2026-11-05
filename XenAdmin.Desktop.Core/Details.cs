@@ -140,6 +140,10 @@ namespace XenAdmin.Desktop
                     var running = vm.RunningTime();
                     if (running != null)
                         s.Add(FN("VM.uptime"), running.ToString());
+                    // GeneralTabPage.VMCanChooseHomeServer: hidden under WLB or when the disks are not on shared storage
+                    if (!vm.is_a_template && !Helpers.WlbEnabledAndConfigured(vm.Connection)
+                        && (string.IsNullOrEmpty(vm.IsOnSharedStorage()) || vm.HasNoDisksAndNoLocalCD()))
+                        s.Add(FN("VM.affinity"), vm.AffinityServerString());
                     s.Add(FN("host.uuid"), vm.uuid);
 
                     var boot = new Section { Title = "Boot Options" };

@@ -10,9 +10,10 @@ using XenAPI;
 namespace XenAdmin.Desktop.Tests
 {
     /// <summary>
-    /// Migrate to Server on a pool with a diskless PV Alpine VM (lab.sh guest-kernel puts its kernel in every dom0).
-    /// Needs XCP_LAB_HOSTS (coordinator first) and XCP_ALLOW_WRITE=1, and hosts that can run guests: the VirtualBox
-    /// lab on AMD cannot (no nested NPT, and XCP-ng 8.3's Xen has no shadow paging), so there it is inconclusive.
+    /// Migrate to Server on a pool: an HVM Alpine VM whose disk is the hybrid Alpine ISO on a shared SR, started on
+    /// the first host and live-migrated to the second. Needs XCP_LAB_HOSTS (coordinator first), XCP_ALLOW_WRITE=1,
+    /// XCP_LAB_GUEST_ISO (path to alpine-virt-*.iso) and a shared NFS/SMB SR on the pool; hosts must run guests
+    /// (the KVM lab does; the VirtualBox lab on AMD cannot, and the test is then inconclusive).
     /// </summary>
     [TestClass]
     public class MigrateIntegrationTests
@@ -42,7 +43,7 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
-        public void MigrateRunningPvVmBetweenLabHosts()
+        public void LiveMigrateVmBetweenPoolHosts()
         {
             var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (lab == null || lab.Length == 0 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
@@ -59,28 +60,48 @@ namespace XenAdmin.Desktop.Tests
                     if (stale.power_state != vm_power_state.Halted) VM.hard_shutdown(session, stale.opaque_ref);
                     VM.destroy(session, stale.opaque_ref);
                 }
+                foreach (var stale in c.Cache.VDIs.Where(v => v.name_label == VmName))
+                    VDI.destroy(session, stale.opaque_ref);
+
+                var iso = Environment.GetEnvironmentVariable("XCP_LAB_GUEST_ISO");
+                if (string.IsNullOrEmpty(iso) || !System.IO.File.Exists(iso))
+                    Assert.Inconclusive("XCP_LAB_GUEST_ISO must point to the Alpine ISO");
+                var shared = c.Cache.SRs.FirstOrDefault(sr => sr.shared && (sr.type == "nfs" || sr.type == "smb")
+                    && c.ResolveAll(sr.PBDs).Count(p => p.currently_attached) == c.Cache.Hosts.Length);
+                if (shared == null)
+                    Assert.Inconclusive("no shared NFS/SMB SR on the pool (create one with the New Storage wizard)");
+
+                // the ISO is hybrid: written to a disk it boots like one
+                var size = (new System.IO.FileInfo(iso).Length + (1 << 20) - 1) >> 20 << 20;
+                var vdi = VDI.create(session, new VDI
+                {
+                    name_label = VmName, SR = new XenRef<SR>(shared.opaque_ref), virtual_size = size, type = vdi_type.user,
+                    sharable = false, read_only = false, other_config = new(), xenstore_data = new(), sm_config = new(), tags = new string[0]
+                });
+                XenAPI.HTTP_actions.put_import_raw_vdi(_ => { }, () => false, 600_000, c.Hostname, null, iso,
+                    session_id: session.opaque_ref, vdi: vdi.opaque_ref, format: "raw");
 
                 var template = c.Cache.VMs.Single(v => v.is_a_template && v.name_label == "Other install media");
                 vmRef = VM.clone(session, template.opaque_ref, VmName).opaque_ref;
                 VM.provision(session, vmRef);
                 VM.set_is_a_template(session, vmRef, false);
-                VM.set_memory_limits(session, vmRef, 256L << 20, 256L << 20, 256L << 20, 256L << 20);
-                VM.set_HVM_boot_policy(session, vmRef, "");
-                VM.set_domain_type(session, vmRef, domain_type.pv);
-                VM.set_PV_bootloader(session, vmRef, "");
-                VM.set_PV_kernel(session, vmRef, "/var/lib/xcp/guest/alpine-vmlinuz-virt");
-                VM.set_PV_ramdisk(session, vmRef, "/var/lib/xcp/guest/alpine-initramfs-virt");
-                VM.set_PV_args(session, vmRef, "console=hvc0");
+                VM.set_memory_limits(session, vmRef, 512L << 20, 512L << 20, 512L << 20, 512L << 20);
+                VM.set_HVM_boot_params(session, vmRef, new Dictionary<string, string> { ["order"] = "c" });
+                VBD.create(session, new VBD
+                {
+                    VM = new XenRef<VM>(vmRef), VDI = new XenRef<VDI>(vdi.opaque_ref), userdevice = "0", bootable = true, mode = vbd_mode.RW,
+                    type = vbd_type.Disk, empty = false, other_config = new(), qos_algorithm_params = new(), qos_algorithm_type = "", unpluggable = false
+                });
 
                 var hosts = c.Cache.Hosts.OrderBy(h => h.name_label).ToList();
                 try { VM.start_on(session, vmRef, hosts[0].opaque_ref, false, true); }
-                catch (Failure f) when (f.Message.Contains("shadow") || f.Message.Contains("paging mode"))
+                catch (Failure f) when (f.Message.Contains("shadow") || f.Message.Contains("paging mode") || f.Message.Contains("Shadow"))
                 {
                     // nested Xen without NPT (VirtualBox on AMD) and XCP-ng 8.3 without shadow paging: no guest can run
                     Assert.Inconclusive("the lab hosts cannot run guests: " + f.Message);
                 }
                 var vm = Until(() => c.Resolve(new XenRef<VM>(vmRef)), v => v?.power_state == vm_power_state.Running
-                    && v.resident_on.opaque_ref == hosts[0].opaque_ref && v.allowed_operations.Contains(vm_operations.pool_migrate), "running on " + hosts[0].name_label);
+                    && v.resident_on.opaque_ref == hosts[0].opaque_ref && v.allowed_operations.Contains(vm_operations.pool_migrate), "running on " + hosts[0].name_label + " with PV drivers", 240);
 
                 // the submenu: the current server disabled with its reason, the other one offered
                 Assert.IsTrue(MigrateRules.CanMigrate(vm));
@@ -99,6 +120,12 @@ namespace XenAdmin.Desktop.Tests
                 if (vmRef != null)
                 {
                     try { VM.hard_shutdown(session, vmRef); } catch (Failure) { }
+                    foreach (var vbd in VM.get_VBDs(session, vmRef))
+                    {
+                        var disk = VBD.get_VDI(session, vbd.opaque_ref);
+                        if (disk.opaque_ref != Helper.NullOpaqueRef && VBD.get_type(session, vbd.opaque_ref) == vbd_type.Disk)
+                            VDI.destroy(session, disk.opaque_ref);
+                    }
                     VM.destroy(session, vmRef);
                 }
                 c.EndConnect();
