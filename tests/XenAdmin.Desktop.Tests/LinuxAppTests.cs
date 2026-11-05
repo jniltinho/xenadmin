@@ -208,6 +208,31 @@ namespace XenAdmin.Desktop.Tests
     
 
         [TestMethod]
+        public void StorageDeviceConfigs()
+        {
+            // CIFS_ISO: a sub-folder of the share goes to iso_path; credentials only with "Use different user name"
+            var smb = SrRules.IsoDeviceConfig(SrRules.Kind.SmbIso, @"\\nas\isos\linux\alpine", false, null, null);
+            Assert.AreEqual("//nas/isos", smb["location"]);
+            Assert.AreEqual("/linux/alpine", smb["iso_path"]);
+            Assert.IsFalse(smb.ContainsKey("username"));
+            Assert.AreEqual("u", SrRules.IsoDeviceConfig(SrRules.Kind.SmbIso, @"\\nas\isos", false, "u", "p")["username"]);
+            var nfs = SrRules.IsoDeviceConfig(SrRules.Kind.NfsIso, " nas:/isos ", true, null, null);
+            Assert.AreEqual(("nas:/isos", "nfs_iso", "4"), (nfs["location"], nfs["type"], nfs["nfsversion"]));
+            Assert.IsTrue(SrRules.ValidLocation(SrRules.Kind.NfsIso, "nas:/isos") && !SrRules.ValidLocation(SrRules.Kind.SmbIso, "nas:/isos"));
+            Assert.AreEqual(SR.Content_Type_ISO, SrRules.ContentType(SrRules.Kind.NfsIso));
+            Assert.AreEqual("", SrRules.ContentType(SrRules.Kind.Iscsi));
+
+            // LVMoISCSI: the IQN's own address, the LUN by SCSI id, or by serial when the target gives no LUN id
+            var iqn = new XenAdmin.Actions.IScsiIqnInfo(0, "iqn.x:sr", "10.0.0.20", 3260);
+            var lun = new XenAdmin.Actions.ISCSIInfo { LunID = 1, ScsiID = "3600", Serial = "beaf11", Vendor = "IET", Size = 4L << 30 };
+            var d = SrRules.IscsiDeviceConfig(iqn, lun, "chap", "secret");
+            Assert.AreEqual(("10.0.0.20", "3260", "iqn.x:sr", "3600", "chap"), (d["target"], d["port"], d["targetIQN"], d["SCSIid"], d["chapuser"]));
+            lun.LunID = -1;
+            Assert.AreEqual("beaf11", SrRules.IscsiDeviceConfig(iqn, lun, null, null)["LUNSerial"]);
+            StringAssert.StartsWith(SrRules.LunLabel(new XenAdmin.Actions.ISCSIInfo { LunID = 1, Serial = "beaf11", Vendor = "IET", Size = 4L << 30 }), "LUN 1: beaf11: 4 GB (IET)");
+        }
+
+        [TestMethod]
         public void ServerAddressParsing()
         {
             Assert.IsTrue(ServerAddress.TryParse(" xcp1.lan ", out var h, out var p)); Assert.AreEqual(("xcp1.lan", 443), (h, p));

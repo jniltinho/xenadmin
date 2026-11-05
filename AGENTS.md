@@ -25,7 +25,7 @@ KVM cannot run while any VirtualBox VM is up.
 ```bash
 # two nested XCP-ng 8.3 hosts, installed unattended (10.77.58.11 / .12, Docker network xcp-kvm-lab)
 XCP_LAB_BACKEND=kvm XCP_LAB_PASS=... tools/vagrant/xcp-ng-lab/lab.sh up        # also: status | halt | start | destroy
-XCP_LAB_BACKEND=kvm XCP_LAB_PASS=... tools/vagrant/xcp-ng-lab/lab.sh storage-up  # NFS 10.77.58.1:/export, SMB \\10.77.58.1\sr
+XCP_LAB_BACKEND=kvm XCP_LAB_PASS=... tools/vagrant/xcp-ng-lab/lab.sh storage-up  # NFS 10.77.58.1:/export, SMB \\10.77.58.1\sr, iSCSI 10.77.58.20
 
 # lab integration tests (pool test needs standalone hosts; storage and migration need the pool + a shared SR)
 XCP_DOCKER_NETWORK=xcp-kvm-lab XCP_LAB_HOSTS=10.77.58.11 XCP_ALLOW_WRITE=1 \

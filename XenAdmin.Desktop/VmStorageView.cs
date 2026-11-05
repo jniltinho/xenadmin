@@ -196,7 +196,9 @@ namespace XenAdmin.Desktop
         {
             var list = new List<IsoChoice> { new IsoChoice { Text = "<empty>" } };
             var home = _vm.Home();
+            // ISODropDownBox: the tools SR is hidden from Stockholm (XCP-ng 8.x) on, the guest agent comes from the distro
             foreach (var sr in _vm.Connection.Cache.SRs.Where(s => s.content_type == SR.Content_Type_ISO && s.Show(false)
+                         && !(s.IsToolsSR() && XenAdmin.Core.Helpers.StockholmOrGreater(_vm.Connection))
                          && (home == null || s.CanBeSeenFrom(home))).OrderBy(s => s.Name()))
                 foreach (var vdi in _vm.Connection.ResolveAll(sr.VDIs).Where(v => v.Show(false)).OrderBy(v => v.Name()))
                     list.Add(new IsoChoice { Vdi = vdi, Text = $"{sr.Name()}: {vdi.Name()}" });

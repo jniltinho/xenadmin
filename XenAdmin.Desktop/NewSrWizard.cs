@@ -13,7 +13,7 @@ using XenAPI;
 namespace XenAdmin.Desktop
 {
     /// <summary>
-    /// NewSRWizard: Type, Name, Location (VHDoNFS / CifsFrontend pages). Creates, reattaches or introduces the SR
+    /// NewSRWizard: Type, Name, Location (VHDoNFS / CifsFrontend / LVMoISCSI pages). Creates, reattaches or introduces the SR
     /// with the same actions as the WinForms wizard; the other storage types are listed disabled until ported.
     /// </summary>
     public class NewSrWizard : Window
@@ -41,6 +41,16 @@ namespace XenAdmin.Desktop
         private SR.SRInfo _existing;
         private bool _reattach;      // "Reattach an existing SR" chosen (needs a selection)
         private int _scanGeneration; // a Scan's result is dropped when the location changed meanwhile
+        // iSCSI: target, CHAP, the scanned IQNs and LUNs and the picks
+        private string _iscsiHost = "", _iscsiPort = SrRules.DefaultIscsiPort.ToString(), _chapUser = "", _chapPassword = "";
+        private bool _chap;
+        private List<IScsiIqnInfo> _iqns = new List<IScsiIqnInfo>();
+        private List<ISCSIInfo> _luns = new List<ISCSIInfo>();
+        private IScsiIqnInfo? _iqn;
+        private ISCSIInfo? _lun;
+        private bool _otherUser; // SMB ISO: "Use different user name"
+        private string ChapUser => _chap ? _chapUser : null;
+        private string ChapPassword => _chap ? _chapPassword : null;
         private bool _busy;
         private readonly Action<AsyncAction> _run;
 
@@ -117,7 +127,10 @@ namespace XenAdmin.Desktop
             {
                 0 => "Choose the type of new storage",
                 1 => "What do you want to call this Storage Repository?",
-                _ => _kind == SrRules.Kind.Nfs ? Messages.NEWSR_PATH_NFS : Messages.NEWSR_PATH_CIFS
+                _ => _kind switch
+                {
+                    SrRules.Kind.Nfs or SrRules.Kind.NfsIso => Messages.NEWSR_PATH_NFS, SrRules.Kind.Iscsi => Messages.NEWSR_PATH_ISCSI, _ => Messages.NEWSR_PATH_CIFS
+                }
             };
             _stepList.Children.Clear();
             for (int i = 0; i < Steps.Length; i++)
@@ -132,7 +145,7 @@ namespace XenAdmin.Desktop
             _finish.IsVisible = _step == Steps.Length - 1;
             _finish.IsDefault = _finish.IsVisible;
             _next.IsDefault = !_finish.IsVisible;
-            _page.Content = _step switch { 0 => TypePage(), 1 => NamePage(), _ => LocationPage() };
+            _page.Content = _step switch { 0 => TypePage(), 1 => NamePage(), _ => _kind == SrRules.Kind.Iscsi ? IscsiPage() : LocationPage() };
             UpdateFinish();
         }
 
@@ -141,7 +154,12 @@ namespace XenAdmin.Desktop
             string err = _step switch
             {
                 1 when string.IsNullOrWhiteSpace(_name) => "Enter a name for the new SR.",
-                2 when !SrRules.ValidLocation(_kind, _path) => _kind == SrRules.Kind.Nfs ? "Enter the share as server:/path." : @"Enter the share as \\server\share.",
+                2 when _kind == SrRules.Kind.Iscsi && (_iqn == null || _lun == null) => "Scan the target host and select the target IQN and LUN.",
+                2 when _kind == SrRules.Kind.Iscsi && SrRules.LunInUse(_lun.Value) is SR used =>
+                    string.Format(Messages.NEWSR_LUN_IN_USE_ON_POOL, used.Name(), XenAdmin.Core.Helpers.GetName(used.Connection)),
+                2 when _kind == SrRules.Kind.Iscsi => null,
+                2 when !SrRules.ValidLocation(_kind, _path) => SrRules.IsNfsPath(_kind) ? "Enter the share as server:/path." : @"Enter the share as \\server\share.",
+                2 when SrRules.IsIso(_kind) => SrRules.IsoAlreadyAttached(_c, _kind, _path),
                 2 when _reattach && _existing == null => "Select the SR to reattach.",
                 2 when _existing != null && SrRules.InUse(_existing.UUID) != null => "This SR is already in use by " + XenAdmin.Core.Helpers.GetName(SrRules.InUse(_existing.UUID).Connection) + ".",
                 _ => null
@@ -152,7 +170,9 @@ namespace XenAdmin.Desktop
 
         private void UpdateFinish()
         {
-            _finish.IsEnabled = !_busy && SrRules.ValidLocation(_kind, _path) && (!_reattach || _existing != null);
+            _finish.IsEnabled = !_busy && (_kind == SrRules.Kind.Iscsi
+                ? _iqn != null && _lun != null
+                : SrRules.ValidLocation(_kind, _path) && (!_reattach || _existing != null));
             _next.IsEnabled = _prev.IsEnabled = !_busy;
             if (_step == 0) _prev.IsEnabled = false;
         }
@@ -184,7 +204,7 @@ namespace XenAdmin.Desktop
             var list = new StackPanel();
             list.Children.Add(Group("Virtual disk storage", 0));
             list.Children.Add(Group("Block based storage", 12));
-            list.Children.Add(Option(Messages.NEWSR_LVMOISCSI_TYPE_NAME, null));
+            list.Children.Add(Option(Messages.NEWSR_LVMOISCSI_TYPE_NAME, SrRules.Kind.Iscsi));
             list.Children.Add(Option(Messages.NEWSR_LVMOHBA_TYPE_NAME, null));
             list.Children.Add(Option(Messages.NEWSR_LVMOFCOE_TYPE_NAME, null));
             list.Children.Add(Group("File based storage", 12));
@@ -192,8 +212,8 @@ namespace XenAdmin.Desktop
             list.Children.Add(Option(SrRules.TypeName(SrRules.Kind.Smb), SrRules.Kind.Smb));
             list.Children.Add(Option("Local Storage", null));
             list.Children.Add(Group("ISO library", 0));
-            list.Children.Add(Option(Messages.NEWSR_CIFS_ISO_TYPE_NAME, null));
-            list.Children.Add(Option(Messages.NEWSR_NFS_ISO_TYPE_NAME, null));
+            list.Children.Add(Option(Messages.NEWSR_CIFS_ISO_TYPE_NAME, SrRules.Kind.SmbIso));
+            list.Children.Add(Option(Messages.NEWSR_NFS_ISO_TYPE_NAME, SrRules.Kind.NfsIso));
             var right = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
             right.Children.Add(typeName);
             right.Children.Add(blurb);
@@ -229,7 +249,8 @@ namespace XenAdmin.Desktop
 
         private Control LocationPage()
         {
-            var nfs = _kind == SrRules.Kind.Nfs;
+            var nfs = SrRules.IsNfsPath(_kind);
+            var iso = SrRules.IsIso(_kind); // ISO libraries are created only: no Scan, no reattach
             var path = new TextBox { Text = _path };
             var scan = new Button { Content = Dialogs.M("&Scan"), IsEnabled = SrRules.ValidLocation(_kind, _path) };
             var status = new TextBlock { Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center };
@@ -272,13 +293,16 @@ namespace XenAdmin.Desktop
                 fields.Children.Add(l); fields.Children.Add(field);
                 if (extra != null) { Grid.SetRow(extra, r); Grid.SetColumn(extra, 2); fields.Children.Add(extra); }
             }
+            scan.IsVisible = createNew.IsVisible = reattach.IsVisible = !iso;
             Row(0, "&Share Name:", path, scan);
             var example = new TextBlock { Text = nfs ? "Example: server:/path" : @"Example: \\server\share", Margin = new Thickness(0, -4, 0, 0) };
             fields.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             Grid.SetRow(example, 1); Grid.SetColumn(example, 1);
             fields.Children.Add(example);
             var p = new StackPanel { Spacing = 10 };
-            p.Children.Add(Text(nfs
+            p.Children.Add(Text(_kind == SrRules.Kind.NfsIso ? "Provide the name of the share where your NFS ISO storage is located."
+                : _kind == SrRules.Kind.SmbIso ? "Provide the name of the share where your SR is located. You can optionally specify alternative credentials by setting the server options."
+                : nfs
                 ? "Provide the name of the share where your SR is located, optionally specifying advanced options. Indicate whether you want to create a new SR or reattach an existing SR before proceeding."
                 : "Provide the name of the share where your SR is located, optionally specifying the credentials for it. Indicate whether you want to create a new SR or reattach an existing SR before proceeding."));
             p.Children.Add(fields);
@@ -289,12 +313,28 @@ namespace XenAdmin.Desktop
                 var versions = new StackPanel { Spacing = 6 };
                 foreach (var (text, value) in new[] { ("NFSv&3", ""), ("NFSv&4", "4"), ("NFSv4.&1", "4.1") })
                 {
+                    if (iso && value == "4.1") continue; // NFS_ISO offers 3 and 4
                     var r = new RadioButton { Content = Dialogs.M(text), GroupName = "nfsver", IsChecked = _nfsVersion == value };
                     r.IsCheckedChanged += (_, _) => { if (r.IsChecked == true) _nfsVersion = value; };
                     versions.Children.Add(r);
                 }
                 Row(2, "NFS Version:", versions);
-                Row(3, "Advanced &Options:", options);
+                if (!iso)
+                    Row(3, "Advanced &Options:", options);
+            }
+            else if (iso)
+            {
+                var other = new CheckBox { Content = Dialogs.M("Use &different user name"), IsChecked = _otherUser };
+                var user = new TextBox { Text = _user, IsEnabled = _otherUser };
+                var pass = new TextBox { Text = _password, PasswordChar = '•', IsEnabled = _otherUser };
+                other.IsCheckedChanged += (_, _) => { _otherUser = other.IsChecked == true; user.IsEnabled = pass.IsEnabled = _otherUser; };
+                user.TextChanged += (_, _) => _user = user.Text ?? "";
+                pass.TextChanged += (_, _) => _password = pass.Text ?? "";
+                fields.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                Grid.SetRow(other, 2); Grid.SetColumn(other, 1);
+                fields.Children.Add(other);
+                Row(3, "&Username:", user);
+                Row(4, "Pass&word:", pass);
             }
             else
             {
@@ -306,9 +346,12 @@ namespace XenAdmin.Desktop
                 Row(3, "&Password:", pass);
             }
             p.Children.Add(status);
-            p.Children.Add(createNew);
-            p.Children.Add(reattach);
-            p.Children.Add(new Border { BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Margin = new Thickness(22, 0, 0, 0), Child = existing });
+            if (!iso)
+            {
+                p.Children.Add(createNew);
+                p.Children.Add(reattach);
+                p.Children.Add(new Border { BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Margin = new Thickness(22, 0, 0, 0), Child = existing });
+            }
 
             scan.Click += async (_, _) =>
             {
@@ -333,6 +376,161 @@ namespace XenAdmin.Desktop
             return p;
         }
 
+        /// <summary>LVMoISCSI: target host and port, optional CHAP, Scan Target Host, then the target IQN and LUN.</summary>
+        private Control IscsiPage()
+        {
+            var host = new TextBox { Text = _iscsiHost };
+            var port = new TextBox { Text = _iscsiPort, Width = 60 };
+            var chap = new CheckBox { Content = Dialogs.M("Use &CHAP authentication"), IsChecked = _chap };
+            var user = new TextBox { Text = _chapUser, IsEnabled = _chap };
+            var pass = new TextBox { Text = _chapPassword, PasswordChar = '•', IsEnabled = _chap };
+            var scan = new Button { Content = Dialogs.M("&Scan Target Host") };
+            var iqns = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+            var luns = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+            var status = new TextBlock { Opacity = 0.8, TextWrapping = TextWrapping.Wrap };
+
+            var filling = false; // ItemsSource changes raise SelectionChanged: not a user's pick
+            void FillIqns()
+            {
+                filling = true;
+                iqns.ItemsSource = _iqns.Count == 0 ? null : new[] { Messages.SELECT_TARGET_IQN }.Concat(_iqns.Select(SrRules.IqnLabel)).ToList();
+                iqns.SelectedIndex = _iqn is IScsiIqnInfo i ? _iqns.IndexOf(i) + 1 : _iqns.Count > 0 ? 0 : -1;
+                iqns.IsEnabled = _iqns.Count > 0 && !_busy;
+                filling = false;
+            }
+            void FillLuns()
+            {
+                filling = true;
+                luns.ItemsSource = _luns.Count == 0 ? null : new[] { Messages.SELECT_TARGET_LUN }.Concat(_luns.Select(SrRules.LunLabel)).ToList();
+                luns.SelectedIndex = _lun is ISCSIInfo l ? _luns.FindIndex(x => x.ScsiID == l.ScsiID && x.LunID == l.LunID) + 1 : _luns.Count > 0 ? 0 : -1;
+                luns.IsEnabled = _luns.Count > 0 && !_busy;
+                filling = false;
+            }
+            // a changed target or CHAP setting invalidates what was scanned (ResetAll)
+            void Reset()
+            {
+                _scanGeneration++;
+                _iqns.Clear(); _luns.Clear(); _iqn = null; _lun = null;
+                FillIqns(); FillLuns();
+                scan.IsEnabled = !string.IsNullOrWhiteSpace(_iscsiHost) && ushort.TryParse(_iscsiPort, out _);
+                status.Text = "";
+                UpdateFinish();
+            }
+            host.TextChanged += (_, _) => { _iscsiHost = (host.Text ?? "").Trim(); Reset(); };
+            port.TextChanged += (_, _) => { _iscsiPort = (port.Text ?? "").Trim(); Reset(); };
+            chap.IsCheckedChanged += (_, _) => { _chap = chap.IsChecked == true; user.IsEnabled = pass.IsEnabled = _chap; Reset(); };
+            user.TextChanged += (_, _) => { _chapUser = user.Text ?? ""; Reset(); };
+            pass.TextChanged += (_, _) => { _chapPassword = pass.Text ?? ""; Reset(); };
+
+            scan.Click += async (_, _) =>
+            {
+                if (!ushort.TryParse(_iscsiPort, out var p)) return;
+                var generation = ++_scanGeneration;
+                scan.IsEnabled = false;
+                status.Text = string.Format(Messages.ACTION_ISCSI_IQN_SCANNING, _iscsiHost);
+                var action = SrRules.ScanIqns(_c, _iscsiHost, p, ChapUser, ChapPassword);
+                await Run(action);
+                if (generation != _scanGeneration) return; // the target changed meanwhile
+                scan.IsEnabled = true;
+                _iqns = action.Succeeded ? action.IQNs.Where(i => !string.IsNullOrEmpty(i.TargetIQN)).ToList() : new List<IScsiIqnInfo>();
+                _iqn = _iqns.Count == 1 ? _iqns[0] : null;
+                status.Text = !action.Succeeded ? SrRules.IscsiError(action) : _iqns.Count == 0 ? Messages.NEWSR_NO_IQNS_FOUND : "";
+                FillIqns();
+                if (_iqn != null) await ScanLuns();
+            };
+            async System.Threading.Tasks.Task ScanLuns()
+            {
+                _luns.Clear(); _lun = null; FillLuns();
+                if (!(_iqn is IScsiIqnInfo iqn)) { UpdateFinish(); return; }
+                var generation = _scanGeneration;
+                status.Text = string.Format(Messages.ACTION_ISCSI_LUN_SCANNING, iqn.IpAddress);
+                var action = SrRules.ScanLuns(_c, iqn, ChapUser, ChapPassword);
+                await Run(action);
+                if (generation != _scanGeneration || !Equals(_iqn, iqn)) return;
+                _luns = action.Succeeded ? action.LUNs.ToList() : new List<ISCSIInfo>();
+                _lun = _luns.Count == 1 ? _luns[0] : null;
+                status.Text = !action.Succeeded ? SrRules.IscsiError(action) : _luns.Count == 0 ? Messages.NEWSR_NO_LUNS_FOUND : "";
+                FillLuns();
+                UpdateFinish();
+            }
+            iqns.SelectionChanged += async (_, _) =>
+            {
+                if (filling) return;
+                var i = iqns.SelectedIndex - 1;
+                var pick = i >= 0 && i < _iqns.Count ? _iqns[i] : (IScsiIqnInfo?)null;
+                if (Equals(pick, _iqn)) return;
+                _iqn = pick;
+                await ScanLuns();
+            };
+            luns.SelectionChanged += (_, _) =>
+            {
+                if (filling) return;
+                var i = luns.SelectedIndex - 1;
+                _lun = i >= 0 && i < _luns.Count ? _luns[i] : null;
+                UpdateFinish();
+            };
+
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), RowSpacing = 8, ColumnSpacing = 8 };
+            void Row(int r, string label, Control field, int span = 1)
+            {
+                while (grid.RowDefinitions.Count <= r) grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                var l = new Label { Content = Dialogs.M(label), Target = field, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0) };
+                Grid.SetRow(l, r); Grid.SetRow(field, r); Grid.SetColumn(field, 1); Grid.SetColumnSpan(field, span);
+                grid.Children.Add(l); grid.Children.Add(field);
+            }
+            Row(0, "Target &host name/IP address:", host);
+            var colon = new TextBlock { Text = ":", VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(colon, 2); Grid.SetColumn(port, 3);
+            grid.Children.Add(colon); grid.Children.Add(port);
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            Grid.SetRow(chap, 1); Grid.SetColumnSpan(chap, 4);
+            grid.Children.Add(chap);
+            Row(2, "CHAP &username:", user, 3);
+            Row(3, "CHAP pass&word:", pass, 3);
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            scan.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetRow(scan, 4); Grid.SetColumn(scan, 1); Grid.SetColumnSpan(scan, 3);
+            grid.Children.Add(scan);
+            Row(5, "Target &IQN:", iqns, 3);
+            Row(6, "Target &LUN:", luns, 3);
+
+            var group = new StackPanel { Spacing = 4 };
+            group.Children.Add(new TextBlock { Text = "iSCSI target", FontWeight = FontWeight.SemiBold });
+            group.Children.Add(new Border { BorderBrush = Brush.Parse("#DCDCDC"), BorderThickness = new Thickness(1), Padding = new Thickness(10), Child = grid });
+            var p = new StackPanel { Spacing = 12 };
+            p.Children.Add(Text("Provide a target host for your iSCSI storage, indicating your target IQN and your target LUN before proceeding."));
+            p.Children.Add(group);
+            p.Children.Add(status);
+            scan.IsEnabled = !string.IsNullOrWhiteSpace(_iscsiHost);
+            FillIqns(); FillLuns();
+            host.AttachedToVisualTree += (_, _) => host.Focus();
+            return p;
+        }
+
+        /// <summary>LVMoISCSI.PageLeave: probe the LUN, then reattach the SR found on it or format (LVMoIsciWarningDialog).</summary>
+        private async System.Threading.Tasks.Task<(bool Go, string Uuid)> ProbeIscsiLun(Dictionary<string, string> dconf)
+        {
+            var probe = SrRules.Probe(_c, SrRules.Kind.Iscsi, dconf);
+            await Run(probe);
+            if (!probe.Succeeded)
+            {
+                _error.Text = SrRules.IscsiError(probe);
+                return (false, null);
+            }
+            var type = SR.GetFriendlyTypeName(SR.SRTypes.lvmoiscsi);
+            var warning = string.Format("To prevent data loss you must ensure that the LUN is not in use by any other system, including {0} hosts that are not connected to {1}.",
+                XenAdmin.Core.BrandManager.ProductBrand, XenAdmin.Core.BrandManager.BrandConsole);
+            var found = probe.SRs?.FirstOrDefault();
+            if (found == null)
+                return (await Dialogs.Confirm(this, Title, $"{Messages.LVMOHBA_WARNING_DIALOG_HEADER_NO_EXISTING_SRS}\n\n{string.Format(Messages.LVMOHBA_WARNING_DIALOG_FORMAT_INFO, type)}\n\n{warning}",
+                    Dialogs.M("&Format"), Messages.CANCEL, cancelIsDefault: true), null);
+            var choice = await Dialogs.Choose(this, Title,
+                $"{string.Format(Messages.LVMOHBA_WARNING_DIALOG_HEADER_FOUND_EXISTING_SR, type)}\n\n{found}\n\n" +
+                $"Reattach: {string.Format(Messages.LVMOHBA_WARNING_DIALOG_REATTACH_INFO, type)}\nFormat: {string.Format(Messages.LVMOHBA_WARNING_DIALOG_FORMAT_INFO, type)}\n\n{warning}",
+                "&Reattach", "&Format");
+            return choice switch { true => (true, found.UUID), false => (true, null), _ => (false, null) };
+        }
+
         private static System.Threading.Tasks.Task Run(AsyncAction action)
         {
             var done = new TaskCompletionSource();
@@ -343,6 +541,24 @@ namespace XenAdmin.Desktop
 
         private async System.Threading.Tasks.Task Finish()
         {
+            if (_kind == SrRules.Kind.Iscsi)
+            {
+                var dconf = SrRules.IscsiDeviceConfig(_iqn.Value, _lun.Value, ChapUser, ChapPassword);
+                _busy = true;
+                UpdateFinish();
+                var (go, existingUuid) = await ProbeIscsiLun(dconf);
+                _busy = false;
+                UpdateFinish();
+                if (go)
+                    await Submit(SrRules.Finish(_c, _kind, _name.Trim(), _autoDescription ? SrRules.IscsiDescription(_iqn.Value, _lun.Value) : _description, dconf, existingUuid), existingUuid);
+                return;
+            }
+            if (SrRules.IsIso(_kind))
+            {
+                var dconf = SrRules.IsoDeviceConfig(_kind, _path, _nfsVersion == "4", _otherUser ? _user : null, _otherUser ? _password : null);
+                await Submit(SrRules.Finish(_c, _kind, _name.Trim(), _autoDescription ? SrRules.AutoDescription(_kind, _path) : _description, dconf, null), null);
+                return;
+            }
             var uuid = _reattach ? _existing?.UUID : null;
             if (uuid != null && SrRules.InUse(uuid) != null)
                 return;
@@ -350,7 +566,12 @@ namespace XenAdmin.Desktop
             if (warning != null && !await Dialogs.Confirm(this, Title, warning, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION, cancelIsDefault: true))
                 return;
             var description = _autoDescription ? SrRules.AutoDescription(_kind, _path) : _description;
-            var action = SrRules.Finish(_c, _kind, _name.Trim(), description, SrRules.DeviceConfig(_kind, _path, _options, _nfsVersion, _user, _password), uuid);
+            await Submit(SrRules.Finish(_c, _kind, _name.Trim(), description, SrRules.DeviceConfig(_kind, _path, _options, _nfsVersion, _user, _password), uuid), uuid);
+        }
+
+        /// <summary>Runs the create/reattach/introduce action; the wizard closes only when it succeeds.</summary>
+        private async System.Threading.Tasks.Task Submit(AsyncAction action, string uuid)
+        {
             _busy = true;
             UpdateFinish();
             _error.Text = "";

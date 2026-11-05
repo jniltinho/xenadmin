@@ -10,7 +10,8 @@ Design and scope: [`openspec/changes/add-linux-desktop-app`](../openspec/changes
 - Live tree of pools, hosts, VMs and storage; General, Storage, Snapshots, Search and Console tabs.
 - VM power operations, New VM wizard, Copy and Delete VM, snapshots, disks and DVD, Properties
   (General, CPU, Boot Options).
-- Pools and storage: New Pool, New Storage Repository for NFS and SMB (create, reattach, introduce), live migration
+- Pools and storage: New Pool, New Storage Repository for NFS, SMB and iSCSI (create, reattach, introduce) and NFS/SMB
+  ISO libraries, live migration
   between the servers of a pool (VM > Migrate to Server, with the reason a server cannot take the VM).
 - Servers: Shut Down, Reboot and Enter/Exit Maintenance Mode (evacuates the VMs and offers to bring them back).
 - Performance tab: the default graphs of hosts and VMs (CPU, memory, network, disk), zoom from 10 minutes to 1 year,

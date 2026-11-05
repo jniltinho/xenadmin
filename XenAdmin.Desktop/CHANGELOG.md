@@ -28,6 +28,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   built in the Linux container and attached to the releases.
 - Windows: the same Avalonia app for Windows 10/11 x64 as one `xcp-ng-center.exe` (`make windows`,
   `xcp-ng-center-<ver>-win-x64.zip`), next to the WinForms XCP-ng Center.
+- New Storage Repository: iSCSI (target host, CHAP, Scan Target Host, target IQN and LUN; Format, or Reattach the SR
+  found on the LUN) and the NFS ISO and SMB ISO libraries.
+- Lab: an iSCSI target (tgt) next to the NFS and SMB servers (`lab.sh storage-up`).
 - Nested XCP-ng lab in VirtualBox (`tools/vagrant/xcp-ng-lab`) for pool and write tests.
 
 ### Changed

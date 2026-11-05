@@ -7,6 +7,7 @@
 #                                        # but no VirtualBox VM may be running at the same time
 #   ./lab.sh status | halt | start | destroy
 #   XCP_LAB_PASS=... ./lab.sh storage-up    # NFS nfs://192.168.56.1/export and SMB //192.168.56.1/sr (user xcp)
+#                                        # and iSCSI iqn.2026-11.org.xcp-ng.lab:sr (kvm: 10.77.58.20, vbox: 192.168.56.1)
 #   ./lab.sh storage-down
 #   XCP_LAB_PASS=... ./lab.sh guest-kernel  # Alpine PV kernel in dom0 /var/lib/xcp/guest (nested HVM has no NPT here)
 set -euo pipefail
@@ -123,16 +124,19 @@ case "${BACKEND}:${1:-}" in
   *:storage-up)
     : "${XCP_LAB_PASS:?set XCP_LAB_PASS (also the SMB password of user xcp)}"
     docker build -q -t xcp-lab-storage storage >/dev/null
-    mkdir -p "$WORK/nfs" "$WORK/smb"
-    docker rm -f xcp-lab-nfs xcp-lab-smb >/dev/null 2>&1 || true
+    mkdir -p "$WORK/nfs" "$WORK/smb" "$WORK/iscsi"
+    docker rm -f xcp-lab-nfs xcp-lab-smb xcp-lab-iscsi >/dev/null 2>&1 || true
     # published on the host-only address only; ganesha needs privileges for its VFS file handles
     docker run -d --name xcp-lab-nfs --privileged -v "$WORK/nfs":/export \
       $(for p in 111 2049 20048 32803 875; do printf -- '-p %s:%s:%s/tcp -p %s:%s:%s/udp ' $GW $p $p $GW $p $p; done) \
       xcp-lab-storage nfs >/dev/null
     docker run -d --name xcp-lab-smb -e SMB_PASS="$XCP_LAB_PASS" -v "$WORK/smb":/share -p "$GW":445:445 \
       xcp-lab-storage smb >/dev/null
-    echo "NFS $GW:/export  SMB //$GW/sr (user xcp)" ;;
-  *:storage-down) docker rm -f xcp-lab-nfs xcp-lab-smb >/dev/null 2>&1 || true ;;
+    # the target announces the address it was reached on, so on KVM it joins the lab network itself
+    if [ "$BACKEND" = kvm ]; then ISCSI=$PREFIX.20; net=(--network "$KVM_NET" --ip "$ISCSI"); else ISCSI=$GW; net=(-p "$GW":3260:3260); fi
+    docker run -d --name xcp-lab-iscsi "${net[@]}" -v "$WORK/iscsi":/lun xcp-lab-storage iscsi >/dev/null
+    echo "NFS $GW:/export  SMB //$GW/sr (user xcp)  iSCSI $ISCSI:3260" ;;
+  *:storage-down) docker rm -f xcp-lab-nfs xcp-lab-smb xcp-lab-iscsi >/dev/null 2>&1 || true ;;
   *:guest-kernel)
     : "${XCP_LAB_PASS:?set XCP_LAB_PASS}"
     command -v sshpass >/dev/null || { echo "sshpass is required" >&2; exit 1; }
