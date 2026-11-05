@@ -317,6 +317,16 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void BondRulesWithoutServer()
+        {
+            Assert.IsFalse(BondRules.ValidSelection(1, 4), "a bond needs two NICs");
+            Assert.IsTrue(BondRules.ValidSelection(2, 4));
+            Assert.IsFalse(BondRules.ValidSelection(5, 4), "no more than the pool's limit");
+            Assert.AreEqual(9000, BondRules.MaxMtu(new[] { new PIF { MTU = 9000 }, new PIF { MTU = 9216 } }), "the smallest member MTU");
+            Assert.AreEqual(9216, BondRules.MaxMtu(new PIF[0]));
+        }
+
+        [TestMethod]
         public void AlertDateFilterAndCsv()
         {
             var now = new DateTime(2026, 11, 5, 14, 30, 0);

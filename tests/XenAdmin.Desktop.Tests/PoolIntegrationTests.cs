@@ -112,6 +112,45 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>
+        /// Bonded network on the lab pool (New Network wizard / Create Bond): eth1 + eth2 (lab.sh gives every host two
+        /// spare NICs on an isolated bridge) bond on both hosts, the bond network can be removed with Delete Bond.
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void BondOnLabPool()
+        {
+            var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (lab == null || lab.Length < 1 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_LAB_HOSTS and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(lab[0]);
+            try
+            {
+                var pool = Helpers.GetPool(c);
+                if (pool == null)
+                    Assert.Inconclusive("needs the lab pool");
+                var members = BondRules.Candidates(pool).Where(p => p.device == "eth1" || p.device == "eth2").ToList();
+                if (members.Count != 2)
+                    Assert.Inconclusive("the lab hosts need eth1 and eth2 (lab.sh start after the kvm/run.sh update)");
+                Assert.IsTrue(members.All(p => BondRules.InBond(p) == ""), "free NICs");
+                Assert.IsTrue(BondRules.ValidSelection(members.Count, BondRules.SizeLimit(c)));
+                Assert.IsNull(BondRules.CreateWarning(c, members), "spare NICs carry no management interface");
+                var name = BondRules.BondName(members);
+                Run(new CreateBondAction(c, name, members, false, 1500, bond_mode.active_backup, Bond.hashing_algoritm.unknown), 5);
+                Until(() => c.Cache.Bonds.Length == c.Cache.Hosts.Length, 120, "a bond on every host");
+                var network = NetworkRules.HostNetworks(c).Single(n => n.IsBond());
+                Assert.IsTrue(c.Cache.Bonds.All(b => b.mode == bond_mode.active_backup));
+                Assert.IsTrue(NetworkRules.CanRemoveNetwork(pool, network).Enabled, "a bond network is removed with Delete Bond");
+                var warning = BondRules.DeleteWarning(network);
+                Assert.IsFalse(warning.Block);
+                Run(new DestroyBondAction(BondRules.BondOf(network)), 5);
+                Until(() => c.Cache.Bonds.Length == 0, 120, "bonds gone");
+            }
+            finally
+            {
+                c.EndConnect();
+            }
+        }
+
         private static void CreateAndRemoveVlan(IXenConnection c, IXenObject owner, int vlan, int hosts)
         {
             var nic = NetworkRules.WizardNics(NetworkRules.WizardHost(owner)).First();

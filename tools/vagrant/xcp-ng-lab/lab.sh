@@ -94,7 +94,15 @@ kvm_up() { # the hosts run in one privileged container on the Docker network
 
 case "${BACKEND}:${1:-}" in
   kvm:start) kvm_up ;;
-  kvm:halt) docker rm -f xcp-lab-kvm >/dev/null 2>&1 || true ;;   # shortcut: hard stop; the hosts recover on the next start
+  kvm:halt)
+    # a hard stop corrupts the hosts (the disks use cache=unsafe): shut dom0 down first, then drop the container
+    : "${XCP_LAB_PASS:?set XCP_LAB_PASS}"
+    for n in "${HOSTS[@]}"; do
+      SSHPASS=$XCP_LAB_PASS sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+        "root@$(ip_of "$n")" 'shutdown -h now' 2>/dev/null || true
+    done
+    for _ in $(seq 36); do docker exec xcp-lab-kvm pgrep qemu-system >/dev/null 2>&1 || break; sleep 5; done
+    docker rm -f xcp-lab-kvm >/dev/null 2>&1 || true ;;
   kvm:status) docker ps --filter name=xcp-lab-kvm --format '{{.Names}} {{.Status}}'; for n in "${HOSTS[@]}"; do curl -sk -o /dev/null -w "$(vm_of "$n") $(ip_of "$n") HTTPS %{http_code}\n" --max-time 3 "https://$(ip_of "$n")/" || true; done ;;
   kvm:destroy) docker rm -f xcp-lab-kvm >/dev/null 2>&1 || true; rm -f "$WORK"/xcp-lab-kvm-* ;;
   *:up)

@@ -13,7 +13,7 @@ namespace XenAdmin.Desktop
     /// </summary>
     public abstract class WizardWindow : Window
     {
-        private readonly string[] _steps;
+        private string[] _steps;
         private readonly StackPanel _stepList = new StackPanel();
         private readonly TextBlock _title = new TextBlock { FontWeight = FontWeight.Bold, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
         private readonly ContentControl _page = new ContentControl();
@@ -96,6 +96,9 @@ namespace XenAdmin.Desktop
 
         /// <summary>Shows an error under the page (e.g. from Finish).</summary>
         protected void ShowError(string text) => _error.Text = text ?? "";
+
+        /// <summary>Changes the step list (a choice on one page adds or removes later pages, as UpdateWizardContent).</summary>
+        protected void SetSteps(params string[] steps) => _steps = steps;
 
         protected void Go(int step)
         {

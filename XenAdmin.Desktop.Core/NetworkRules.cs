@@ -171,15 +171,15 @@ namespace XenAdmin.Desktop
             n != null && !owner.Locked && !n.Locked && !n.IsMember() && !n.CreateInProgress() && !n.IsGuestInstallerNetwork();
 
         /// <summary>
-        /// Remove Network, with its tooltip when disabled: a network on a physical NIC cannot be removed; deleting a bond
-        /// (DestroyBondCommand and its management-interface checks) is not ported yet.
+        /// Remove Network, with its tooltip when disabled: a network on a physical NIC cannot be removed; a bond network
+        /// is removed by deleting the bond (DestroyBondCommand, BondRules).
         /// </summary>
         public static (bool Enabled, string Tooltip) CanRemoveNetwork(IXenObject owner, XenAPI.Network n)
         {
             if (n != null && n.Connection.ResolveAll(n.PIFs).Any(p => p.IsPhysical() && !p.IsBondNIC()))
                 return (false, Messages.TOOLTIP_REMOVE_PIF);
             if (n != null && n.IsBond())
-                return (false, "Deleting a bond is not available in this version yet.");
+                return (!owner.Locked && BondRules.CanDelete(n), null);
             return (CanEditNetwork(owner, n), null);
         }
 

@@ -14,16 +14,18 @@ namespace XenAdmin.Desktop
 {
     /// <summary>
     /// NewNetworkWizard: Select Type, Details (NetWName), Interface (NetWDetails) for External and Single-Server Private
-    /// networks, created with NetworkAction as the WinForms wizard does. Bonded and SR-IOV networks are listed disabled
-    /// until ported; Cross-Server Private networks are gone since Stockholm (XenServer 8 removed the vSwitch Controller).
+    /// networks (NetworkAction), or Select Type, Bond Members (NetWBondDetails) for a bond (CreateBondAction), as the
+    /// WinForms wizard does. SR-IOV networks are listed disabled until ported; Cross-Server Private networks are gone since Stockholm (XenServer 8 removed the vSwitch Controller).
     /// </summary>
     public class NewNetworkWizard : WizardWindow
     {
         private readonly IXenConnection _c;
         private readonly Host _host;
         private readonly Action<AsyncAction> _run;
+        private readonly IXenObject _owner;
 
-        private bool _external = true;
+        private bool _external = true, _bonded;
+        private BondEditor _bond;
         private bool? _nameFor;
         private string _name = "", _description = "";
         private PIF _nic;
@@ -34,6 +36,7 @@ namespace XenAdmin.Desktop
             : base(string.Format(Messages.NEWNETWORKWIZARD_TITLE, XenAdmin.Core.Helpers.GetName(hostOrPool.Connection)), "000_NewNetwork_h32bit_32",
                 "Select Type", "Details", "Interface")
         {
+            _owner = hostOrPool;
             _c = hostOrPool.Connection;
             _host = NetworkRules.WizardHost(hostOrPool);
             _run = run;
@@ -42,6 +45,7 @@ namespace XenAdmin.Desktop
         protected override string PageTitle(int step) => step switch
         {
             0 => Messages.NETW_TYPE_SELECT_TITLE,
+            1 when _bonded => Messages.NETW_BOND_DETAILS_TITLE,
             1 => Messages.NETW_NAME_TITLE,
             _ => _external ? Messages.NETW_EXTERNAL_DETAILS_TITLE : Messages.NETW_INTERNAL_DETAILS_TITLE
         };
@@ -53,11 +57,21 @@ namespace XenAdmin.Desktop
                 _name = NetworkRules.DefaultNetworkName(_c, _external);
                 _nameFor = _external;
             }
+            if (step == 1 && _bonded)
+            {
+                // NetWBondDetails: the BondDetails control is the whole page
+                _bond = new BondEditor(_owner);
+                _bond.Changed += () => FinishButton.IsEnabled = _bond.IsValid;
+                FinishButton.IsEnabled = _bond.IsValid;
+                return _bond;
+            }
             return step switch { 0 => TypePage(), 1 => NamePage(), _ => InterfacePage() };
         }
 
         protected override string Validate(int step)
         {
+            if (step == 1 && _bonded)
+                return _bond != null && _bond.IsValid ? null : "Select two or more NICs that are not already bonded.";
             if (step == 1 && string.IsNullOrWhiteSpace(_name))
                 return "Enter a name for the new network.";
             if (step == 2 && _external)
@@ -74,15 +88,23 @@ namespace XenAdmin.Desktop
             return null;
         }
 
-        protected override Task Finish()
+        protected override async Task Finish()
         {
+            if (_bonded)
+            {
+                if (await _bond.CreateAction(this) is AsyncAction bond)
+                {
+                    _run(bond);
+                    Close();
+                }
+                return;
+            }
             int? mtu = _external && int.TryParse(_mtu.Trim(), out var m) ? m : null;
             var network = NetworkRules.NewNetwork(_name, _description, _autoPlug, mtu);
             _run(_external
                 ? new NetworkAction(_c, network, _nic, int.Parse(_vlan.Trim()))
                 : new NetworkAction(_c, network, true));
             Close();
-            return Task.CompletedTask;
         }
 
         // ---------- pages ----------
@@ -104,10 +126,16 @@ namespace XenAdmin.Desktop
                     panel.Children.Add(new TextBlock { Text = reason, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(22, 2, 0, 0), Foreground = Brushes.DarkGoldenrod });
                 return rb;
             }
-            Option("&External Network", "Create a network that passes traffic over one of your VLANs.", true, _external, () => _external = true);
-            Option("&Single-Server Private Network", "Create a network that does not leave each server. This can be used as a private connection between VMs on the same host.", true, !_external, () => _external = false);
-            Option("&Bonded Network", "Create a network that bonds together two or more of your NICs. This will create a single higher performing channel.", false, false, () => { },
-                "Not available in this version yet.");
+            // UpdateWizardContent: a bond has one more page (Bond Members) instead of Details and Interface
+            void Pick(bool external, bool bonded)
+            {
+                _external = external;
+                _bonded = bonded;
+                SetSteps(bonded ? new[] { "Select Type", Messages.NETW_BOND_DETAILS_TEXT } : new[] { "Select Type", "Details", "Interface" });
+            }
+            Option("&External Network", "Create a network that passes traffic over one of your VLANs.", true, _external && !_bonded, () => Pick(true, false));
+            Option("&Single-Server Private Network", "Create a network that does not leave each server. This can be used as a private connection between VMs on the same host.", true, !_external && !_bonded, () => Pick(false, false));
+            Option("&Bonded Network", "Create a network that bonds together two or more of your NICs. This will create a single higher performing channel.", true, _bonded, () => Pick(false, true));
             if (XenAdmin.Core.Helpers.KolkataOrGreater(_c))
                 Option("S&R-IOV Network", "Enable SR-IOV on a NIC and create an SR-IOV network on that NIC.", false, false, () => { },
                     "Not available in this version yet.");

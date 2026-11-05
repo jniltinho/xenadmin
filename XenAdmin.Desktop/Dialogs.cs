@@ -475,6 +475,44 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        /// <summary>DestroyBondCommand: the warning for the management interfaces (or the HA error), then DestroyBondAction.</summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> DeleteBond(Window owner, XenAPI.Network network)
+        {
+            if (!BondRules.CanDelete(network)) return null;
+            var w = BondRules.DeleteWarning(network);
+            if (w.Block)
+            {
+                await Info(owner, w.Title, w.Text);
+                return null;
+            }
+            if (!await Confirm(owner, w.Title, w.Text, w.OkText, Messages.CANCEL))
+                return null;
+            // DestroyBondCommand: the bond may have gone while the confirmation was open
+            return BondRules.BondOf(network) is XenAPI.Bond bond ? new XenAdmin.Actions.DestroyBondAction(bond) : null;
+        }
+
+        /// <summary>BondProperties (Create Bond from the NICs tab): the BondDetails control in a dialog.</summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> CreateBond(Window owner, XenAPI.Host host)
+        {
+            var editor = new BondEditor(host);
+            var create = new Button { Content = M("&Create"), IsDefault = true, IsEnabled = editor.IsValid };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            editor.Changed += () => create.IsEnabled = editor.IsValid;
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(editor);
+            panel.Children.Add(Buttons(create, cancel));
+            var w = Frame(Messages.BOND_CREATE, panel, 620);
+            XenAdmin.Actions.AsyncAction result = null;
+            create.Click += async (_, _) =>
+            {
+                result = await editor.CreateAction(w);
+                if (result != null) w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>NewDiskDialog ("Add Virtual Disk"): CreateDiskAction + VbdCreateAndPlugAction, as the original.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.VM vm) => await NewDisk(owner, vm, null);
 

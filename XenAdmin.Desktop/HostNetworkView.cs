@@ -89,6 +89,12 @@ namespace XenAdmin.Desktop
         {
             var n = Selected;
             if (!NetworkRules.CanRemoveNetwork(_owner, n).Enabled) return;
+            if (n.IsBond())
+            {
+                // NetworkList: removing a bond network is DestroyBondCommand
+                if (await Dialogs.DeleteBond(Owner, n) is AsyncAction destroy) _run(destroy);
+                return;
+            }
             if (await Dialogs.Confirm(Owner, Messages.MESSAGEBOX_NETWORK_DELETE_TITLE, Messages.MESSAGEBOX_NETWORK_DELETE, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
                 _run(new NetworkAction(n.Connection, n, false));
         }
