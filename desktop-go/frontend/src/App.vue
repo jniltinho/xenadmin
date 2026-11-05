@@ -11,9 +11,11 @@ import PropertiesDialog from "./PropertiesDialog.vue";
 import PerformanceView from "./PerformanceView.vue";
 import NewVmWizard from "./NewVmWizard.vue";
 import NewSrWizard from "./NewSrWizard.vue";
+import MenuList, { type MenuItem } from "./MenuList.vue";
+import CopyVmDialog from "./CopyVmDialog.vue";
+import DeleteVmDialog from "./DeleteVmDialog.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
-interface MenuItem { label: string; icon?: string; enabled?: boolean; run?: () => void; sep?: boolean }
 
 const servers = ref<ServerRow[]>([]);
 const data = reactive<Record<string, Record<string, XenObject[]>>>({});
@@ -380,6 +382,20 @@ async function newSrClosed(uuid: string) {
   if (uuid) { await load(key); reselect(`${key}/${uuid}`); }
 }
 
+// the Copy VM and Delete VM dialogs
+const copyOf = ref<Node | null>(null);
+const deleteOf = ref<Node | null>(null);
+async function copyClosed(uuid: string) {
+  const n = copyOf.value;
+  copyOf.value = null;
+  if (uuid && n?.server) { await load(n.server); reselect(`${n.server}/${uuid}`); }
+}
+async function deleteClosed(deleted: boolean) {
+  const n = deleteOf.value;
+  deleteOf.value = null;
+  if (deleted && n?.server) { await load(n.server); reselect(n.server); }
+}
+
 // the Properties dialog of a VM
 const propsOf = ref<Node | null>(null);
 async function propertiesClosed(saved: boolean) {
@@ -392,8 +408,34 @@ const soon = "Not available in this version yet";
 const hostItems = (n: Node | null): MenuItem[] => hostCommands.map((c) => ({ label: c.label, icon: `${c.icon}_h32bit_16`, enabled: hostCanRun(c, n), run: () => runHost(c, n) }));
 const srItems = (n: Node | null): MenuItem[] => srCommands.flatMap((c, i) => [...(i === 2 ? [{ label: "", sep: true }] : []),
   { label: c.label, icon: c.icon, enabled: !!n?.object?.allowed?.includes(c.op), run: () => runSr(c.op, c.label, n) }]);
+// CopyVMCommand: a shut down VM that can be cloned or copied; DeleteVMCommand: destroy allowed
+const canCopy = (n: Node | null) => n?.object?.power_state === "Halted" && !!n.object.allowed?.some((a) => a === "clone" || a === "copy");
+// Resume on, Migrate to and Start on Server (VMOperationHostCommand): a submenu of the servers, the home server first
+const hostOps = [{ op: "resume_on", label: "Resume on Server", busy: "Resuming" }, { op: "migrate", label: "Migrate to Server", busy: "Migrating" },
+  { op: "start_on", label: "Start on Server", busy: "Starting" }];
+async function runOnHost(n: Node, op: (typeof hostOps)[number], host: string, hostName: string) {
+  closeMenus();
+  if (!n.server || !n.object) return;
+  status.value = `${op.busy} VM '${n.label}' on '${hostName}'...`;
+  let error = "";
+  try { await api.vmOnHost(n.server, n.object.uuid, host, op.op); } catch (e) { error = `${op.label} '${n.label}': ${String(e)}`; }
+  await load(n.server);
+  if (error) failure.value = error; else status.value = "Ready";
+  reselect(n.id);
+}
+const onHostItems = (n: Node | null): MenuItem[] => hostOps.map((o) => ({
+  label: o.label, enabled: !!n?.object?.allowed?.includes(o.op === "migrate" ? "pool_migrate" : o.op),
+  sub: async () => (await api.vmTargets(n!.server!, n!.object!.uuid)).flatMap((t, i) => [
+    { label: t.text, icon: t.home ? "000_ServerHome_h32bit_16" : "000_TreeConnected_h32bit_16", enabled: t.enabled, run: () => runOnHost(n!, o, t.uuid, t.text) },
+    ...(i === 0 ? [{ label: "", sep: true }] : [])]),
+}));
 const vmItems = (n: Node | null): MenuItem[] => [
   ...vmCommands.map((c) => ({ label: c.label, icon: `${c.menuIcon ?? c.icon}_h32bit_16`, enabled: canRun(c, n), run: () => runVm(c, n) })),
+  ...onHostItems(n),
+  { label: "", sep: true },
+  { label: "Copy VM...", enabled: canCopy(n), run: () => { closeMenus(); copyOf.value = n; } },
+  { label: "", sep: true },
+  { label: "Delete VM...", enabled: !!n?.object?.allowed?.includes("destroy"), run: () => { closeMenus(); deleteOf.value = n; } },
   { label: "", sep: true },
   { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!n?.object, run: () => { closeMenus(); propsOf.value = n; } },
 ];
@@ -489,15 +531,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <span v-for="m in menus" :key="m.label" class="relative cursor-default px-2 py-0.5"
             :class="openMenu === m.label ? 'bg-neutral-200' : 'hover:bg-neutral-200'"
             @click.stop="openMenu = openMenu === m.label ? '' : m.label" @mouseenter="openMenu && (openMenu = m.label)">{{ m.label }}
-        <div v-if="openMenu === m.label" class="absolute left-0 top-full z-20 min-w-56 border border-neutral-400 bg-white py-1 shadow" @click.stop>
-          <template v-for="(it, i) in m.items" :key="i">
-            <div v-if="it.sep" class="my-1 border-t border-line"></div>
-            <div v-else class="flex items-center gap-2 whitespace-nowrap px-2 py-0.5" :title="it.enabled ? '' : soon"
-                 :class="it.enabled ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click="it.enabled && it.run?.()">
-              <img v-if="it.icon" :src="`/icons/${it.icon}.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !it.enabled }" /><span v-else class="w-4"></span>{{ it.label }}
-            </div>
-          </template>
-        </div>
+        <MenuList v-if="openMenu === m.label" class="absolute left-0 top-full z-20" :items="m.items" :hint="soon" />
       </span>
     </nav>
     <!-- the toolbar (MainWindow): Back, Forward | Add New Server | New Pool, New Storage, New VM | the power buttons -->
@@ -635,16 +669,11 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <span>{{ status }}</span><span v-if="failure" class="text-red-700">{{ failure }}</span>
     </footer>
 
-    <div v-if="menu" class="fixed z-20 min-w-56 border border-neutral-400 bg-white py-1 shadow" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @click.stop>
-      <template v-for="(it, i) in menu.items" :key="i">
-        <div v-if="it.sep" class="my-1 border-t border-line"></div>
-        <div v-else class="flex items-center gap-2 whitespace-nowrap px-2 py-0.5" :class="it.enabled ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click="it.enabled && it.run?.()">
-          <img v-if="it.icon" :src="`/icons/${it.icon}.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !it.enabled }" /><span v-else class="w-4"></span>{{ it.label }}
-        </div>
-      </template>
-    </div>
+    <MenuList v-if="menu" class="fixed z-20" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" :items="menu.items" />
 
     <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />
+    <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
+    <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />
     <NewSrWizard v-if="newSrOn" :server="newSrOn" :pool="poolLabel(newSrOn)" @close="newSrClosed" />
     <PropertiesDialog v-if="propsOf?.object && propsOf.server" :server="propsOf.server" :vm="propsOf.object.uuid" @close="propertiesClosed" />
     <div v-if="ask" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">

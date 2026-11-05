@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- VM menu and context menu: Copy VM (fast clone or full copy to an SR, CopyVMDialog), Delete VM (the disks only it
+  uses and its snapshots, ConfirmVMDeleteDialog / VMDestroyAction, every choice checked again on the server) and the
+  Resume on, Migrate to and Start on Server submenus (the home server first, each server with the reason it cannot
+  take the VM, from VM.assert_can_boot_here; a live VM.pool_migrate).
+- XAPI failures read as in the Windows app (FriendlyErrorNames: "Cannot see required storage", not the code).
 - New Storage wizard (Type, Name, Location) for NFS and SMB storage and the NFS and SMB ISO libraries, as
   SrCreateAction: the password in a secret only for SR.create, an unplugged PBD plugged or the SR forgotten, the
   pool's first shared SR made its default. Scan finds the SRs already on an NFS or SMB share and reattaches one

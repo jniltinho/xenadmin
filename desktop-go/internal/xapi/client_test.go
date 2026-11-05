@@ -100,7 +100,7 @@ func TestConnectTrustAndLogin(t *testing.T) {
 
 	// a wrong password: a typed XAPI failure, without the password or the session reference in the text
 	_, err = Connect(context.Background(), p, host, port, "bad", "s3cret")
-	if err == nil || !strings.Contains(err.Error(), "SESSION_AUTHENTICATION_FAILED") || strings.Contains(err.Error(), "s3cret") {
+	if err == nil || !strings.Contains(err.Error(), "Could not authenticate session") || strings.Contains(err.Error(), "s3cret") {
 		t.Fatalf("login failure: %v", err)
 	}
 

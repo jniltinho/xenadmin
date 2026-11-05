@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"go/xenapi"
 
+	"xcpng-center/internal/messages"
 	"xcpng-center/internal/trust"
 )
 
@@ -126,7 +128,14 @@ func Sanitize(err error, secrets ...string) error {
 	if err == nil {
 		return nil
 	}
-	return &sanitized{msg: Redact(err.Error(), secrets...), err: err}
+	msg := err.Error()
+	var apiErr *xenapi.APIError
+	if errors.As(err, &apiErr) && apiErr.Message != "" {
+		// a XAPI failure reads as in the C# app (FriendlyErrorNames); a wrapping error keeps its own words around it
+		text, _ := messages.FailureText(apiErr.Message, apiErr.Data)
+		msg = strings.Replace(msg, apiErr.Error(), text, 1)
+	}
+	return &sanitized{msg: Redact(msg, secrets...), err: err}
 }
 
 type sanitized struct {

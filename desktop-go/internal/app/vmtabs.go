@@ -215,8 +215,9 @@ type NewDisk struct {
 
 // SRUse is one SR of the picker.
 type SRUse struct {
-	UUID string `json:"uuid"`
-	Text string `json:"text"` // "name   10.0 GB free of 20.0 GB"
+	UUID   string `json:"uuid"`
+	Text   string `json:"text"`             // "name   10.0 GB free of 20.0 GB"
+	Reason string `json:"reason,omitempty"` // why it cannot be picked (SrPickerItem.CanBeEnabled), shown greyed
 }
 
 // NewDiskOptions is NewDiskDialog's defaults and StorageRules.NewDiskTargets for the VM's home server.

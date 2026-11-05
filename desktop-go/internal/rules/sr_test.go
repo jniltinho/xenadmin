@@ -72,3 +72,12 @@ func TestMultipathDown(t *testing.T) {
 		t.Error("path counts")
 	}
 }
+
+func TestCompareVersions(t *testing.T) {
+	if CompareVersions("8.3.0", "8.10") != -1 || CompareVersions("8.3", "8.3.0") != 0 || CompareVersions("9", "8.3") != 1 {
+		t.Error("versions")
+	}
+	if TargetText("h", "Current server") != "h (Current server)" || TargetText("h", "") != "h" {
+		t.Error("target text")
+	}
+}

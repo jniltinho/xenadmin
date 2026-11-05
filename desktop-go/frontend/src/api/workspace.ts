@@ -31,6 +31,9 @@ export interface NewVMDefaults { name: string; description: string; hvm: boolean
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
 export interface NewSRKind { kind: string; name: string; blurb: string; default_name: string; iso: boolean }
+export interface DeleteItem { uuid: string; name: string; size?: number; checked: boolean }
+export interface VMDelete { title: string; text: string; disks: DeleteItem[]; snapshots: DeleteItem[] }
+export interface VMCopy { name: string; description: string; clone: boolean; copy: boolean; srs: { uuid: string; text: string; reason?: string }[]; default_sr: string }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
 
 export const api = {
@@ -73,6 +76,12 @@ export const api = {
   checkSrLocation: (key: string, kind: string, path: string) => call<string>("CheckSRLocation", key, kind, path),
   createSr: (key: string, spec: Record<string, unknown>) => call<string>("CreateSR", key, spec),
   probeSr: (key: string, spec: Record<string, unknown>) => call<{ uuid: string; in_use?: string }[] | null>("ProbeSR", key, spec),
+  vmDeleteChoices: (key: string, uuid: string) => call<VMDelete>("VMDeleteChoices", key, uuid),
+  deleteVm: (key: string, uuid: string, vbds: string[], snapshots: string[]) => call<void>("DeleteVM", key, uuid, vbds, snapshots),
+  vmCopyChoices: (key: string, uuid: string) => call<VMCopy>("VMCopyChoices", key, uuid),
+  copyVm: (key: string, uuid: string, name: string, description: string, full: boolean, sr: string) => call<string>("CopyVM", key, uuid, name, description, full, sr),
+  vmTargets: (key: string, uuid: string) => call<{ uuid: string; text: string; enabled: boolean; home?: boolean }[]>("VMTargets", key, uuid),
+  vmOnHost: (key: string, uuid: string, host: string, op: string) => call<void>("VMOnHost", key, uuid, host, op),
   srQuestion: (command: string, name: string) => call<HostQuestion>("SRQuestion", command, name),
   srCommand: (key: string, uuid: string, command: string) => call<void>("SRCommand", key, uuid, command),
   srAttachWarning: (kind: string, uuid: string) => call<string>("SRAttachWarning", kind, uuid),

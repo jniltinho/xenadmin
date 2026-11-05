@@ -567,3 +567,40 @@ func (w *Workspace) SRQuestion(command, name string) HostQuestion {
 func (w *Workspace) SRCommand(key, uuid, command string) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.SRCommand(c, uuid, command) })
 }
+
+// VMDeleteChoices fills the Delete VM dialog.
+func (w *Workspace) VMDeleteChoices(key, uuid string) (out app.VMDelete, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadVMDelete(c, uuid); return err })
+	return out, err
+}
+
+// DeleteVM deletes the VM with the disks (VBD uuids) and snapshots chosen in the dialog.
+func (w *Workspace) DeleteVM(key, uuid string, vbds, snapshots []string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.DeleteVM(c, uuid, vbds, snapshots) })
+}
+
+// VMCopyChoices fills the Copy VM dialog.
+func (w *Workspace) VMCopyChoices(key, uuid string) (out app.VMCopy, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadVMCopy(c, uuid); return err })
+	return out, err
+}
+
+// CopyVM clones (or, with full, copies to the SR) a shut down VM and returns the copy's uuid.
+func (w *Workspace) CopyVM(key, uuid, name, description string, full bool, sr string) (out string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		out, err = ops.CopyVM(c, uuid, name, description, full, sr)
+		return err
+	})
+	return out, err
+}
+
+// VMTargets are the servers of the Migrate/Start/Resume on Server submenus, the home server first.
+func (w *Workspace) VMTargets(key, uuid string) (out []app.Target, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadTargets(c, uuid); return err })
+	return out, err
+}
+
+// VMOnHost migrates the VM to a server, or starts or resumes it there (op: migrate, start_on, resume_on).
+func (w *Workspace) VMOnHost(key, uuid, host, op string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.VMOnHost(c, uuid, host, op) })
+}

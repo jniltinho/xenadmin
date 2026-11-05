@@ -582,3 +582,143 @@ func TestLabSRCommands(t *testing.T) {
 		t.Fatalf("forgotten SR still there: %+v", o)
 	}
 }
+
+// TestLabCopyDeleteVM creates a halted VM with a 1 GB disk (XCP_ALLOW_WRITE=1), fast-clones it and fully copies it to
+// the default SR, then deletes the three with their disks (a disk of another VM is refused).
+func TestLabCopyDeleteVM(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	opts, err := ReadNewVMOptions(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tpl string
+	for _, x := range opts.Templates {
+		if x.Name == "Other install media" {
+			tpl = x.UUID
+		}
+	}
+	d, err := ReadNewVMDefaults(c, tpl, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := ops.CreateVM(c, ops.NewVM{Template: tpl, Name: "xcpng-center-go-test-copy", Install: "cd", BootMode: d.BootMode, VCPUs: 1, Cores: 1,
+		Memory: 256 << 20, Disks: []ops.NewDisk{{Position: "0", Name: "xcpng-center-go-test-copy 0", Size: 1 << 30, SR: opts.DefaultSR}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vms := []string{created.UUID}
+	defer func() { // whatever the test left
+		for _, u := range vms {
+			if ref, err := xenapi.VM.GetByUUID(s, u); err == nil {
+				del, _ := ReadVMDelete(c, u)
+				var vbds []string
+				for _, x := range del.Disks {
+					vbds = append(vbds, x.UUID)
+				}
+				if err := ops.DeleteVM(c, u, vbds, nil); err != nil {
+					t.Error(err)
+					_ = xenapi.VM.Destroy(s, ref)
+				}
+			}
+		}
+	}()
+	cp, err := ReadVMCopy(c, created.UUID)
+	if err != nil || !cp.Clone || !cp.Copy || cp.Name != "Copy of xcpng-center-go-test-copy" || len(cp.SRs) == 0 {
+		t.Fatalf("%+v %v", cp, err)
+	}
+	clone, err := ops.CopyVM(c, created.UUID, "xcpng-center-go-test-copy clone", "fast", false, "")
+	if clone != "" {
+		vms = append(vms, clone)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := ops.CopyVM(c, created.UUID, "xcpng-center-go-test-copy full", "full", true, cp.DefaultSR)
+	if full != "" {
+		vms = append(vms, full)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, _ := xenapi.VM.GetByUUID(s, full); true {
+		if desc, _ := xenapi.VM.GetNameDescription(s, ref); desc != "full" {
+			t.Fatalf("description %q", desc)
+		}
+	}
+	other, _ := ReadVMDelete(c, clone)
+	if len(other.Disks) != 1 || !other.Disks[0].Checked {
+		t.Fatalf("clone disks %+v", other)
+	}
+	if err := ops.DeleteVM(c, full, []string{other.Disks[0].UUID}, nil); err == nil {
+		t.Fatal("deleted a disk of another VM")
+	}
+	for _, u := range vms {
+		del, err := ReadVMDelete(c, u)
+		if err != nil || len(del.Disks) != 1 {
+			t.Fatalf("%s: %+v %v", u, del, err)
+		}
+		vbd, _ := xenapi.VBD.GetByUUID(s, del.Disks[0].UUID)
+		vdi, _ := xenapi.VBD.GetVDI(s, vbd)
+		if err := ops.DeleteVM(c, u, []string{del.Disks[0].UUID}, nil); err != nil {
+			t.Fatal(u, err)
+		}
+		if _, err := xenapi.VDI.GetUUID(s, vdi); err == nil {
+			t.Fatalf("%s: the disk was not deleted", u)
+		}
+	}
+	vms = nil
+}
+
+// TestLabMigrateVM reads the targets of the running XCP_LAB_VM (its own server is "Current server"), live-migrates it
+// to the other server and back (XCP_ALLOW_WRITE=1).
+func TestLabMigrateVM(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	refs, err := xenapi.VM.GetByNameLabel(s, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %v %v", name, refs, err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(s, refs[0])
+	resident := func() string {
+		h, _ := xenapi.VM.GetResidentOn(s, refs[0])
+		u, _ := xenapi.Host.GetUUID(s, h)
+		return u
+	}
+	from := resident()
+	targets, err := ReadTargets(c, uuid)
+	if err != nil || len(targets) < 3 || !targets[0].Home {
+		t.Fatalf("%+v %v", targets, err)
+	}
+	var to string
+	for _, x := range targets[1:] {
+		if x.UUID == from && (x.Enabled || !strings.HasSuffix(x.Text, "(Current server)")) {
+			t.Fatalf("own server %+v", x)
+		}
+		if x.UUID != from && x.Enabled {
+			to = x.UUID
+		}
+	}
+	if to == "" {
+		t.Fatalf("no server to migrate to: %+v", targets)
+	}
+	if err := ops.VMOnHost(c, uuid, to, "migrate"); err != nil {
+		t.Fatal(err)
+	}
+	if resident() != to {
+		t.Fatal("the VM did not move")
+	}
+	if err := ops.VMOnHost(c, uuid, from, "migrate"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.VMOnHost(c, uuid, from, "start_on"); err == nil {
+		t.Fatal("started a running VM")
+	}
+}

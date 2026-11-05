@@ -10,3 +10,15 @@ func TestFormatAndGeneratedTexts(t *testing.T) {
 		t.Error("generated texts missing: run go generate ./internal/messages")
 	}
 }
+
+func TestFailureText(t *testing.T) {
+	if text, short := FailureText("VM_REQUIRES_SR", []string{"OpaqueRef:vm", "OpaqueRef:sr"}); text != "This VM needs storage that cannot be seen from that server" || short != "Cannot see required storage" {
+		t.Errorf("%q %q", text, short)
+	}
+	if text, _ := FailureText("NOT_A_CODE", []string{" a ", "", "b"}); text != "NOT_A_CODE - a - b" {
+		t.Errorf("%q", text)
+	}
+	if text, _ := FailureText("SR_BACKEND_FAILURE", []string{"TransportException", `{"error": "Unable to connect"}`}); text != "Unable to connect" {
+		t.Errorf("%q", text)
+	}
+}

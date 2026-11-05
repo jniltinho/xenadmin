@@ -55,14 +55,14 @@
 - [~] 6.2 (feito: Networking (tabela do `Details.Networking`) e Memory (valores), sem edição ainda; Snapshots com Take Snapshot (disco ou disco e memória, com o motivo quando não disponível), Revert To com "tirar snapshot antes" e volta do estado de energia, Delete só de snapshots com os discos próprios, testado no lab KVM e pelo MCP; faltam Networking, Memory, Search) Snapshots (tirar, reverter, excluir), Networking, Memory, Search
 - [~] 6.3 (feito: gráficos padrão de VM e servidor (CPU, memória, rede, disco) com nomes, unidades e escala do C#, zoom de 10 min a 1 ano, eventos de ciclo de vida, hora do servidor, RRD do membro com o certificado avalizado pelo coordenador; SVG próprio em vez de uPlot; faltam o editor de gráficos e o histórico de VM desligada) Performance (`internal/rrd`, `PerformanceRules`, uPlot, zoom de 10 min a 1 ano, eventos de ciclo de vida)
 - [~] 6.4 (feito: General (nome, descrição), CPU (vCPUs, topologia, prioridade, hotplug com a licença) e Home Server, testados no lab; faltam Boot Options, tags/pasta e as demais páginas) Properties: General, CPU, Boot Options, Home Server
-- [ ] 6.5 SR: Set as Default, Detach, Forget, Destroy com as regras e confirmações do C#
+- [x] 6.5 SR: Set as Default, Detach, Forget, Destroy com as regras e confirmações do C# (também Repair)
 - [ ] 6.6 Paridade e lab das telas do marco, incluindo os comportamentos do 0.2.0 (duplo clique, aba por objeto, console que sobrevive à troca de aba, full copy, SRs ocultos)
 
 ## 7. Wizards
 
 - [~] 7.1 (feito: wizard com Template, Name, Installation Media (ISO, rede, URL do eliloader, BIOS/UEFI), Home Server, CPU & Memory, Storage, Networking e Finish; criação portada da `CreateVMAction` com limpeza em erro; testado no lab KVM pela janela e por teste de lab; faltam vGPU, vTPM, cloud-config e cópia completa) New VM (`NewVmDefaults`: templates, instalação por ISO, discos com Add/Delete, rede, CPU/memória, UEFI preferido)
 - [ ] 7.2 New Storage Repository: NFS, SMB, iSCSI (Scan, IQN, LUN, Format/Reattach), NFS ISO, SMB ISO (`SrRules`) — partial: NFS, SMB, NFS ISO and SMB ISO with Scan/Reattach (`ops.CreateSR`, `ops.ProbeSR`); SR Repair, Set as Default, Detach, Forget, Destroy (`ops.SRCommand`); missing iSCSI
-- [ ] 7.3 Create New Pool (`PoolRules`), Copy VM (fast clone/full copy), Delete VM, Migrate to Server (`MigrateRules`)
+- [ ] 7.3 Create New Pool (`PoolRules`), Copy VM (fast clone/full copy), Delete VM, Migrate to Server (`MigrateRules`) — partial: Copy, Delete, Migrate/Start/Resume on Server done; missing New Pool
 - [ ] 7.4 Lab KVM: instalação do Alpine por ISO com `xe-guest-utilities`, iSCSI no target do lab, NFS ISO, pool, migração
 
 ## 8. MCP e CLI
