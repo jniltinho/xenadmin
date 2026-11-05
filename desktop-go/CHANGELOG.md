@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- The desktop window (Wails v3, Vue 3, Tailwind 4): Add New Server with the certificate question, the tree with the
+  C# app's icons, the General tab, a status bar; `make frontend` and `make linux` build it in containers.
 - One binary (`xcp-ng-center-go`) with Cobra: `server add|list`, `pool|host|vm|template|sr|network list` (table or
   `--json`), `version`, and `mcp`.
 - Connection core: server addresses (IPv6; 80/8080 refused), TLS 1.2+ without redirects, trust on first use with

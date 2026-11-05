@@ -1,2 +1,5 @@
 dist/
 .cache/
+frontend/node_modules/
+frontend/public/icons/
+internal/gui/dist/

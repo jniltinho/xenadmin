@@ -41,7 +41,7 @@ func HTTPClient(policy *trust.Policy, host, hostKey string, timeout time.Duratio
 				}
 				return nil
 			case trust.Mismatch:
-				prev, _ := policy.Store.Fingerprint(hostKey)
+				prev, _ := policy.Expected(hostKey) // a stored pin, or the operator's: never offered for acceptance
 				return &trust.UntrustedError{HostKey: hostKey, Fingerprint: fp, Previous: prev}
 			default:
 				return &trust.UntrustedError{HostKey: hostKey, Fingerprint: fp}

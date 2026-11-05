@@ -30,6 +30,9 @@ func TestPolicy(t *testing.T) {
 	if p.Evaluate("new:443", "CC", false) != Trusted || p.Evaluate("new:443", "DD", false) != Mismatch {
 		t.Error("the operator's fingerprint (normalized) decides for unpinned hosts")
 	}
+	if fp, ok := p.Expected("new:443"); !ok || fp != "CC" {
+		t.Errorf("Expected = %q, %v: the operator's pin, so a mismatch is reported as a change, never offered", fp, ok)
+	}
 	if Normalize(" ab:cd ") != "ABCD" {
 		t.Error("Normalize")
 	}

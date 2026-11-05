@@ -2,9 +2,9 @@
 
 - [x] 1.1 `desktop-go/` com `go.mod` (`xcpng-center`, Go 1.27), `main.go` → `cmd.Execute()`, `cmd/root.go` (`--json`, `--config`), `cmd/version.go`, `internal/buildinfo`
 - [~] 1.2 (feito: SDK 26.16.1, `PATCHES.md`, `tools/sdk-update.sh`, patches `HTTPClient`, sem `log.Fatal`, `APIError`, `Session.Ref`; falta `DecodeRecord` e o teste dedicado de que o SDK só usa o cliente do app) `sdk/xenapi` com o SDK 26.16.1, `PATCHES.md`, script `tools/sdk-update.sh` e os patches `HTTPClient`, erros sem `log.Fatal`, `APIError` tipado e `DecodeRecord`; teste que falha se o SDK abrir conexão sem o cliente do app
-- [ ] 1.3 `internal/gui` com Wails v3.1.0 e `cmd/gui.go` (root sem subcomando abre a janela vazia carregando a SPA); tag `nogui` para testar núcleo e CLI sem CGO
-- [ ] 1.4 `frontend/` Vue 3 + TS + Tailwind 4 + Vite com `--mode desktop` (→ `frontend/dist`) e `--mode web` (→ `web/dist`); `src/api/` com interface, `wails.ts` e `http.ts` vazio
-- [~] 1.5 (feito: `test`, `check`, `cli` em container `golang:1.27.3`, alvos `go-*` na raiz; falta frontend, GTK/WebKit, empacotamento) Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
+- [x] 1.3 `internal/gui` com Wails v3.1.0 e `cmd/gui.go` (root sem subcomando abre a janela vazia carregando a SPA); tag `nogui` para testar núcleo e CLI sem CGO
+- [~] 1.4 (feito: Vue 3 + TS + Tailwind 4 + Vite → `internal/gui/dist`, `--mode web` → `web/dist`, `src/api/workspace.ts`; falta a interface comum e `http.ts`) `frontend/` Vue 3 + TS + Tailwind 4 + Vite com `--mode desktop` (→ `frontend/dist`) e `--mode web` (→ `web/dist`); `src/api/` com interface, `wails.ts` e `http.ts` vazio
+- [~] 1.5 (feito: `test`, `check`, `cli`, `frontend` (node:24), `linux` (Ubuntu 24.04 + GTK4/WebKitGTK 6.0, `build/linux.Dockerfile`), alvos `go-*` na raiz; falta `windows`, `macos`, `appimage`, `web-check`, `smoke`) Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
 - [~] 1.6 (feito: README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md`, `CHANGELOG.md`; falta o workflow, que pede o escopo `workflow` no token do GitHub) Workflow `desktop-go.yml` (PR: check, testes, web-check, fumaça Xvfb, build Windows); README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md` e `CHANGELOG.md` do `desktop-go/`
 - [x] 1.7 Teste de arquitetura: `internal/{xapi,model,rules,ops,console,app}` sem Wails, Cobra, MCP ou `internal/server`
 
@@ -22,11 +22,11 @@
 
 ## 3. Shell do desktop e tema
 
-- [ ] 3.1 Tema Tailwind (tokens, claro/escuro, densidade, `--radius-*: 0`, regra base) e teste Playwright de cantos
+- [~] 3.1 (feito: tokens e regra base sem cantos em `style.css`; falta claro/escuro, densidade e o teste Playwright) Tema Tailwind (tokens, claro/escuro, densidade, `--radius-*: 0`, regra base) e teste Playwright de cantos
 - [ ] 3.1b Full HD, QHD e 4K: tokens em `rem`, zoom 80/90/100/110/125/150% (`Window.SetZoom`, Ctrl+=/-/0), janela inicial em 80% da área de trabalho com estado restaurado, ícones `_32`/`_24` em `devicePixelRatio` ≥ 1,5; capturas Playwright em 1920×1080@1x, 2560×1440@1x/1,25x e 3840×2160@2x
 - [ ] 3.2 Componentes base: Splitter, Tree, Tabs, DataGrid virtualizado, MenuBar, Toolbar, ContextMenu, Dialog, Wizard, StatusBar, Field, Button
-- [ ] 3.2b Ícones: cópia de `XenAdmin/Images` e `branding-xcp-ng/Images` no build e porta de `IconNames` (objeto, estado, toolbar, menus) com teste de tabela
-- [ ] 3.3 Janela principal: árvore (ícones do app C#), abas, menus e barra de ferramentas, Add Server e diálogo de certificado, barra de status
+- [~] 3.2b (feito: cópia dos ícones da árvore no `make frontend`; falta `IconNames` completo) Ícones: cópia de `XenAdmin/Images` e `branding-xcp-ng/Images` no build e porta de `IconNames` (objeto, estado, toolbar, menus) com teste de tabela
+- [~] 3.3 (feito: árvore pool → hosts → VMs → SRs com ícones do C#, aba General, Add New Server, diálogo de certificado, barra de status, testado no .110; faltam menus e toolbar completos) Janela principal: árvore (ícones do app C#), abas, menus e barra de ferramentas, Add Server e diálogo de certificado, barra de status
 - [ ] 3.4 Abas General de pool, host, VM e SR (porta de `Details` e `OverviewColumns`)
 - [ ] 3.4b Segurança do webview: CSP, bloqueio de navegação externa, permissões negadas, lint sem `v-html`, teste com nome de VM contendo HTML
 - [ ] 3.5 Serviços Wails e eventos `xcp:*` coalescidos; instância única; estado da janela; menu nativo no macOS

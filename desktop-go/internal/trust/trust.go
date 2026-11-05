@@ -70,6 +70,19 @@ func (p *Policy) Evaluate(hostKey, fp string, systemTrusted bool) Decision {
 	return Prompt
 }
 
+// Expected is the fingerprint a host must present: its stored pin, else the operator's pin (none: trust on first use).
+func (p *Policy) Expected(hostKey string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if pinned, ok := p.Store.Fingerprint(hostKey); ok {
+		return pinned, true
+	}
+	if given, ok := p.operatorPin(hostKey); ok {
+		return Normalize(given), true
+	}
+	return "", false
+}
+
 func (p *Policy) operatorPin(hostKey string) (string, bool) {
 	if v, ok := p.OperatorPins[hostKey]; ok {
 		return v, true

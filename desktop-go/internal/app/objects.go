@@ -22,6 +22,7 @@ type Object struct {
 	Description string `json:"description,omitempty"`
 	PowerState  string `json:"power_state,omitempty"`
 	Host        string `json:"host,omitempty"`
+	HostUUID    string `json:"host_uuid,omitempty"` // the resident host of a VM (names may repeat)
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -63,7 +64,7 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 			if kind == "vms" {
 				o.PowerState = string(r.PowerState)
 				if h, ok := hosts[r.ResidentOn]; ok {
-					o.Host = h.NameLabel
+					o.Host, o.HostUUID = h.NameLabel, h.UUID
 				}
 			}
 			out = append(out, o)

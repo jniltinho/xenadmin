@@ -2,11 +2,11 @@
 
 One binary, `xcp-ng-center-go`, for the desktop app, the command line and an MCP server for AI agents. It follows the
 proposal in [`openspec/changes/add-go-desktop-app`](../openspec/changes/add-go-desktop-app/proposal.md): Go, the
-XenServer Go SDK, Cobra, the official MCP Go SDK, and (next) Wails v3 with Vue and Tailwind for the window, built for
+XenServer Go SDK, Cobra, the official MCP Go SDK, and Wails v3 with Vue and Tailwind for the window, built for
 Linux, macOS and Windows and ready to become a web app.
 
-**Status: first stage.** The connection core, the CLI and a read-only MCP server work against real servers. The desktop
-window is not wired yet (`xcp-ng-center-go` without a subcommand says so). The C# app in
+**Status: first stage.** The connection core, the CLI and a read-only MCP server work against real servers; the desktop
+window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and the General tab. The C# app in
 [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) remains the complete cross-platform client.
 
 ## What works
@@ -14,6 +14,8 @@ window is not wired yet (`xcp-ng-center-go` without a subcommand says so). The C
 - Connection: `host[:port]` and IPv6 addresses (80 and 8080 refused: plain HTTP), TLS 1.2+, no HTTP redirects,
   certificate trust on first use with SHA-256 pins (a changed certificate is refused), `--trust-fingerprint` for
   unattended use, the pool coordinator redirect (`HOST_IS_SLAVE`). Passwords never reach logs, errors or files.
+- Window (Wails v3, GTK 4 + WebKitGTK 6.0 on Linux): Add New Server with the certificate question, the tree (pool,
+  hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app.
 - CLI: `server add|list`, `pool|host|vm|template|sr|network list` (table or `--json`), `version`.
 - MCP (`mcp`, stdio): `list_servers`, `connect`, `disconnect`, `list_objects` — the names and arguments of the C# app's
   MCP server, all read-only. The operator's password comes from `XCP_PASS`; the agent never sees it.
@@ -36,6 +38,7 @@ Settings (servers and certificate fingerprints, no passwords) live in `settings.
 ```bash
 make check     # gofmt, go vet (app and SDK), tests
 make cli       # static CLI/MCP binaries for Linux, macOS (arm64, amd64) and Windows in dist/
+make linux     # the desktop app for Linux (builds the frontend first, node:24 + Ubuntu 24.04 GTK/WebKit images)
 ```
 
 See [docs/architecture.md](docs/architecture.md) and [docs/development.md](docs/development.md).

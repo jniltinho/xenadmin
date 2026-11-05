@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* No rounded corners anywhere (the proposal's visual rule), the XCP-ng Center palette, rem-based sizes so the
+   window keeps its proportions on Full HD, QHD and 4K. */
+@theme {
+  --radius-*: initial;
+  --color-band: #3f7c8c;
+  --color-band-dark: #396d8c;
+  --color-pane: #f5f5f5;
+  --color-line: #c8c8c8;
+  --color-select: #0078d7;
+  --font-sans: "Segoe UI", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+}
+
+@layer base {
+  *, ::before, ::after { border-radius: 0 !important; }
+  html, body, #app { height: 100%; }
+  body { @apply bg-white text-[13px] text-neutral-900 font-sans select-none; }
+}

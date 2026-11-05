@@ -84,8 +84,7 @@ func (s *Settings) update(change func(*Settings)) error {
 		return err
 	}
 	change(fresh)
-	change(s) // the in-memory copy follows
-	s.Servers, s.Fingerprints = fresh.Servers, fresh.Fingerprints
+	s.Servers, s.Fingerprints = fresh.Servers, fresh.Fingerprints // the in-memory copy follows the file
 	f, err := os.CreateTemp(filepath.Dir(s.path), ".settings-*.toml")
 	if err != nil {
 		return err
@@ -139,6 +138,16 @@ func (s *Settings) AddServer(srv Server) error {
 	})
 }
 
+// Path is the settings file.
+func (s *Settings) Path() string { return s.path }
+
+// ServerList is a copy of the servers (the window reads it while the CLI or MCP may add one).
+func (s *Settings) ServerList() []Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Server(nil), s.Servers...)
+}
+
 // Fingerprint implements trust.Store.
 func (s *Settings) Fingerprint(hostKey string) (string, bool) {
 	s.mu.Lock()
@@ -151,3 +160,23 @@ func (s *Settings) Fingerprint(hostKey string) (string, bool) {
 func (s *Settings) Pin(hostKey, fingerprint string) error {
 	return s.update(func(t *Settings) { t.Fingerprints[strings.ToLower(hostKey)] = fingerprint })
 }
+
+// PinNew pins a certificate only when the host has none in the file (checked under the lock): accepting a
+// certificate in the window never replaces a pin, even one another process saved meanwhile.
+func (s *Settings) PinNew(hostKey, fingerprint string) error {
+	key, pinned := strings.ToLower(hostKey), false
+	err := s.update(func(t *Settings) {
+		if _, ok := t.Fingerprints[key]; ok {
+			pinned = true
+			return
+		}
+		t.Fingerprints[key] = fingerprint
+	})
+	if err == nil && pinned {
+		return ErrPinned
+	}
+	return err
+}
+
+// ErrPinned: the host already has a pinned certificate.
+var ErrPinned = errors.New("this server's certificate is already pinned: a changed certificate is not replaced from the window")
