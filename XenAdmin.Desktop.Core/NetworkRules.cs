@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using XenAdmin.Actions;
 using XenAdmin.Core;
 using XenAdmin.Network;
 using XenAPI;
@@ -210,6 +211,45 @@ namespace XenAdmin.Desktop
         /// <summary>NetWName.PopulatePage: "New Network" for external networks, "New Private Network" otherwise, made unique.</summary>
         public static string DefaultNetworkName(IXenConnection c, bool external) =>
             Helpers.MakeUniqueName(external ? Messages.NEWNETWORK_NAME : Messages.NEWNETWORK_VNAME, c.Cache.Networks.Select(n => n.Name()).ToList());
+
+        /// <summary>NetWName.PopulatePage: the default name of a new SR-IOV network.</summary>
+        public static string DefaultSriovName(IXenConnection c) =>
+            Helpers.MakeUniqueName(Messages.NEW_SRIOV_NETWORK_NAME, c.Cache.Networks.Select(n => n.Name()).ToList());
+
+        /// <summary>
+        /// NetWTypeSelect.PopulatePage: whether the SR-IOV option is shown (Kolkata or later), and the reason it is
+        /// disabled (null when it can be chosen).
+        /// </summary>
+        public static (bool Visible, string Blocker) SriovOption(IXenConnection c)
+        {
+            if (!Helpers.KolkataOrGreater(c))
+                return (false, null);
+            var pool = Helpers.GetPoolOfOne(c);
+            var canEnable = c.Cache.PIFs.Any(p => p.IsPhysical() && p.SriovCapable() && !p.IsSriovPhysicalPIF());
+            if (Helpers.FeatureForbidden(c, Host.SriovNetworkDisabled))
+                return (true, string.Format(Messages.FEATURE_EXPERIMENTAL, Messages.NETWORK_SRIOV));
+            if (Helpers.FeatureForbidden(c, Host.RestrictSriovNetwork))
+                return (true, string.Format(Messages.FEATURE_DISABLED, Messages.NETWORK_SRIOV));
+            if (pool == null || !pool.HasSriovNic() || !canEnable)
+                return (true, pool != null && pool.HasSriovNic() ? Messages.NICS_ARE_SRIOV_ENABLED : Messages.SRIOV_NEED_NICSUPPORT);
+            return (true, null);
+        }
+
+        /// <summary>NetWSriovDetails.PopulateHostNicList: the server's NICs where SR-IOV can be enabled.</summary>
+        public static List<PIF> SriovNics(Host host) =>
+            host.Connection.Cache.PIFs.Where(p => p.host.opaque_ref == host.opaque_ref && p.IsPhysical() && !p.IsBondNIC()
+                                                  && p.SriovCapable() && !p.IsSriovPhysicalPIF()).OrderBy(p => p.Name()).ToList();
+
+        /// <summary>NetWSriovDetails.PageLeaveCore: the warning before SR-IOV is enabled, and its button.</summary>
+        public static (string Text, string Button) SriovWarning() =>
+            (string.Format(Messages.SRIOV_NETWORK_CREATE_WARNING, BrandManager.BrandConsole), Messages.SRIOV_NETWORK_CREATE);
+
+        /// <summary>NewNetworkWizard.CreateSRIOV: SR-IOV on that NIC's device on every server of the pool (null if none can).</summary>
+        public static AsyncAction SriovAction(IXenConnection c, XenAPI.Network network, PIF nic)
+        {
+            var pifs = c.Cache.PIFs.Where(p => p.IsPhysical() && !p.IsBondNIC() && p.SriovCapable() && p.device == nic.device && !p.IsSriovPhysicalPIF()).ToList();
+            return pifs.Count == 0 ? null : new CreateSriovAction(c, network, pifs);
+        }
 
         /// <summary>NetWDetails.PopulatePage: the host's physical NICs that are not bond members.</summary>
         public static List<PIF> WizardNics(Host host) =>

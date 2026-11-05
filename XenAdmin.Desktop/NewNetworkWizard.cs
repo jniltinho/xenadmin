@@ -14,8 +14,10 @@ namespace XenAdmin.Desktop
 {
     /// <summary>
     /// NewNetworkWizard: Select Type, Details (NetWName), Interface (NetWDetails) for External and Single-Server Private
-    /// networks (NetworkAction), or Select Type, Bond Members (NetWBondDetails) for a bond (CreateBondAction), as the
-    /// WinForms wizard does. SR-IOV networks are listed disabled until ported; Cross-Server Private networks are gone since Stockholm (XenServer 8 removed the vSwitch Controller).
+    /// networks (NetworkAction), Select Type, Details, Interface (NetWSriovDetails) for an SR-IOV network
+    /// (CreateSriovAction), or Select Type, Bond Members (NetWBondDetails) for a bond (CreateBondAction), as the WinForms
+    /// wizard does. Cross-Server Private networks are gone since Stockholm (XenServer 8 removed the vSwitch Controller).
+    /// shortcut: the External page has no "create the VLAN on the SR-IOV network" option yet; add it when needed.
     /// </summary>
     public class NewNetworkWizard : WizardWindow
     {
@@ -24,9 +26,9 @@ namespace XenAdmin.Desktop
         private readonly Action<AsyncAction> _run;
         private readonly IXenObject _owner;
 
-        private bool _external = true, _bonded;
+        private bool _external = true, _bonded, _sriov;
         private BondEditor _bond;
-        private bool? _nameFor;
+        private string _nameFor;
         private string _name = "", _description = "";
         private PIF _nic;
         private string _vlan, _mtu = XenAPI.Network.MTU_DEFAULT.ToString();
@@ -46,16 +48,18 @@ namespace XenAdmin.Desktop
         {
             0 => Messages.NETW_TYPE_SELECT_TITLE,
             1 when _bonded => Messages.NETW_BOND_DETAILS_TITLE,
+            2 when _sriov => Messages.NETW_INTERNAL_DETAILS_TITLE,
             1 => Messages.NETW_NAME_TITLE,
             _ => _external ? Messages.NETW_EXTERNAL_DETAILS_TITLE : Messages.NETW_INTERNAL_DETAILS_TITLE
         };
 
         protected override Control Page(int step)
         {
-            if (step > 0 && _nameFor != _external)
+            var kind = _sriov ? "sriov" : _external ? "external" : "private";
+            if (step > 0 && _nameFor != kind)
             {
-                _name = NetworkRules.DefaultNetworkName(_c, _external);
-                _nameFor = _external;
+                _name = _sriov ? NetworkRules.DefaultSriovName(_c) : NetworkRules.DefaultNetworkName(_c, _external);
+                _nameFor = kind;
             }
             if (step == 1 && _bonded)
             {
@@ -65,7 +69,7 @@ namespace XenAdmin.Desktop
                 FinishButton.IsEnabled = _bond.IsValid;
                 return _bond;
             }
-            return step switch { 0 => TypePage(), 1 => NamePage(), _ => InterfacePage() };
+            return step switch { 0 => TypePage(), 1 => NamePage(), _ => _sriov ? SriovPage() : InterfacePage() };
         }
 
         protected override string Validate(int step)
@@ -74,7 +78,9 @@ namespace XenAdmin.Desktop
                 return _bond != null && _bond.IsValid ? null : "Select two or more NICs that are not already bonded.";
             if (step == 1 && string.IsNullOrWhiteSpace(_name))
                 return "Enter a name for the new network.";
-            if (step == 2 && _external)
+            if (step == 2 && _sriov && _nic == null)
+                return "Select a NIC to enable SR-IOV.";
+            if (step == 2 && _external && !_sriov)
             {
                 if (_nic == null)
                     return "Select a NIC.";
@@ -97,6 +103,17 @@ namespace XenAdmin.Desktop
                     _run(bond);
                     Close();
                 }
+                return;
+            }
+            if (_sriov)
+            {
+                // NetWSriovDetails.PageLeaveCore: SR-IOV disturbs the pool's connections
+                var (warning, button) = NetworkRules.SriovWarning();
+                if (_nic == null || !await Dialogs.Confirm(this, Messages.NETWORK_SRIOV, warning, button, Messages.CANCEL))
+                    return;
+                if (NetworkRules.SriovAction(_c, NetworkRules.NewNetwork(_name, _description, _autoPlug, null), _nic) is AsyncAction sriov)
+                    _run(sriov);
+                Close();
                 return;
             }
             int? mtu = _external && int.TryParse(_mtu.Trim(), out var m) ? m : null;
@@ -127,18 +144,21 @@ namespace XenAdmin.Desktop
                 return rb;
             }
             // UpdateWizardContent: a bond has one more page (Bond Members) instead of Details and Interface
-            void Pick(bool external, bool bonded)
+            void Pick(bool external, bool bonded, bool sriov = false)
             {
                 _external = external;
                 _bonded = bonded;
+                if (_sriov != sriov) _nic = null; // the NIC lists differ
+                _sriov = sriov;
                 SetSteps(bonded ? new[] { "Select Type", Messages.NETW_BOND_DETAILS_TEXT } : new[] { "Select Type", "Details", "Interface" });
             }
-            Option("&External Network", "Create a network that passes traffic over one of your VLANs.", true, _external && !_bonded, () => Pick(true, false));
-            Option("&Single-Server Private Network", "Create a network that does not leave each server. This can be used as a private connection between VMs on the same host.", true, !_external && !_bonded, () => Pick(false, false));
+            Option("&External Network", "Create a network that passes traffic over one of your VLANs.", true, _external && !_bonded && !_sriov, () => Pick(true, false));
+            Option("&Single-Server Private Network", "Create a network that does not leave each server. This can be used as a private connection between VMs on the same host.", true, !_external && !_bonded && !_sriov, () => Pick(false, false));
             Option("&Bonded Network", "Create a network that bonds together two or more of your NICs. This will create a single higher performing channel.", true, _bonded, () => Pick(false, true));
-            if (XenAdmin.Core.Helpers.KolkataOrGreater(_c))
-                Option("S&R-IOV Network", "Enable SR-IOV on a NIC and create an SR-IOV network on that NIC.", false, false, () => { },
-                    "Not available in this version yet.");
+            var (sriovVisible, sriovBlocker) = NetworkRules.SriovOption(_c);
+            if (sriovVisible)
+                Option("S&R-IOV Network", "Enable SR-IOV on a NIC and create an SR-IOV network on that NIC.", sriovBlocker == null, _sriov,
+                    () => Pick(false, false, true), sriovBlocker);
             return panel;
         }
 
@@ -157,6 +177,27 @@ namespace XenAdmin.Desktop
             panel.Children.Add(Text("Provide a name and optional description for the new network."));
             panel.Children.Add(grid);
             name.AttachedToVisualTree += (_, _) => name.Focus();
+            return panel;
+        }
+
+        /// <summary>NetWSriovDetails: the NIC to enable SR-IOV on, and whether new VMs get this network.</summary>
+        private Control SriovPage()
+        {
+            var panel = new StackPanel { Spacing = 10 };
+            var nics = _host == null ? new List<PIF>() : NetworkRules.SriovNics(_host);
+            if (_nic == null || nics.All(p => p.opaque_ref != _nic.opaque_ref))
+                _nic = nics.FirstOrDefault();
+            var nic = new ComboBox { ItemsSource = nics.Select(p => p.Name()).ToList(), SelectedIndex = nics.FindIndex(p => p.opaque_ref == _nic?.opaque_ref), Width = 220 };
+            nic.SelectionChanged += (_, _) => { _nic = nic.SelectedIndex >= 0 ? nics[nic.SelectedIndex] : null; FinishButton.IsEnabled = _nic != null; };
+            var auto = new CheckBox { Content = Dialogs.M("&Automatically add this network to new virtual machines."), IsChecked = _autoPlug };
+            auto.IsCheckedChanged += (_, _) => _autoPlug = auto.IsChecked == true;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row.Children.Add(new Label { Content = Dialogs.M("&NIC:"), Target = nic, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0) });
+            row.Children.Add(nic);
+            panel.Children.Add(Text("Select a NIC to enable SR-IOV."));
+            panel.Children.Add(row);
+            panel.Children.Add(auto);
+            FinishButton.IsEnabled = _nic != null;
             return panel;
         }
 

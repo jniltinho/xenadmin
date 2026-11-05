@@ -54,6 +54,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - GPU tab of servers and pools (placement policy, the GPUs with their running vGPUs and allowed vGPU types, Edit) and
   USB tab of servers (USB devices, Enable/Disable pass-through), shown only where they apply, as in Windows.
 - VM > Manage vTPMs (UEFI VMs): add and remove vTPMs and see whether each is protected and unique.
+- New Network > SR-IOV Network: enable SR-IOV on a NIC of every server and create the network (the option says why
+  when it cannot be used). New VMs get an auto-add SR-IOV network when their template recommends SR-IOV.
 
 ### Fixed
 - VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).

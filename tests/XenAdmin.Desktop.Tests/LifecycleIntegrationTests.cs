@@ -377,6 +377,31 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>New Network > SR-IOV (read only): the option is offered with a NIC to use, or shown disabled with the reason.</summary>
+        [TestMethod, TestCategory("Integration")]
+        public void SriovOptionReadOnly()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host))
+                Assert.Inconclusive("XCP_HOST required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            try
+            {
+                var (visible, blocker) = NetworkRules.SriovOption(c);
+                Assert.AreEqual(XenAdmin.Core.Helpers.KolkataOrGreater(c), visible);
+                var nics = c.Cache.Hosts.SelectMany(NetworkRules.SriovNics).ToList();
+                if (visible && blocker == null)
+                    Assert.IsTrue(nics.Count > 0, "SR-IOV offered: some NIC can enable it");
+                if (nics.Count == 0 && visible)
+                    Assert.IsNotNull(blocker, "no NIC can enable SR-IOV: the option says why");
+                Assert.IsFalse(string.IsNullOrEmpty(NetworkRules.SriovWarning().Text));
+            }
+            finally
+            {
+                c.EndConnect();
+            }
+        }
+
         /// <summary>GPU and USB tabs (read only): the rules run on every server and the pool of XCP_HOST.</summary>
         [TestMethod, TestCategory("Integration")]
         public void GpuAndUsbTabsReadOnly()

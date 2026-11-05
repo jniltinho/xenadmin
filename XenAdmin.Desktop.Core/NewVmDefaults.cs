@@ -162,7 +162,7 @@ namespace XenAdmin.Desktop
             {
                 foreach (var n in c.Cache.Networks.OrderBy(n => n))
                 {
-                    if (n.IsGuestInstallerNetwork() || !n.GetAutoPlug() || !n.Show(false) || n.IsMember() || n.IsSriov())
+                    if (n.IsGuestInstallerNetwork() || !n.GetAutoPlug() || !n.Show(false) || n.IsMember() || n.IsSriov() && !template.HasSriovRecommendation())
                         continue;
                     if (vifs.Count >= 4)
                         break;
