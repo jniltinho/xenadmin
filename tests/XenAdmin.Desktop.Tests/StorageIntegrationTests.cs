@@ -121,6 +121,63 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>
+        /// Pool > High Availability on the lab pool: an NFS SR as the heartbeat (GetHeartbeatSRsAction), the plan's
+        /// maximum failures, EnableHAAction, then Disable and the SR goes away.
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void HaEnableDisableOnLabPool()
+        {
+            var c = LabPool();
+            const string name = "xcpng-center-test-ha-heartbeat";
+            SR sr = null;
+            try
+            {
+                foreach (var stale in c.Cache.SRs.Where(x => x.name_label == name).ToList())
+                {
+                    foreach (var vdi in c.ResolveAll(stale.VDIs))
+                        try { VDI.destroy(c.DuplicateSession(), vdi.opaque_ref); } catch { }
+                    Destroy(c, stale);
+                }
+                var pool = Helpers.GetPool(c);
+                Assert.IsTrue(HaRules.CanConfigure(pool, false) && !HaRules.CanDisable(pool, false), "HA off");
+                var path = StorageHost() + ":/export";
+                Run(SrRules.Finish(c, SrRules.Kind.Nfs, name, SrRules.AutoDescription(SrRules.Kind.Nfs, path), SrRules.DeviceConfig(SrRules.Kind.Nfs, path, "", "", null, null), null));
+                sr = Until(() => c.Cache.SRs.FirstOrDefault(x => x.name_label == name), x => x != null && x.HasPBDs(), "heartbeat SR attached");
+
+                var scan = new GetHeartbeatSRsAction(pool);
+                Run(scan);
+                Assert.IsTrue(scan.SRs.Any(w => w.enabled && w.sr.opaque_ref == sr.opaque_ref), "the NFS SR can hold the HA statefile");
+
+                var vms = HaRules.ProtectableVms(c);
+                var settings = vms.ToDictionary(v => v, v => VM.HaRestartPriority.BestEffort);
+                var max = HaRules.MaxFailures(c.DuplicateSession(), settings);
+                Assert.IsTrue(max >= 0, "the pool computes the failures it can tolerate");
+                Assert.IsNull(HaRules.PlanError(0, max));
+                var options = vms.ToDictionary(v => v, v => new VMStartupOptions(v.order, v.start_delay, VM.HaRestartPriority.BestEffort));
+                Run(HaRules.EnableAction(pool, options, sr, 0));
+                Until(() => Helpers.GetPool(c), p => p.ha_enabled, "HA on");
+                Assert.IsTrue(HaRules.CanDisable(Helpers.GetPool(c), false));
+
+                Run(HaRules.DisableAction(Helpers.GetPool(c)));
+                Until(() => Helpers.GetPool(c), p => !p.ha_enabled, "HA off again");
+            }
+            finally
+            {
+                var p = Helpers.GetPool(c);
+                if (p != null && p.ha_enabled)
+                    try { Pool.disable_ha(c.DuplicateSession()); } catch { }
+                if (sr != null)
+                {
+                    // disabling HA leaves its statefile and redo log on the heartbeat SR
+                    foreach (var vdi in c.ResolveAll(sr.VDIs).Where(v => v.type == vdi_type.ha_statefile || v.type == vdi_type.redo_log))
+                        try { VDI.destroy(c.DuplicateSession(), vdi.opaque_ref); } catch { }
+                    Destroy(c, c.Resolve(new XenRef<SR>(sr.opaque_ref)) ?? sr);
+                }
+                c.EndConnect();
+            }
+        }
+
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void SmbSharedSrLifecycleOnLabPool() =>
             Lifecycle(SrRules.Kind.Smb, @"\\" + StorageHost() + @"\sr", "xcp", Environment.GetEnvironmentVariable("XCP_PASS"));

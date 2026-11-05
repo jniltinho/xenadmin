@@ -37,6 +37,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Pool menu: Add Server (the connected standalone servers that may join), Remove Server, Make into standalone server,
   Reconnect As, Disconnect, Change Server Password and Rotate Pool Secret; Server menu: Change Server
   Password (current password checked, the passwords kept in memory only).
+- Pool > High Availability: Configure (the HA wizard: prerequisites, heartbeat SR, the HA plan with each VM's restart
+  priority, order and delay and the server failures to tolerate, summary) or, with HA on, the restart priorities;
+  Disable.
 - Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
   Properties.
 

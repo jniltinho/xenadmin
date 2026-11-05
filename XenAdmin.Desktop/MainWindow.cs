@@ -57,7 +57,9 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
             _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
-            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone;
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable;
+        // connections with an Enable/Disable HA action of ours running (HelpersGUI.FindActiveHaAction)
+        private readonly HashSet<IXenConnection> _haBusy = new HashSet<IXenConnection>();
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -304,6 +306,9 @@ namespace XenAdmin.Desktop
                         _poolDisconnect = Item("_Disconnect", () => { if (SelectedConnection() is XenConnection c) Disconnect(c); }), "-",
                         _poolPassword = Item("Change Server Pass_word...", () => ChangePassword(SelectedNode()?.XenObject as Pool)),
                         _rotateSecret = Item("Rotate Pool _Secret", () => RotateSecret(SelectedNode()?.Connection)), "-",
+                        Top(Dialogs.M(Messages.MAINWINDOW_HIGH_AVAILABILITY),
+                            _haConfigure = Item("_Configure...", () => ConfigureHa(SelectedNode()?.Connection), icon: "ha_16"),
+                            _haDisable = Item("_Disable", () => DisableHa(SelectedNode()?.Connection))), "-",
                         _makeStandalone = Item(Dialogs.M(Messages.MAINWINDOW_DELETE_POOL), () => MakeStandalone(SelectedNode()?.Connection)), "-",
                         _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
                     Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
@@ -541,6 +546,9 @@ namespace XenAdmin.Desktop
             _poolAddServer.IsEnabled = selectedPool != null && poolConnection.IsConnected;
             _poolRemoveServer.IsEnabled = selectedPool != null && poolConnection.IsConnected;
             _makeStandalone.IsEnabled = PoolRules.CanMakeStandalone(selectedPool);
+            var haBusy = poolConnection != null && _haBusy.Contains(poolConnection);
+            _haConfigure.IsEnabled = HaRules.CanConfigure(selectedPool, haBusy);
+            _haDisable.IsEnabled = HaRules.CanDisable(selectedPool, haBusy);
             _hostProps.IsEnabled = o is Host && VmRules.CanEditProperties(o);
             _vmProps.IsEnabled = o is VM && VmRules.CanEditProperties(o);
             _newVm.IsEnabled = _newVmMenu.IsEnabled = c != null && c.IsConnected;
@@ -925,6 +933,68 @@ namespace XenAdmin.Desktop
                 if (!await Dialogs.Confirm(this, Messages.POOLCREATE_ADDING, message, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
                     return;
             RunTracked(PoolRules.AddToPool(host, pool));
+        }
+
+        /// <summary>
+        /// HAConfigureCommand: the HA wizard when HA is off; with HA on, the restart priorities (EditVmHaPrioritiesDialog
+        /// with SetHaPrioritiesAction), unless the statefile cannot be found.
+        /// </summary>
+        private async void ConfigureHa(IXenConnection c)
+        {
+            var pool = c == null ? null : XenAdmin.Core.Helpers.GetPool(c);
+            if (!HaRules.CanConfigure(pool, _haBusy.Contains(c))) return;
+            if (HaRules.ConfigureBlocker(pool) is string blocker)
+            {
+                await Dialogs.Info(this, Messages.CONFIGURE_HA, blocker);
+                return;
+            }
+            if (!pool.ha_enabled)
+            {
+                await new HaWizard(pool, a => RunHa(c, a)).ShowDialog(this);
+                return;
+            }
+            var plan = new HaPlanEditor(pool);
+            var ok = new Button { Content = "OK", IsDefault = true };
+            var cancel = new Button { Content = Dialogs.M(Messages.CANCEL), IsCancel = true };
+            var error = new TextBlock { Foreground = Brushes.Red, TextWrapping = TextWrapping.Wrap };
+            plan.Changed += () => { error.Text = plan.Error ?? ""; ok.IsEnabled = plan.Error == null; };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            var panel = new StackPanel { Spacing = 10, Margin = new Thickness(14, 12) };
+            panel.Children.Add(plan);
+            panel.Children.Add(error);
+            panel.Children.Add(buttons);
+            var w = new Window { Title = "HA restart priorities", Width = 760, SizeToContent = SizeToContent.Height, Content = panel, WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
+            ok.Click += async (_, _) =>
+            {
+                if (plan.Error != null) return;
+                // EditVmHaPrioritiesDialog: tolerating no failure is practically useless, so ask (No is the default)
+                if (plan.Ntol == 0 && !await Dialogs.Confirm(w, Messages.HIGH_AVAILABILITY, Messages.HA_NTOL_ZERO_QUERY, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION, cancelIsDefault: true))
+                    return;
+                RunHa(c, HaRules.SetPrioritiesAction(c, plan.Options(), plan.Ntol));
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(this);
+        }
+
+        /// <summary>HADisableCommand: Yes/No, then DisableHAAction.</summary>
+        private async void DisableHa(IXenConnection c)
+        {
+            var pool = c == null ? null : XenAdmin.Core.Helpers.GetPool(c);
+            if (!HaRules.CanDisable(pool, _haBusy.Contains(c))) return;
+            var (title, text) = HaRules.DisableConfirmation(pool);
+            if (await Dialogs.Confirm(this, title, text, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+                RunHa(c, HaRules.DisableAction(pool));
+        }
+
+        /// <summary>An HA action keeps the HA commands disabled until it ends, as FindActiveHaAction does.</summary>
+        private void RunHa(IXenConnection c, AsyncAction action)
+        {
+            _haBusy.Add(c);
+            action.Completed += _ => Dispatcher.UIThread.Post(() => { _haBusy.Remove(c); UpdateContent(); });
+            RunTracked(action);
         }
 
         /// <summary>DeletePoolCommand ("Make into standalone server"): DestroyPoolAction on a pool of one server.</summary>
