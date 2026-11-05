@@ -206,6 +206,50 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Host Networking tab: create a single-server private network (New Network wizard) and remove it.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void HostNetworkPrivateCreateRemove()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            const string name = VmName + "-private-net";
+            string netRef = null;
+            try
+            {
+                foreach (var old in c.Cache.Networks.Where(n => n.name_label == name))
+                    XenAPI.Network.destroy(session, old.opaque_ref);
+                var coordinator = NetworkRules.WizardHost(c.Cache.Hosts[0]);
+                Assert.IsNotNull(coordinator);
+                var create = new NetworkAction(c, NetworkRules.NewNetwork(name, "created by the Linux New Network wizard test", false, null), true);
+                Run(create);
+                Assert.IsTrue(create.Succeeded, create.Exception?.ToString());
+                var deadline = DateTime.Now.AddSeconds(60);
+                XenAPI.Network net;
+                while ((net = NetworkRules.HostNetworks(c).FirstOrDefault(n => n.name_label == name)) == null && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsNotNull(net, "the new network is listed on the Networking tab");
+                netRef = net.opaque_ref;
+                Assert.IsFalse(net.GetAutoPlug());
+                Assert.IsTrue(Details.Networking(coordinator).Rows.Any(r => r[0] == name));
+                Assert.IsTrue(NetworkRules.CanEditNetwork(coordinator, net));
+                Assert.IsTrue(NetworkRules.CanRemoveNetwork(coordinator, net).Enabled, "a private network without physical NICs can be removed");
+
+                var remove = new NetworkAction(c, net, false);
+                Run(remove);
+                Assert.IsTrue(remove.Succeeded, remove.Exception?.ToString());
+                netRef = null;
+            }
+            finally
+            {
+                if (netRef != null)
+                    try { XenAPI.Network.destroy(session, netRef); } catch { }
+                c.EndConnect();
+            }
+        }
+
         /// <summary>SR Storage tab: add an unattached disk on the SR, rescan, then delete it (SrStoragePage).</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void SrStorageTabAddRescanDelete()

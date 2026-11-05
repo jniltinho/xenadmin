@@ -37,6 +37,71 @@ namespace XenAdmin.Desktop.Tests
             Assert.IsTrue(cond(), what);
         }
 
+        /// <summary>
+        /// New Network wizard, External network: a VLAN on a standalone lab host, then the two hosts form a pool and a VLAN
+        /// is created on the pool (pool.create_VLAN_from_PIF puts it on every host). Both VLANs are removed; the pool is
+        /// kept for the storage tests. Needs the standalone lab (XCP_LAB_HOSTS=coordinator,member).
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void ExternalVlanOnHostThenPoolOnLab()
+        {
+            var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (lab == null || lab.Length != 2 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_LAB_HOSTS=coordinator,member and XCP_ALLOW_WRITE=1 required");
+            var coordinatorConn = ConnectionIntegrationTests.Connect(lab[0]);
+            // a rerun on the lab pool: the member answers HOST_IS_SLAVE, so it is connected only while standalone
+            var memberConn = Helpers.GetPool(coordinatorConn) == null ? ConnectionIntegrationTests.Connect(lab[1]) : null;
+            try
+            {
+                // a VLAN on a standalone host, as the wizard does from the host's Networking tab, then the New Pool dialog;
+                // a rerun on the lab pool goes straight to the pool part
+                var host = NetworkRules.WizardHost(Helpers.GetCoordinator(coordinatorConn));
+                if (memberConn != null && Helpers.GetPool(memberConn) == null)
+                {
+                    CreateAndRemoveVlan(coordinatorConn, host, 101, 1);
+                    Run(PoolRules.Create(host, new() { Helpers.GetCoordinator(memberConn) }, "lab-pool", "created by the desktop app test"), 10);
+                }
+                // the join restarts XAPI on the member and the coordinator's connection reconnects: wait until it is back
+                Until(() => coordinatorConn.IsConnected && coordinatorConn.CacheIsPopulated && coordinatorConn.Cache.Hosts.Length == 2
+                            && coordinatorConn.Cache.Hosts.All(h => h.IsLive()) && Helpers.GetPool(coordinatorConn)?.Name() == "lab-pool", 300, "pool of two, connected");
+                Thread.Sleep(TimeSpan.FromSeconds(20));
+                Until(() => coordinatorConn.IsConnected, 120, "coordinator connection stable");
+                var pool = Helpers.GetPool(coordinatorConn);
+                Assert.AreEqual(Helpers.GetCoordinator(coordinatorConn).opaque_ref, NetworkRules.WizardHost(pool).opaque_ref, "the pool's wizard offers the coordinator's NICs");
+                CreateAndRemoveVlan(coordinatorConn, pool, 102, 2);
+            }
+            finally
+            {
+                lock (ConnectionsManager.ConnectionsLock)
+                {
+                    ConnectionsManager.XenConnections.Remove(coordinatorConn);
+                    if (memberConn != null) ConnectionsManager.XenConnections.Remove(memberConn);
+                }
+                coordinatorConn.EndConnect();
+                memberConn?.EndConnect();
+            }
+        }
+
+        private static void CreateAndRemoveVlan(IXenConnection c, IXenObject owner, int vlan, int hosts)
+        {
+            var nic = NetworkRules.WizardNics(NetworkRules.WizardHost(owner)).First();
+            var inUse = NetworkRules.VlansInUse(nic);
+            Assert.AreEqual(vlan, NetworkRules.VlanFor(vlan, inUse), "VLAN free on " + nic.Name());
+            Assert.IsFalse(NetworkRules.ValidateVlan(vlan.ToString(), NetworkRules.MinVlan(c), inUse).Error);
+            var name = "xcpng-center-linux-test-vlan" + vlan;
+            Run(new NetworkAction(c, NetworkRules.NewNetwork(name, "created by the Linux New Network wizard test", false, 1500), nic, vlan), 3);
+            Until(() => NetworkRules.HostNetworks(c).Any(n => n.name_label == name && c.ResolveAll(n.PIFs).Count == hosts), 60, $"VLAN {vlan} on {hosts} host(s)");
+            var net = NetworkRules.HostNetworks(c).Single(n => n.name_label == name);
+            Assert.IsTrue(c.ResolveAll(net.PIFs).All(p => p.VLAN == vlan && !p.IsPhysical()));
+            var row = Details.Networking(owner).Rows.Single(r => r[0] == name);
+            Assert.AreEqual(vlan.ToString(), row[3], "VLAN column");
+            Assert.AreEqual(Messages.NO, row[4], "Auto column");
+            Assert.IsTrue(NetworkRules.CanRemoveNetwork(owner, net).Enabled, "a VLAN network can be removed");
+            System.Console.WriteLine($"VLAN {vlan} on {owner.GetType().Name} '{owner.Name()}': {string.Join(" | ", row)}");
+            Run(new NetworkAction(c, net, false), 3);
+            Until(() => NetworkRules.HostNetworks(c).All(n => n.name_label != name), 60, $"VLAN {vlan} removed");
+        }
+
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void NewPoolThenEjectOnLab()
         {

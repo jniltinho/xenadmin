@@ -582,6 +582,9 @@ namespace XenAdmin.Desktop
                 case SR _:
                     pages.Add(new NotPortedPage(Messages.ALERTS, "000_Alert2_h32bit_16"));
                     break;
+                case XenAPI.Network _:
+                    pages.Add(new NotPortedPage("Network Settings", "000_Network_h32bit_16"));
+                    break;
             }
             return pages;
         }

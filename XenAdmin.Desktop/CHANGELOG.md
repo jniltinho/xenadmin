@@ -12,6 +12,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   the Storage Volume and Changed Block Tracking columns when they apply.
 - Host and pool Storage tab: New SR, Reclaim freed space (with confirmation) and Properties.
 - The storage and network grids select rows with the keyboard (Up/Down, Enter) and open Properties on double click.
+- Host and pool Networking tab: Add Network (New Network wizard: External network on a VLAN and Single-Server
+  Private network; Bonded and SR-IOV listed, not yet available), Properties and Remove Network, with the Windows
+  columns (NIC, VLAN, Auto, Link Status, MAC, MTU, SR-IOV).
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).

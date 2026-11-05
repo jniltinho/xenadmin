@@ -124,7 +124,7 @@ case "${BACKEND}:${1:-}" in
   *:storage-up)
     : "${XCP_LAB_PASS:?set XCP_LAB_PASS (also the SMB password of user xcp)}"
     docker build -q -t xcp-lab-storage storage >/dev/null
-    mkdir -p "$WORK/nfs" "$WORK/smb" "$WORK/iscsi"
+    mkdir -p "$WORK/nfs/iso" "$WORK/smb" "$WORK/iscsi"   # nfs/iso: the NFS ISO library test
     docker rm -f xcp-lab-nfs xcp-lab-smb xcp-lab-iscsi >/dev/null 2>&1 || true
     # published on the host-only address only; ganesha needs privileges for its VFS file handles
     docker run -d --name xcp-lab-nfs --privileged -v "$WORK/nfs":/export \

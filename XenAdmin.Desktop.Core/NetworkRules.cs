@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using XenAdmin.Core;
@@ -147,6 +148,103 @@ namespace XenAdmin.Desktop
             if (pending != null)
                 return pending;
             return devices.FirstOrDefault();
+        }
+
+        // ---------- host and pool networks (NetworkList for a host or pool, NewNetworkWizard) ----------
+
+        /// <summary>NetworkList.BuildList: the visible networks, sorted.</summary>
+        public static List<XenAPI.Network> HostNetworks(IXenConnection c)
+        {
+            var list = c.Cache.Networks.Where(n => n.Show(false)).ToList();
+            list.Sort();
+            return list;
+        }
+
+        /// <summary>NetworkRow.NetworkName: bond members and hidden networks are marked.</summary>
+        public static string NetworkName(XenAPI.Network n) =>
+            n.IsMember() ? string.Format(Messages.NIC_BONDED_MEMBER, n.Name())
+            : !n.Show(false) ? string.Format(Messages.NIC_HIDDEN, n.Name())
+            : n.Name();
+
+        /// <summary>UpdateEnablement for a network: Properties (and Remove, unless it has a physical NIC).</summary>
+        public static bool CanEditNetwork(IXenObject owner, XenAPI.Network n) =>
+            n != null && !owner.Locked && !n.Locked && !n.IsMember() && !n.CreateInProgress() && !n.IsGuestInstallerNetwork();
+
+        /// <summary>
+        /// Remove Network, with its tooltip when disabled: a network on a physical NIC cannot be removed; deleting a bond
+        /// (DestroyBondCommand and its management-interface checks) is not ported yet.
+        /// </summary>
+        public static (bool Enabled, string Tooltip) CanRemoveNetwork(IXenObject owner, XenAPI.Network n)
+        {
+            if (n != null && n.Connection.ResolveAll(n.PIFs).Any(p => p.IsPhysical() && !p.IsBondNIC()))
+                return (false, Messages.TOOLTIP_REMOVE_PIF);
+            if (n != null && n.IsBond())
+                return (false, "Deleting a bond is not available in this version yet.");
+            return (CanEditNetwork(owner, n), null);
+        }
+
+        /// <summary>The host whose NICs the New Network wizard offers: the host, or the pool coordinator.</summary>
+        public static Host WizardHost(IXenObject owner) => owner as Host ?? Helpers.GetCoordinator(owner.Connection);
+
+        /// <summary>NetWName.PopulatePage: "New Network" for external networks, "New Private Network" otherwise, made unique.</summary>
+        public static string DefaultNetworkName(IXenConnection c, bool external) =>
+            Helpers.MakeUniqueName(external ? Messages.NEWNETWORK_NAME : Messages.NEWNETWORK_VNAME, c.Cache.Networks.Select(n => n.Name()).ToList());
+
+        /// <summary>NetWDetails.PopulatePage: the host's physical NICs that are not bond members.</summary>
+        public static List<PIF> WizardNics(Host host) =>
+            host.Connection.Cache.PIFs.Where(p => p.host.opaque_ref == host.opaque_ref && p.IsPhysical() && p.Show(false) && !p.IsBondMember())
+                .OrderBy(p => p.Name()).ToList();
+
+        /// <summary>NetWDetails.GetVLANList: the VLANs already used on this NIC's device (SR-IOV VLANs apart).</summary>
+        public static List<int> VlansInUse(PIF nic) =>
+            nic.Connection.Cache.PIFs.Where(p => p.device == nic.device && p.NetworkSriov() == null).Select(p => (int)p.VLAN).ToList();
+
+        /// <summary>NetWDetails (CA-72484, CA-19111): keep the VLAN if free on the NIC, else take the first free one from 1.</summary>
+        public static int VlanFor(int current, ICollection<int> inUse)
+        {
+            if (!inUse.Contains(current))
+                return current;
+            for (int i = 1; i <= 4094; i++)
+                if (!inUse.Contains(i))
+                    return i;
+            return current;
+        }
+
+        public static int MinVlan(IXenConnection c) => Helpers.VLAN0Allowed(c) ? 0 : 1;
+
+        /// <summary>NetWDetails.ValidateVLANValue: (error, message); VLAN 0 is allowed with an information message.</summary>
+        public static (bool Error, string Message) ValidateVlan(string text, int min, ICollection<int> inUse)
+        {
+            if (!int.TryParse((text ?? "").Trim(), out var vlan))
+                return (true, Messages.INVALID_NUMBER);
+            if (vlan < min || vlan > 4094)
+                return (true, string.Format(Messages.NETW_DETAILS_VLAN_RANGE, min, 4094));
+            if (inUse.Contains(vlan))
+                return (true, Messages.NETW_DETAILS_VLAN_NUMBER_IN_USE);
+            return (false, vlan == 0 ? Messages.NETW_VLAN_ZERO : null);
+        }
+
+        /// <summary>NetWDetails: the MTU goes from 1500 to the NIC's MTU (at most 9216).</summary>
+        public static int MaxMtu(PIF nic) => (int)Math.Min(nic?.MTU ?? XenAPI.Network.MTU_MAX, XenAPI.Network.MTU_MAX);
+
+        /// <summary>NetWDetails.ValidateMtuValue: (error, message); the allowed range is always shown.</summary>
+        public static (bool Error, string Message) ValidateMtu(string text, int max)
+        {
+            var min = (int)XenAPI.Network.MTU_MIN;
+            var range = min == max ? string.Format(Messages.ALLOWED_MTU_VALUE, min) : string.Format(Messages.ALLOWED_MTU_RANGE, min, max);
+            if (!int.TryParse((text ?? "").Trim(), out var mtu))
+                return (true, Messages.INVALID_NUMBER);
+            return (mtu < min || mtu > max, range);
+        }
+
+        /// <summary>NewNetworkWizard.CreateNetworkObject (external and single-server private networks).</summary>
+        public static XenAPI.Network NewNetwork(string name, string description, bool autoPlug, int? mtu)
+        {
+            var n = new XenAPI.Network { name_label = name.Trim(), name_description = description ?? "", managed = true };
+            n.SetAutoPlug(autoPlug);
+            if (mtu.HasValue)
+                n.MTU = mtu.Value;
+            return n;
         }
 
         /// <summary>The Limit column of the VM Networking tab (VifRow).</summary>

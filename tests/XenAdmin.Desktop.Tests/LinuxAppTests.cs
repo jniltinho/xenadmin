@@ -294,6 +294,28 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void HostNetworkRules()
+        {
+            // NetWDetails: VLAN range, in use, VLAN 0 information; MTU range shown always
+            Assert.AreEqual((true, Messages.INVALID_NUMBER), NetworkRules.ValidateVlan("x", 1, new int[0]));
+            Assert.AreEqual((true, string.Format(Messages.NETW_DETAILS_VLAN_RANGE, 1, 4094)), NetworkRules.ValidateVlan("0", 1, new int[0]));
+            Assert.AreEqual((true, Messages.NETW_DETAILS_VLAN_NUMBER_IN_USE), NetworkRules.ValidateVlan("5", 1, new[] { -1, 5 }));
+            Assert.AreEqual((false, Messages.NETW_VLAN_ZERO), NetworkRules.ValidateVlan("0", 0, new[] { -1 }));
+            Assert.AreEqual((false, (string)null), NetworkRules.ValidateVlan("12", 0, new[] { -1 }));
+            Assert.AreEqual(0, NetworkRules.VlanFor(0, new[] { -1 }), "a free VLAN is kept");
+            Assert.AreEqual(3, NetworkRules.VlanFor(1, new[] { -1, 1, 2 }), "a used VLAN moves to the first free one");
+            var range = string.Format(Messages.ALLOWED_MTU_RANGE, 1500, 9000);
+            Assert.AreEqual((false, range), NetworkRules.ValidateMtu("9000", 9000));
+            Assert.AreEqual((true, range), NetworkRules.ValidateMtu("9216", 9000));
+            Assert.AreEqual((true, string.Format(Messages.ALLOWED_MTU_VALUE, 1500)), NetworkRules.ValidateMtu("1400", 1500));
+            Assert.AreEqual(9216, NetworkRules.MaxMtu(new PIF { MTU = 65000 }));
+
+            // CreateNetworkObject
+            var n = NetworkRules.NewNetwork(" lab ", "d", false, 9000);
+            Assert.AreEqual(("lab", "d", true, 9000L, false), (n.name_label, n.name_description, n.managed, n.MTU, n.GetAutoPlug()));
+        }
+
+        [TestMethod]
         public void ServerAddressParsing()
         {
             Assert.IsTrue(ServerAddress.TryParse(" xcp1.lan ", out var h, out var p)); Assert.AreEqual(("xcp1.lan", 443), (h, p));

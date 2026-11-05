@@ -409,13 +409,29 @@ namespace XenAdmin.Desktop
             }
             if (o is Host || o is Pool)
             {
-                var t = new Table { Title = "Networks", Headers = new[] { "Name", "Description", "NIC", "VLAN", "MAC", "MTU" } };
-                var host = o as Host ?? Helpers.GetCoordinator(o.Connection);
-                foreach (var net in o.Connection.Cache.Networks.Where(n => n.Show(false)).OrderBy(n => n.Name()))
+                // NetworkRow: the SR-IOV column from Kolkata on; the link status of the host's PIF, or of the network in a pool
+                var sriov = Helpers.KolkataOrGreater(o.Connection);
+                var headers = new List<string> { "Name", "Description", "NIC", "VLAN", "Auto", "Link Status", "MAC", "MTU" };
+                if (sriov) headers.Add("SR-IOV");
+                var t = new Table { Title = "Networks", Fill = 1, Headers = headers.ToArray() };
+                var host = o as Host;
+                foreach (var net in NetworkRules.HostNetworks(o.Connection))
                 {
-                    var pif = o.Connection.ResolveAll(net.PIFs).FirstOrDefault(p => host == null || p.host.opaque_ref == host.opaque_ref);
-                    t.Rows.Add(new[] { net.Name(), net.Description(), pif?.Name() ?? "", pif == null || pif.VLAN < 0 ? "-" : pif.VLAN.ToString(),
-                        pif?.MAC ?? "", net.MTU.ToString() });
+                    var pif = Helpers.FindPIF(net, host);
+                    var row = new List<string>
+                    {
+                        NetworkRules.NetworkName(net), net.Description(), Helpers.GetName(pif), Helpers.VlanString(pif),
+                        net.GetAutoPlug() ? Messages.YES : Messages.NO,
+                        o is Pool ? net.LinkStatusString() : pif == null ? Messages.NONE : pif.LinkStatusString(),
+                        pif != null && pif.IsPhysical() ? pif.MAC : Messages.SPACED_HYPHEN,
+                        net.CanUseJumboFrames() ? net.MTU.ToString() : Messages.SPACED_HYPHEN
+                    };
+                    if (sriov)
+                    {
+                        var ns = pif == null ? null : pif.Connection.Resolve(pif.NetworkSriov());
+                        row.Add(ns == null ? Messages.NO : ns.requires_reboot ? Messages.HOST_NEEDS_REBOOT_ENABLE_SRIOV : Messages.YES);
+                    }
+                    t.Rows.Add(row.ToArray());
                 }
                 return t;
             }

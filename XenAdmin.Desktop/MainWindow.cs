@@ -612,7 +612,7 @@ namespace XenAdmin.Desktop
                     var nt = Details.Networking(o);
                     return Body(nt.Title, o is VM vmNetworking
                         ? new VmNetworkView(vmNetworking, RunTracked)
-                        : Views.GridPage(nt, null, "Add Network...", "Properties", "Remove Network"));
+                        : new HostNetworkView(o, RunTracked, ShowProperties));
                 case "Console":
                     return ConsoleView.For(o as VM);
                 case "Performance":
