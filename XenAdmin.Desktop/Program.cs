@@ -12,6 +12,7 @@ namespace XenAdmin.Desktop
     {
         public override void Initialize()
         {
+            Name = "XCP-ng Center"; // the macOS menu bar shows it instead of "Avalonia Application"
             Styles.Add(new FluentTheme());
             // the WinForms app has a single light look
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;

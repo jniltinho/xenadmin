@@ -205,5 +205,25 @@ namespace XenAdmin.Desktop.Tests
             Assert.AreEqual("MB", PerformanceRules.AxisUnit(PerformanceRules.Unit.Bytes, 512L << 20).Label);
             Assert.AreEqual("kB/s", PerformanceRules.AxisUnit(PerformanceRules.Unit.BytesPerSecond, 1024).Label);
         }
+    
+
+        [TestMethod]
+        public void AlertPriorityAndIcon()
+        {
+            Assert.AreEqual(XenAdmin.Alerts.AlertPriority.Priority5, NotificationRules.PriorityOf(new Message { priority = 5 }));
+            Assert.AreEqual(XenAdmin.Alerts.AlertPriority.Unknown, NotificationRules.PriorityOf(new Message { priority = 42 }), "out of range");
+            Assert.AreEqual(XenAdmin.Alerts.AlertPriority.Unknown, NotificationRules.PriorityOf(new Message { priority = -1 }));
+            Assert.AreEqual("alert1_16", NotificationRules.Icon(XenAdmin.Alerts.AlertPriority.Priority1));
+            Assert.AreEqual("alert6_16", NotificationRules.Icon(XenAdmin.Alerts.AlertPriority.Unknown));
+            Assert.IsFalse(NotificationRules.CanDismiss(new Message()), "no session, no dismiss");
+
+            // FailedLoginAttemptAlert: totals, then one line per known source
+            var text = NotificationRules.FailedLoginText("<body><total>5</total><unknown>2</unknown><known><number>3</number><ip>10.0.0.9</ip><username>root</username></known></body>");
+            StringAssert.Contains(text, "5");
+            StringAssert.Contains(text, "- ");
+            StringAssert.Contains(text, "10.0.0.9");
+            StringAssert.Contains(text, "root");
+            Assert.IsNull(NotificationRules.FailedLoginText("not xml"));
+        }
     }
 }

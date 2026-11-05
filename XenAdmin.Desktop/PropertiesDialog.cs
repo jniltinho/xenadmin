@@ -337,6 +337,80 @@ namespace XenAdmin.Desktop
     }
 
     /// <summary>BootOptionsEditPage: autostart, HVM boot order, PV boot device and parameters.</summary>
+    /// <summary>HomeServerEditPage with its AffinityPicker: no home server (shared storage) or one of the live servers.</summary>
+    public sealed class HomeServerPage : EditPage
+    {
+        private readonly VM _vm;
+        private readonly Host _orig;
+        private readonly RadioButton _none = new RadioButton { GroupName = "home" };
+        private readonly RadioButton _server = new RadioButton { Content = Dialogs.M("Place the VM on this &server:"), GroupName = "home" };
+        private readonly ListBox _hosts = new ListBox { Height = 150, BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Margin = new Thickness(20, 4, 0, 0) };
+
+        public override string Title => Messages.HOME_SERVER;
+        public override string Icon => "000_ServerHome_h32bit_16";
+
+        public HomeServerPage(VM vm)
+        {
+            _vm = vm;
+            _orig = vm.Connection.Resolve(vm.affinity);
+            // AutoHeightRadioButton: the long text wraps
+            _none.Content = new TextBlock { Text = (Helpers.HasFullyConnectedSharedStorage(vm.Connection)
+                ? Messages.AFFINITY_PICKER_DYNAMIC_SHARED_SR : Messages.AFFINITY_PICKER_DYNAMIC_NOT_SHARED_SR).Replace("&", ""), TextWrapping = TextWrapping.Wrap };
+            _none.IsEnabled = VmRules.CanHaveNoHomeServer(vm);
+
+            var rows = new List<Control>();
+            foreach (var host in vm.Connection.Cache.Hosts.OrderBy(h => h))
+            {
+                var live = host.IsLive();
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("22,*,Auto"), Margin = new Thickness(0, 1) };
+                row.Children.Add(Views.Icon(IconNames.For(host), 16));
+                var name = new TextBlock { Text = host.Name(), Margin = new Thickness(4, 0) };
+                var reason = new TextBlock { Text = live ? host.HostMemoryString() : Messages.HOMESERVER_PICKER_HOST_NOT_LIVE, Foreground = Brushes.Gray };
+                Grid.SetColumn(name, 1);
+                Grid.SetColumn(reason, 2);
+                row.Children.Add(name);
+                row.Children.Add(reason);
+                // the item itself is disabled, so neither the mouse nor the keyboard can pick a server that is down
+                rows.Add(new ListBoxItem { Content = row, Tag = host, IsEnabled = live });
+            }
+            _hosts.ItemsSource = rows;
+            // SelectRadioButtons: the home server when it can be selected, else "no home server" when allowed
+            var current = rows.FirstOrDefault(r => r.IsEnabled && ((Host)r.Tag).opaque_ref == _orig?.opaque_ref);
+            if (current == null && _none.IsEnabled)
+                _none.IsChecked = true;
+            else
+            {
+                _server.IsChecked = true;
+                _hosts.SelectedItem = current;
+            }
+            _hosts.IsEnabled = _server.IsChecked == true;
+
+            _server.IsCheckedChanged += (_, _) =>
+            {
+                _hosts.IsEnabled = _server.IsChecked == true;
+                if (_hosts.IsEnabled && _hosts.SelectedItem == null)
+                    _hosts.SelectedItem = rows.FirstOrDefault(r => r.IsEnabled);
+                OnChanged();
+            };
+            _hosts.SelectionChanged += (_, _) => OnChanged();
+
+            var panel = new StackPanel { Spacing = 6 };
+            panel.Children.Add(Rubric("When you nominate a home server for a virtual machine, the virtual machine will always be started up on that server if it is available. If this is not possible, then an alternate server within the same pool will be selected automatically."));
+            panel.Children.Add(_none);
+            panel.Children.Add(_server);
+            panel.Children.Add(_hosts);
+            View = panel;
+        }
+
+        // _server, not _none: the group unchecks _none only after _server's IsCheckedChanged has run
+        private Host Selected => _server.IsChecked == true ? (_hosts.SelectedItem as Control)?.Tag as Host : null;
+
+        public override string SubText => Selected?.Name() ?? (_server.IsChecked == true ? _orig?.Name() : null) ?? Messages.NONE_DEFINED;
+        // a home server that is down stays as it is until the user picks another one
+        public override bool HasChanged => !(_server.IsChecked == true && Selected == null) && Selected?.opaque_ref != _orig?.opaque_ref;
+        public override AsyncAction SaveSettings() => VmRules.SetHomeServer(_vm, Selected);
+    }
+
     public sealed class BootPage : EditPage
     {
         private readonly VM _vm;
@@ -491,7 +565,8 @@ namespace XenAdmin.Desktop
                     pages.Add(new BootPage(vm));
                     pages.Add(new NotPortedPage(Messages.START_UP_OPTIONS, "000_RebootVM_h32bit_16"));
                     pages.Add(new NotPortedPage(Messages.ALERTS, "000_Alert2_h32bit_16"));
-                    pages.Add(new NotPortedPage(Messages.HOME_SERVER, "000_ServerHome_h32bit_16"));
+                    if (!Helpers.WlbEnabledAndConfigured(vm.Connection)) // WLB places the VMs itself
+                        pages.Add(new HomeServerPage(vm));
                     pages.Add(new NotPortedPage("USB", "usb_16"));
                     pages.Add(new NotPortedPage(Messages.ADVANCED_OPTIONS, "002_Configure_h32bit_16"));
                     break;

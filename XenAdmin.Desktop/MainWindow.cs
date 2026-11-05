@@ -1,3 +1,4 @@
+using System.Globalization;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -32,6 +33,16 @@ namespace XenAdmin.Desktop
         private readonly List<string> _history = new List<string>();
         private int _historyIndex = -1;
         private bool _showEvents;
+        private bool _showAlerts = true; // Notifications: Alerts or Events
+        private Border _leftPane;
+        private readonly StackPanel _statusAlerts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        private NotificationsView _alertsView;
+        private ListBox _notificationList;
+        private readonly Border _alertBadge = new Border
+        {
+            Background = Brush.Parse("#C00000"), CornerRadius = new CornerRadius(9), MinWidth = 18, Height = 18, Padding = new Thickness(5, 0), IsVisible = false,
+            VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Foreground = Brushes.White, FontWeight = FontWeight.Bold, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        };
         private string _selectedKey = "<root>";
         private string _treeSignature;
         private string _tabsSignature;
@@ -139,7 +150,10 @@ namespace XenAdmin.Desktop
             navButtons.Children.Add(NavButton("objects_24", "Objects", false, null));
             navButtons.Children.Add(NavButton("org_view_24", "Organization Views", false, null));
             navButtons.Children.Add(NavButton("saved_searches_24", "Saved Searches", false, null));
-            navButtons.Children.Add(NavButton("notif_none_24", "Notifications", true, () => { _showEvents = true; UpdateContent(); }));
+            // NavigationPane: the Notifications button carries the alert count in a red badge
+            var notifications = NavButton("notif_none_24", "Notifications", true, () => { _showEvents = true; UpdateContent(); });
+            ((StackPanel)((Button)notifications).Content).Children.Add(_alertBadge);
+            navButtons.Children.Add(notifications);
 
             var left = new DockPanel();
             DockPanel.SetDock(searchRow, Dock.Top);
@@ -147,7 +161,8 @@ namespace XenAdmin.Desktop
             left.Children.Add(new Border { BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Child = searchRow, Margin = new Thickness(2, 2, 2, 2) });
             DockPanel.SetDock(left.Children[0], Dock.Top);
             left.Children.Add(navButtons);
-            left.Children.Add(new Border { BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Background = Brushes.White, Margin = new Thickness(2, 0, 2, 4), Child = _tree });
+            _leftPane = new Border { BorderBrush = Brush.Parse("#828790"), BorderThickness = new Thickness(1), Background = Brushes.White, Margin = new Thickness(2, 0, 2, 4), Child = _tree };
+            left.Children.Add(_leftPane);
 
             var right = new DockPanel { Margin = new Thickness(2, 2, 2, 2) };
             DockPanel.SetDock(_titleBand, Dock.Top);
@@ -170,7 +185,16 @@ namespace XenAdmin.Desktop
 
             var root = new DockPanel();
             DockPanel.SetDock(top, Dock.Top);
-            var statusBar = new Border { BorderBrush = Brush.Parse("#D7D7D7"), BorderThickness = new Thickness(0, 1, 0, 0), Child = _status };
+            // statusButtonAlerts: alert icon and count at the right, opens the alerts
+            var alertsButton = new Button { Content = _statusAlerts, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(6, 0), IsVisible = false };
+            alertsButton.Click += (_, _) => { _showEvents = true; _showAlerts = true; UpdateContent(); };
+            _statusAlerts.Children.Add(Views.Icon("000_Alert2_h32bit_16", 16));
+            _statusAlerts.Children.Add(new TextBlock { VerticalAlignment = VerticalAlignment.Center });
+            var statusRow = new DockPanel();
+            DockPanel.SetDock(alertsButton, Dock.Right);
+            statusRow.Children.Add(alertsButton);
+            statusRow.Children.Add(_status);
+            var statusBar = new Border { BorderBrush = Brush.Parse("#D7D7D7"), BorderThickness = new Thickness(0, 1, 0, 0), Child = statusRow };
             DockPanel.SetDock(statusBar, Dock.Bottom);
             root.Children.Add(top);
             root.Children.Add(statusBar);
@@ -483,12 +507,14 @@ namespace XenAdmin.Desktop
             _migrateMenu.IsEnabled = vm != null && MigrateRules.CanMigrate(vm);
             _deleteVmMenu.IsEnabled = vm != null && VmRules.CanDeleteVm(vm);
 
+            UpdateAlertCount();
             if (_showEvents)
             {
-                _titleBand.Content = Views.TitleBand("notif_none_16", "Notifications", null);
-                SetTabs("events", () => new[] { Tab("Events", new DockPanel { Children = { Views.TabHeader("Events"), new ListBox { ItemsSource = _events } } }) });
+                ShowNotifications();
                 return;
             }
+            if (_leftPane.Child != _tree)
+                _leftPane.Child = _tree;
 
             var user = c?.Session == null ? null : $"Logged in as:  {(c.Session.IsLocalSuperuser ? "Local root account" : c.Session.UserFriendlyName())}";
             if (node == null || node.IsRoot)
@@ -925,6 +951,66 @@ namespace XenAdmin.Desktop
         }
 
         private void SetStatus(string text) => _status.Text = text;
+
+        /// <summary>The red badge of the Notifications button (MainWindow.UpdateAlertCount).</summary>
+        private void UpdateAlertCount()
+        {
+            var count = NotificationRules.Count(_connections);
+            ((TextBlock)_alertBadge.Child).Text = count.ToString(CultureInfo.CurrentCulture);
+            _alertBadge.IsVisible = count > 0;
+            ((TextBlock)_statusAlerts.Children[1]).Text = ((TextBlock)_alertBadge.Child).Text;
+            ((Control)_statusAlerts.Parent).IsVisible = count > 0;
+        }
+
+        /// <summary>NotificationsView: the left pane lists Alerts and Events; the right shows the chosen one.</summary>
+        private void ShowNotifications()
+        {
+            if (_alertsView == null)
+            {
+                _alertsView = new NotificationsView(() => _connections, RunTracked);
+                _alertsView.Changed += () => { if (_showEvents && _showAlerts) UpdateContent(); };
+            }
+            // the grid refreshes only while it is shown
+            if (_showAlerts)
+                _alertsView.Refresh();
+            var alertsItem = $"Alerts ({(_showAlerts ? _alertsView.Total : NotificationRules.Count(_connections))})";
+            if (_notificationList == null)
+            {
+                _notificationList = new ListBox { Margin = new Thickness(2) };
+                _notificationList.SelectionChanged += (_, _) =>
+                {
+                    if (_notificationList.SelectedIndex < 0) return;
+                    _showAlerts = _notificationList.SelectedIndex == 0;
+                    UpdateContent();
+                };
+            }
+            var items = new List<Control>();
+            foreach (var (icon, text) in new[] { ("000_Alert2_h32bit_16", alertsItem), ("notif_events_16", "Events") })
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(6, 6) };
+                row.Children.Add(Views.Icon(icon, 16));
+                row.Children.Add(new TextBlock { Text = text });
+                items.Add(row);
+            }
+            var index = _showAlerts ? 0 : 1;
+            if (_notificationList.ItemCount != 2 || !(_notificationList.Items[0] is StackPanel first && ((TextBlock)first.Children[1]).Text == alertsItem))
+                _notificationList.ItemsSource = items;
+            if (_notificationList.SelectedIndex != index)
+                _notificationList.SelectedIndex = index;
+            if (_leftPane.Child != _notificationList)
+                _leftPane.Child = _notificationList;
+
+            if (_showAlerts)
+            {
+                _titleBand.Content = Views.TitleBand("000_Alert2_h32bit_16", alertsItem, _alertsView.FiltersText);
+                SetTabs("alerts", () => new[] { Tab("Alerts", _alertsView) });
+            }
+            else
+            {
+                _titleBand.Content = Views.TitleBand("notif_events_16", "Events", null);
+                SetTabs("events", () => new[] { Tab("Events", new DockPanel { Children = { Views.TabHeader("Events"), new ListBox { ItemsSource = _events } } }) });
+            }
+        }
 
         /// <summary>Asks about certificates rejected during the last handshake; true if the user trusted at least one.</summary>
         private async System.Threading.Tasks.Task<bool> ResolvePendingCertificates()

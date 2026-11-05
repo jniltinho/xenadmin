@@ -33,6 +33,16 @@ XCP-ng Center is written mostly in C#.
 
 ![XCP-ng Center Screenshot](branding-xcp-ng/Images/XCP-ng_Center_Screenshot.png)
 
+Linux and macOS (preview)
+-------------------------
+
+[`XenAdmin.Desktop`](XenAdmin.Desktop/README.md) is a cross-platform port of XCP-ng Center (Avalonia, .NET 10) that
+reuses the same XenModel/XenAPI core and the original icons and texts. It runs on Linux (AppImage or tarball) and
+macOS (one universal app for Apple Silicon and Intel): servers and pools, the VM console with SSH and Remote Desktop,
+VM life cycle and storage, New Pool, NFS/SMB storage, live migration, server commands and maintenance mode,
+Performance graphs and Notifications. Downloads are the `linux-v*` releases; build with `make appimage` / `make macos`
+(only Docker and make needed).
+
 Contributions
 -------------
 

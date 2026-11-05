@@ -1,9 +1,9 @@
-# Build image for the Linux desktop app: .NET SDK + AppImage tooling (pinned).
+# Build image for the desktop app: .NET SDK, AppImage tooling (pinned) and zip for the macOS app.
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 ARG APPIMAGETOOL_VERSION=1.9.1
 ARG APPIMAGE_RUNTIME_VERSION=20251108
 RUN apt-get update \
- && apt-get install -y --no-install-recommends file desktop-file-utils make \
+ && apt-get install -y --no-install-recommends file desktop-file-utils make zip \
  && rm -rf /var/lib/apt/lists/* \
  && curl -fsSL -o /usr/local/bin/appimagetool \
       https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage \

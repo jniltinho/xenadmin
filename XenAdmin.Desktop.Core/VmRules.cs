@@ -53,6 +53,15 @@ namespace XenAdmin.Desktop
             return sr == null ? null : new VMCopyAction(vm, vm.GetStorageHost(false), sr, name.Trim(), description ?? "");
         }
 
+        /// <summary>AffinityPicker: "no home server" needs shared storage, unless the VM has no home server already.</summary>
+        public static bool CanHaveNoHomeServer(VM vm) =>
+            Helpers.HasFullyConnectedSharedStorage(vm.Connection) || vm.Connection.Resolve(vm.affinity) == null;
+
+        /// <summary>HomeServerEditPage.SaveSettings: VM.set_affinity, the null reference for no home server.</summary>
+        public static AsyncAction SetHomeServer(VM vm, Host host) =>
+            new DelegatedAsyncAction(vm.Connection, Messages.ACTION_CHANGE_HOME_SERVER, string.Format(Messages.ACTION_CHANGING_HOME_SERVER_FOR, vm), null,
+                session => VM.set_affinity(session, vm.opaque_ref, host?.opaque_ref ?? Helper.NullOpaqueRef), true, "vm.set_affinity");
+
         /// <summary>BootOptionsEditPage (PV): the CD is bootable, or only the lowest numbered disk (CA-47457).</summary>
         public static AsyncAction PvBootableAction(VM vm, bool fromCd) =>
             new DelegatedAsyncAction(vm.Connection, "Change VBDs bootable", "Change VBDs bootable", null, session =>

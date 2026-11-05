@@ -61,7 +61,7 @@
 - [x] 7.3 Eventos: duplo clique (conectar/iniciar/retomar), menu de contexto com os comandos e textos originais, diálogos "Connecting to…" e "Connect to Server", confirmações de operações forçadas, aba lembrada por objeto
 - [x] 7.4 Abas na ordem original; as não portadas aparecem desabilitadas
 - [x] 7.5 Diálogo Properties: páginas General (nome, descrição, pasta via "Change Folder", tags via "Edit Tags", IQN do host), CPU (vCPUs, topologia, prioridade) e Boot Options (autostart, ordem de boot HVM, dispositivo/parâmetros PV), salvando como o original (`SaveChangesAction` no clone + actions das páginas em `MultipleAction`, objeto travado); teste de integração de escrita no 110
-- [ ] 7.5b Páginas restantes do Properties (Custom Fields, Start Options/HA, Alerts, Home Server, USB, Advanced, Multipathing, Log Destination) — hoje listadas desabilitadas
+- [ ] 7.5b Páginas restantes do Properties (Custom Fields, Start Options/HA, Alerts, USB, Advanced, Multipathing, Log Destination) — hoje listadas desabilitadas
 - [x] 7.5c Controles com o visual do WinForms: botões 75×23 (borda azul no padrão), TextBox/ComboBox 23 px, checkbox/radio de 13 px; "Connect to Server" com grupo "User login credentials"
 - [x] 7.5d `Folders.InitFolders()` na inicialização (mantém `IXenObject.Path`; sem isso pastas apareciam como <None>)
 - [x] 7.6a Aba Snapshots (lista, Take Snapshot/Revert/Delete/Properties, detalhes) e aba Search (overview pool→hosts→VMs→templates com métricas ao vivo do `MetricUpdater`); testes: snapshot→revert→delete no 110 e métricas RRD no pool .236
@@ -77,7 +77,8 @@
 - [x] 7.8e Console: scancodes para HVM (QEMU extended key event), keysyms com fallback US para PV; logout da sessão do console removido
 - [x] 7.8f Console: "Launch SSH Console" (terminal do sistema com OpenSSH) e "Turn on / Switch to Remote Desktop" (cliente RDP do sistema: FreeRDP no terminal ou Remmina; mstsc no Windows; app RDP no macOS), com as regras do VNCTabView; reconexão do console corrigida
 - [ ] 7.8 Wizards: Import/Export, demais tipos de SR (iSCSI, HBA, ISO libraries)
-- [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)
+- [x] 7.9a Notifications > Alerts (severidade, texto expansível, filtros por severidade e servidor, Dismiss/Dismiss All, contador no botão e no status bar) e Events
+- [ ] 7.9b Objects, Organization Views e Saved Searches; filtro por data e Export dos alertas
 - [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico
 
 ## 8. Modularização para outros sistemas
@@ -85,4 +86,6 @@
 - [x] 8.1 Renomear `XenAdmin.Linux` → `XenAdmin.Desktop` e `tests/XenModel.Linux.Tests` → `tests/XenAdmin.Desktop.Tests`
 - [x] 8.2 `XenAdmin.Desktop.Core` sem UI: árvore, detalhes, regras dos comandos, defaults do New VM, certificados e configuração; UI só consulta
 - [x] 8.3 Seam `IPlatformServices` (diretório de configuração por SO, cofre de senhas) com testes por plataforma
-- [ ] 8.4 Publicar e empacotar para macOS (`osx-arm64`, `.app`), FreeBSD e Windows (`win-x64`) — fora do escopo atual
+- [x] 8.4a macOS universal: `make macos` publica `osx-arm64` e `osx-x64` num único `XCP-ng Center.app` (launcher escolhe a CPU, Info.plist, ícone) e gera `xcp-ng-center-<ver>_macos_universal.zip`; job no workflow e asset do release; testado no macOS 15 (x86_64, KVM)
+- [x] 8.4b Página Home Server do Properties (AffinityPicker: sem servidor com storage compartilhado, ou um servidor vivo; `VM.set_affinity`), testada no pool KVM
+- [ ] 8.4c Assinatura e notarização do app macOS (precisa de Mac com Developer ID); FreeBSD e Windows (`win-x64`) — fora do escopo atual

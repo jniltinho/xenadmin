@@ -1,0 +1,5 @@
+#!/bin/sh
+# Universal app: runs the build for this Mac's CPU (Apple Silicon or Intel), also when started under Rosetta.
+dir=$(cd "$(dirname "$0")" && pwd)
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then arch=arm64; else arch=x64; fi
+exec "$dir/$arch/xcp-ng-center" "$@"

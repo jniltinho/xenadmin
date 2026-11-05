@@ -1,6 +1,6 @@
 ---
 name: create-release
-description: Cut a release of the XCP-ng Center desktop app (Linux) on GitHub with the gh CLI — CHANGELOG, checks, the linux-v* tag, the release workflow (tarball, AppImage, SHA256SUMS) and its verification. Use when asked to release, tag or publish a version of the desktop app.
+description: Cut a release of the XCP-ng Center desktop app (Linux and macOS) on GitHub with the gh CLI — CHANGELOG, checks, the linux-v* tag, the release workflow (tarball, AppImage, macOS universal zip, SHA256SUMS) and its verification. Use when asked to release, tag or publish a version of the desktop app.
 ---
 
 # Releasing the XCP-ng Center desktop app (GitHub, gh CLI)
@@ -9,7 +9,7 @@ Adapted from the `create-release` skill of github.com/jniltinho/ad-manager.
 
 The repository is **github.com/jniltinho/xenadmin**. A release is: bump `XenAdmin.Desktop/CHANGELOG.md`, commit,
 push the branch, wait for its CI, push the tag. The tag `linux-vX.Y.Z` starts `.github/workflows/linux.yml`, which runs
-the unit tests and the net481 build of the core again, builds the self-contained Linux tarball and the AppImage,
+the unit tests and the net481 build of the core again, builds the self-contained Linux tarball, the AppImage and the universal macOS app,
 smoke-tests the AppImage under Xvfb and publishes a GitHub **pre-release** with the notes of that version's section in
 `XenAdmin.Desktop/CHANGELOG.md` and one `SHA256SUMS`.
 
@@ -71,7 +71,7 @@ Omit empty sections.
 ### 4. Check, commit, push, wait for the CI
 
 ```bash
-make test && make test-win && make appimage && make smoke
+make test && make test-win && make appimage && make smoke && make macos
 git add -A && git diff --cached --name-only        # nothing from _output/, dist/, .env, screenshots
 git commit -m "release: linux-vX.Y.Z"
 git push origin "$BRANCH"
@@ -101,7 +101,8 @@ If a job fails: `gh run view --repo "$REPO" "$RUN" --log-failed`, fix on the bra
 gh release view linux-vX.Y.Z --repo "$REPO" --json name,isPrerelease,assets -q '.name, .isPrerelease, (.assets[].name)'
 ```
 
-Expect: `xcp-ng-center-X.Y.Z-linux-x64.tar.gz`, `xcp-ng-center-X.Y.Z-x86_64.AppImage` and `SHA256SUMS`.
+Expect: `xcp-ng-center-X.Y.Z-linux-x64.tar.gz`, `xcp-ng-center-X.Y.Z-x86_64.AppImage`,
+`xcp-ng-center-X.Y.Z_macos_universal.zip` and `SHA256SUMS`.
 
 ### 6b. Format the GitHub release notes (rustXterm style)
 
@@ -124,6 +125,7 @@ the previous tag.
 ## 📦 Downloads
 - `xcp-ng-center-X.Y.Z-x86_64.AppImage` — desktop app for Linux (any x86_64 desktop with X11 or XWayland; `chmod +x` and run)
 - `xcp-ng-center-X.Y.Z-linux-x64.tar.gz` — the same app as a self-contained folder (no .NET install needed)
+- `xcp-ng-center-X.Y.Z_macos_universal.zip` — desktop app for macOS (universal: Apple Silicon and Intel; unsigned, run `xattr -dr com.apple.quarantine "XCP-ng Center.app"` once)
 - `SHA256SUMS` — SHA-256 checksums of the files above
 
 **Full Changelog**: https://github.com/jniltinho/xenadmin/compare/$LAST...linux-vX.Y.Z

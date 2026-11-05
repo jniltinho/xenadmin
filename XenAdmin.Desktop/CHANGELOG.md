@@ -20,6 +20,12 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   zoom from 10 minutes to 1 year, and the VM lifecycle events.
 - Console: Launch SSH Console (the desktop's terminal with OpenSSH) and Turn on / Switch to Remote Desktop (the
   desktop's RDP client: FreeRDP in a terminal or Remmina on Linux, mstsc on Windows, the RDP app on macOS).
+- Notifications > Alerts: the servers' alerts with severity, expandable text, server/pool and date; filters by
+  severity and server; Dismiss, Dismiss All and Dismiss Selected; the count on the Notifications button and in the
+  status bar.
+- Properties > Home Server: no home server (with shared storage) or one of the live servers of the pool.
+- macOS: one universal app for Apple Silicon and Intel (`make macos`, `xcp-ng-center-<ver>_macos_universal.zip`),
+  built in the Linux container and attached to the releases.
 - Nested XCP-ng lab in VirtualBox (`tools/vagrant/xcp-ng-lab`) for pool and write tests.
 
 ### Changed

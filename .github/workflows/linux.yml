@@ -1,4 +1,4 @@
-name: Linux desktop app
+name: Desktop app (Linux, macOS)
 
 on:
   push:
@@ -37,21 +37,25 @@ jobs:
       - name: Smoke test AppImage under Xvfb
         run: make smoke VERSION=${{ steps.version.outputs.version }}
 
+      - name: Build universal macOS app (container, cross-published)
+        run: make macos VERSION=${{ steps.version.outputs.version }}
+
       - uses: actions/upload-artifact@v5
         with:
-          name: xcp-ng-center-${{ steps.version.outputs.version }}-linux
+          name: xcp-ng-center-${{ steps.version.outputs.version }}
           path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*_macos_universal.zip
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/linux-v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cd dist && sha256sum *.tar.gz *.AppImage > SHA256SUMS
+          cd dist && sha256sum *.tar.gz *.AppImage *_macos_universal.zip > SHA256SUMS
           # notes: this version's section of XenAdmin.Desktop/CHANGELOG.md, else GitHub's generated notes
           awk -v h="## [${{ steps.version.outputs.version }}]" 'index($0,h)==1{f=1;next} f&&/^## \[/{exit} f' ../XenAdmin.Desktop/CHANGELOG.md > ../notes.md
           if [ -s ../notes.md ]; then notes=(--notes-file ../notes.md); else notes=(--generate-notes); fi
-          gh release create "$GITHUB_REF_NAME" --title "XCP-ng Center for Linux ${{ steps.version.outputs.version }}" \
-            "${notes[@]}" --prerelease *.tar.gz *.AppImage SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --title "XCP-ng Center for Linux and macOS ${{ steps.version.outputs.version }}" \
+            "${notes[@]}" --prerelease *.tar.gz *.AppImage *_macos_universal.zip SHA256SUMS

@@ -1,7 +1,8 @@
-# Linux desktop app (XenAdmin.Desktop). Every target runs inside the build container;
+# Desktop app (XenAdmin.Desktop). Every target runs inside the build container;
 # only docker and make are needed on the host. Outputs go to dist/.
 #   make dist        self-contained single-file build + .tar.gz
 #   make appimage    AppImage from the dist build
+#   make macos       universal macOS app (Apple Silicon + Intel) as a _macos_universal.zip
 #   make test        unit tests (+ integration tests when .env defines XCP_*)
 #   make smoke       run the AppImage under Xvfb in a clean Ubuntu 22.04 container
 
@@ -13,7 +14,7 @@ DIST      := dist
 UID_GID   := $(shell id -u):$(shell id -g)
 RUN       := docker run --rm -e NUGET_PACKAGES=/src/_output/nuget -v "$(CURDIR)":/src -w /src $(IMAGE) sh -ec
 
-.PHONY: all image build test test-win dist appimage smoke clean
+.PHONY: all image build test test-win dist appimage macos smoke clean
 all: appimage
 
 image:
@@ -51,6 +52,25 @@ appimage: dist
 	    $$app $(DIST)/xcp-ng-center-$(VERSION)-x86_64.AppImage; \
 	  chown -R $(UID_GID) /src'
 	@echo "-> $(DIST)/xcp-ng-center-$(VERSION)-x86_64.AppImage"
+
+# One self-contained build per CPU inside "XCP-ng Center.app"; Contents/MacOS/xcp-ng-center picks the one to run.
+# shortcut: two trees instead of lipo'd fat binaries (the .NET runtime's ReadyToRun code is per CPU), ~2x the size;
+# unsigned, so a downloaded copy needs `xattr -dr com.apple.quarantine` until it is signed and notarized on a Mac.
+macos: image
+	$(RUN) '\
+	  out=$(DIST)/macos; app="$$out/XCP-ng Center.app"; rm -rf $$out; mkdir -p "$$app/Contents/Resources"; \
+	  for arch in arm64 x64; do \
+	    dotnet publish XenAdmin.Desktop/XenAdmin.Desktop.csproj -c Release -r osx-$$arch --self-contained \
+	      -p:Version=$(VERSION) -p:DebugType=none -o "$$app/Contents/MacOS/$$arch"; \
+	  done; \
+	  install -m 755 XenAdmin.Desktop/packaging/macos/launcher "$$app/Contents/MacOS/xcp-ng-center"; \
+	  cp XenAdmin.Desktop/packaging/macos/xcp-ng-center.icns "$$app/Contents/Resources/"; \
+	  v=$(VERSION); sed -e "s/@VERSION@/$$v/" -e "s/@SHORT_VERSION@/$${v%%-*}/" \
+	    XenAdmin.Desktop/packaging/macos/Info.plist > "$$app/Contents/Info.plist"; \
+	  rm -f $(DIST)/xcp-ng-center-$(VERSION)_macos_universal.zip; \
+	  (cd $$out && zip -qry ../xcp-ng-center-$(VERSION)_macos_universal.zip "XCP-ng Center.app"); \
+	  chown -R $(UID_GID) /src'
+	@echo "-> $(DIST)/xcp-ng-center-$(VERSION)_macos_universal.zip"
 
 smoke:
 	docker run --rm -v "$(CURDIR)/$(DIST)":/dist:ro -v "$(CURDIR)/_output":/out ubuntu:22.04 sh -ec '\
