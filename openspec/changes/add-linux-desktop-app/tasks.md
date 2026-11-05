@@ -66,19 +66,22 @@
 - [x] 7.5d `Folders.InitFolders()` na inicialização (mantém `IXenObject.Path`; sem isso pastas apareciam como <None>)
 - [x] 7.6a Aba Snapshots (lista, Take Snapshot/Revert/Delete/Properties, detalhes) e aba Search (overview pool→hosts→VMs→templates com métricas ao vivo do `MetricUpdater`); testes: snapshot→revert→delete no 110 e métricas RRD no pool .236
 - [x] 7.6b Aba Performance: gráficos padrão de host e VM (CPU, memória usada, rede, disco) sobre os arquivos RRD (`rrd_updates`), Zoom de 10 minutos a 1 ano, eventos de ciclo de vida; teste somente leitura no pool .236
-- [ ] 7.6 Performance: designer de gráficos (New/Edit/Delete, Move Up/Down) e navegador de período; abas NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável
+- [x] 7.6a Abas NICs, GPU, USB e console do host; Search editável (8.4g9, 8.4g18, 8.4g20, 8.4g24)
+- [ ] 7.6 Performance: designer de gráficos (New/Edit/Delete, Move Up/Down) e navegador de período; Snapshots com screenshot
 - [x] 7.7a Aba Storage da VM: criar drive de DVD, trocar/ejetar ISO, Add (New Disk), Attach Disk, Activate/Deactivate, Detach, Delete, Properties do disco, com as regras de habilitação dos comandos originais; teste de escrita no 110
 - [x] 7.7b Ações de host: Shut Down, Reboot (confirmações com coordenador e HCI), Enter/Exit Maintenance Mode (salva e restaura as VMs evacuadas, não reduz a tolerância de HA sem consentimento); teste no lab KVM com evacuação, restauração e reboot
-- [ ] 7.7 Diálogo de evacuação (destinos por VM), Move de disco
+- [x] 7.7a Move de disco (Storage da VM)
+- [ ] 7.7 Diálogo de evacuação com destino por VM (hoje: Enter Maintenance Mode evacua com a escolha do servidor)
 - [x] 7.8a Wizard New VM (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish → `CreateVMAction`), Copy VM (fast clone / full copy) e Delete VM (discos e snapshots); teste no 110: criar (Debian 11, 512 MB, disco 64 MB) → iniciar → reboot → desligar → clone → copy → apagar tudo
 - [x] 7.8b Create New Pool (coordenador, membros com as razões de `PoolJoinRules`, avisos de CPU/licença/AD, `CreatePoolAction`); teste no lab: forma o pool, confere e ejeta o membro
 - [x] 7.8c Lab de 2 hosts XCP-ng 8.3 aninhados no VirtualBox (`tools/vagrant/xcp-ng-lab`), instalação automática por answerfile
-- [ ] 7.8d New Storage Repository (NFS e SMB: Scan, criar, reanexar/introduzir) e Migrate to Server (intra-pool), com testes no lab
+- [x] 7.8d New Storage Repository (NFS e SMB: Scan, criar, reanexar/introduzir) e Migrate to Server (intra-pool), com testes no lab
 - [x] 7.8e Console: scancodes para HVM (QEMU extended key event), keysyms com fallback US para PV; logout da sessão do console removido
 - [x] 7.8f Console: "Launch SSH Console" (terminal do sistema com OpenSSH) e "Turn on / Switch to Remote Desktop" (cliente RDP do sistema: FreeRDP no terminal ou Remmina; mstsc no Windows; app RDP no macOS), com as regras do VNCTabView; reconexão do console corrigida
-- [ ] 7.8 Wizards: Import/Export, demais tipos de SR (iSCSI, HBA, ISO libraries)
+- [x] 7.8a Import/Export (XVA, OVF/OVA), SR iSCSI e ISO libraries NFS/SMB (8.4g17, 8.4g25)
+- [ ] 7.8 SR HBA/FCoE; export de vApp para OVF
 - [x] 7.9a Notifications > Alerts (severidade, texto expansível, filtros por severidade e servidor, Dismiss/Dismiss All, contador no botão e no status bar) e Events
-- [ ] 7.9b Objects, Organization Views e Saved Searches; filtro por data e Export dos alertas
+- [x] 7.9b Objects, Organization Views e Saved Searches; filtro por data e Export dos alertas (8.4g23)
 - [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico
 
 ## 8. Modularização para outros sistemas
