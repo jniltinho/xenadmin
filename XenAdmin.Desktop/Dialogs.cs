@@ -1,3 +1,4 @@
+using Avalonia.Input;
 using System.Collections.Generic;
 using System;
 using System.Linq;
@@ -12,7 +13,7 @@ namespace XenAdmin.Desktop
     {
         private static Window Frame(string title, Control content, double width = 460)
         {
-            return new Window
+            var w = new Window
             {
                 Title = title,
                 Width = width,
@@ -21,6 +22,9 @@ namespace XenAdmin.Desktop
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Content = new Border { Padding = new Thickness(14, 12), Child = content }
             };
+            // Esc cancels from any field, as in WinForms (a focused TextBox would otherwise keep the key)
+            w.AddHandler(InputElement.KeyDownEvent, (_, e) => { if (e.Key == Avalonia.Input.Key.Escape) { e.Handled = true; w.Close(); } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            return w;
         }
 
         private static StackPanel Buttons(params Button[] buttons)

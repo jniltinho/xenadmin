@@ -53,5 +53,27 @@ namespace XenAdmin.Desktop
             return true;
         }
 
+
+        /// <summary>One item of the DVD drive's ISO list (CDChanger): the ISO, or null for "&lt;empty&gt;".</summary>
+        public sealed class IsoChoice
+        {
+            public VDI Vdi;
+            public string Text;
+            public override string ToString() => Text;
+        }
+
+        /// <summary>"&lt;empty&gt;" plus ISOs of ISO SRs visible from the VM's home server.</summary>
+        public static List<IsoChoice> IsoChoices(VM vm)
+        {
+            var list = new List<IsoChoice> { new IsoChoice { Text = "<empty>" } };
+            var home = vm.Home();
+            // ISODropDownBox: the tools SR is hidden from Stockholm (XCP-ng 8.x) on, the guest agent comes from the distro
+            foreach (var sr in vm.Connection.Cache.SRs.Where(s => s.content_type == SR.Content_Type_ISO && s.Show(false)
+                         && !(s.IsToolsSR() && XenAdmin.Core.Helpers.StockholmOrGreater(vm.Connection))
+                         && (home == null || s.CanBeSeenFrom(home))).OrderBy(s => s.Name()))
+                foreach (var vdi in vm.Connection.ResolveAll(sr.VDIs).Where(v => v.Show(false)).OrderBy(v => v.Name()))
+                    list.Add(new IsoChoice { Vdi = vdi, Text = $"{sr.Name()}: {vdi.Name()}" });
+            return list;
+        }
     }
 }

@@ -44,6 +44,13 @@ tools/vagrant/win11-reference/kvm.sh ps 'command'  # PowerShell in the desktop s
 The Linux app is driven the same way in an Xvfb container (screenshots with `xwd`, input with `xdotool`) on the
 `xcp-kvm-lab` network. Compare every new screen or dialog with the Windows one before calling it done.
 
+## MCP server
+
+`xcp-ng-center mcp` (code in `XenAdmin.Desktop.Core/Mcp/`, design in `openspec/changes/add-mcp-server`) exposes the
+app's operations to agents. Try it against the KVM lab from a container on `xcp-kvm-lab` with `XCP_HOST=10.77.58.11`,
+`XCP_USER`, `XCP_PASS` and `XCP_TRUST_FINGERPRINT` (the lab certificate's SHA-256); add `--allow-write` only for
+throwaway objects.
+
 ## Rules
 
 - Credentials live in `.env` or in variables on the command line; never in files, tests, logs or commit messages.

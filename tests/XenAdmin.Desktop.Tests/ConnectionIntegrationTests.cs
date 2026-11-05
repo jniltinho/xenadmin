@@ -8,36 +8,12 @@ using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using XenAdmin;
 using XenAdmin.Desktop;
+using XenAdmin.Desktop.Mcp; // ThreadSynchronizer: the dedicated "UI" thread XenModel's InvokeHelper needs
 using XenAdmin.Network;
 using XenAPI;
 
 namespace XenAdmin.Desktop.Tests
 {
-    /// <summary>A dedicated "UI" thread so XenModel's InvokeHelper behaves as in the app.</summary>
-    public sealed class ThreadSynchronizer : ISynchronizeInvoke
-    {
-        private readonly BlockingCollection<Action> _queue = new BlockingCollection<Action>();
-        private readonly Thread _thread;
-
-        public ThreadSynchronizer()
-        {
-            _thread = new Thread(() => { foreach (var a in _queue.GetConsumingEnumerable()) a(); }) { IsBackground = true, Name = "test-ui" };
-            _thread.Start();
-        }
-
-        public bool InvokeRequired => Thread.CurrentThread != _thread;
-
-        public IAsyncResult BeginInvoke(Delegate method, object[] args)
-        {
-            var tcs = new TaskCompletionSource<object>();
-            _queue.Add(() => { try { tcs.SetResult(method.DynamicInvoke(args)); } catch (Exception e) { tcs.SetException(e); } });
-            return tcs.Task;
-        }
-
-        public object EndInvoke(IAsyncResult result) => ((Task<object>)result).GetAwaiter().GetResult();
-        public object Invoke(Delegate method, object[] args) => InvokeRequired ? EndInvoke(BeginInvoke(method, args)) : method.DynamicInvoke(args);
-    }
-
     [TestClass]
     public class ConnectionIntegrationTests
     {
@@ -143,7 +119,8 @@ namespace XenAdmin.Desktop.Tests
                 var objects = new List<IXenObject> { XenAdmin.Core.Helpers.GetCoordinator(c) };
                 // a VM up for more than 10 minutes with its agent, so the 5 s archive and the internal memory are complete
                 var vm = c.Cache.VMs.FirstOrDefault(v => v.IsRealVm() && v.power_state == vm_power_state.Running
-                    && v.RunningTime() is { } up && up.CompareTo(new XenAdmin.Core.PrettyTimeSpan(TimeSpan.FromMinutes(11))) > 0 && c.Resolve(v.guest_metrics)?.PV_drivers_detected == true);
+                    && v.RunningTime() is { } up && up.CompareTo(new XenAdmin.Core
+.PrettyTimeSpan(TimeSpan.FromMinutes(11))) > 0 && c.Resolve(v.guest_metrics)?.PV_drivers_detected == true);
                 if (vm != null) objects.Add(vm);
                 foreach (var o in objects)
                 {

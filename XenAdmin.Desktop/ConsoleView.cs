@@ -57,13 +57,7 @@ namespace XenAdmin.Desktop
             _ssh.Click += (_, _) => LaunchSsh();
             DockPanel.SetDock(_ssh, Dock.Right);
             top.Children.Add(_ssh);
-            var dvd = Views.LinkText("Click here to create a DVD drive", null);
-            dvd.Foreground = Brushes.White;
-            dvd.FontWeight = FontWeight.Bold;
-            dvd.TextDecorations = TextDecorations.Underline;
-            dvd.HorizontalAlignment = HorizontalAlignment.Center;
-            dvd.VerticalAlignment = VerticalAlignment.Center;
-            top.Children.Add(dvd);
+            top.Children.Add(_dvdBand);
 
             // bottom: Send Ctrl+Alt+Del | Scale, Undock, Fullscreen
             var bottom = new DockPanel { Height = 34, Background = Brush.Parse("#F0F0F0") };
@@ -104,8 +98,45 @@ namespace XenAdmin.Desktop
         /// <summary>Set by the main window to run actions in its task list.</summary>
         public static Action<XenAdmin.Actions.AsyncAction> RunAction;
 
+        // VNCTabView's CD band: "create a DVD drive" link, or the drive and its ISO picker
+        private readonly ContentControl _dvdBand = new ContentControl { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        private string _dvdSignature;
+
+        private void UpdateDvd()
+        {
+            var cd = _vm.Connection.ResolveAll(_vm.VBDs).FirstOrDefault(b => b.IsCDROM());
+            var isos = cd == null ? null : StorageRules.IsoChoices(_vm);
+            var signature = cd == null ? "none" : $"{cd.opaque_ref}|{cd.empty}|{cd.VDI?.opaque_ref}|{cd.Locked}|{string.Join(",", isos.Select(i => i.Vdi?.opaque_ref))}";
+            if (signature == _dvdSignature)
+                return;
+            _dvdSignature = signature;
+            if (cd == null)
+            {
+                var canCreate = _vm.IsRealVm() && !_vm.Locked;
+                var link = Views.LinkText("Click here to create a DVD drive", canCreate ? () => RunAction?.Invoke(new XenAdmin.Actions.CreateCdDriveAction(_vm)) : null);
+                link.Foreground = Brushes.White;
+                link.FontWeight = FontWeight.Bold;
+                link.TextDecorations = TextDecorations.Underline;
+                _dvdBand.Content = link;
+                return;
+            }
+            var box = new ComboBox { ItemsSource = isos, Width = 320, IsEnabled = !cd.Locked, Margin = new Thickness(8, 0) };
+            box.SelectedItem = isos.FirstOrDefault(i => i.Vdi?.opaque_ref == (cd.empty ? null : cd.VDI.opaque_ref)) ?? isos[0];
+            box.SelectionChanged += (_, _) =>
+            {
+                if (!(box.SelectedItem is StorageRules.IsoChoice choice)) return;
+                if (choice.Vdi?.opaque_ref == (cd.empty ? null : cd.VDI?.opaque_ref)) return;
+                RunAction?.Invoke(new XenAdmin.Actions.ChangeVMISOAction(_vm.Connection, _vm, choice.Vdi, cd));
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock { Text = $"DVD Drive {cd.userdevice}:", Foreground = Brushes.White, FontWeight = FontWeight.Bold, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(box);
+            _dvdBand.Content = row;
+        }
+
         private void UpdateButtons()
         {
+            UpdateDvd();
             _ssh.IsVisible = ConsoleRules.SshVisible(_vm);
             _ssh.IsEnabled = ConsoleRules.SshEnabled(_vm);
             _rdp.IsVisible = ConsoleRules.RdpVisible(_vm);

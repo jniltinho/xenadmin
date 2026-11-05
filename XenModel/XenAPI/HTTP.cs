@@ -253,6 +253,12 @@ namespace XenAPI
                     var header = headers.FirstOrDefault(h => h.StartsWith("Location:", StringComparison.InvariantCultureIgnoreCase));
                     string url = header == null ? "" : header.Substring(9).Trim();
                     Uri redirect = new Uri(url);
+                    // never follow an HTTPS request to plain HTTP: the request (and its session id) would be sent unencrypted
+                    if (stream is SslStream && !UseSSL(redirect))
+                    {
+                        stream.Close();
+                        throw new BadServerResponseException("Refusing a redirect from HTTPS to plain HTTP: " + redirect.GetLeftPart(UriPartial.Authority));
+                    }
                     stream.Close();
                     stream = ConnectStream(redirect, proxy, nodelay, timeout_ms);
                     return true; // headers need to be sent again

@@ -137,7 +137,8 @@ namespace XenAdmin.Desktop.Tests
             Assert.IsFalse(VmOperations.IsAllowed(null, VmOp.Start));
             Assert.IsTrue(VmOperations.NeedsConfirmation(VmOp.ForceShutdown));
             Assert.IsTrue(VmOperations.NeedsConfirmation(VmOp.ForceReboot));
-            Assert.IsFalse(VmOperations.NeedsConfirmation(VmOp.Shutdown));
+            Assert.IsTrue(VmOperations.NeedsConfirmation(VmOp.Shutdown), "ShutDownVMCommand always confirms");
+            Assert.IsFalse(VmOperations.NeedsConfirmation(VmOp.Start));
         }
 
         [TestMethod]

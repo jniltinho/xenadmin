@@ -30,16 +30,7 @@ namespace XenAdmin.Desktop
                 // console tunnels and RRD downloads (XenAPI.HTTP) use the same policy
                 XenAPI.HTTP.ServerCertificateValidator = trust.ValidateHost;
                 // pool members: trust the host certificate the authenticated coordinator reports
-                trust.VouchedFingerprints = hostKey =>
-                {
-                    var address = hostKey.Substring(0, hostKey.LastIndexOf(':'));
-                    return ConnectionsManager.XenConnectionsCopy.Where(c => c.IsConnected)
-                        .SelectMany(c => c.Cache.Hosts.Where(h => h.address == address)
-                            .SelectMany(h => c.ResolveAll(h.certificates))
-                            .Where(cert => cert.type == XenAPI.certificate_type.host)
-                            .Select(cert => cert.fingerprint))
-                        .ToList();
-                };
+                trust.VouchedFingerprints = CertificateTrust.PoolMemberFingerprints;
 #pragma warning restore SYSLIB0014
                 InvokeHelper.Initialize(new DispatcherSynchronizer());
                 // keeps IXenObject.Path in step with other_config["folder"], as WinForms MainWindow does
@@ -63,6 +54,14 @@ namespace XenAdmin.Desktop
             }
             Platform.PlatformServices.Current = Platform.DesktopPlatform.Detect();
             XenAdminConfigManager.Provider = new DesktopConfigProvider();
+            if (args.Length > 0 && args[0] == "mcp")
+            {
+                // MCP server on stdio, no window: stdout carries only the protocol (UTF-8 without BOM)
+                var utf8 = new System.Text.UTF8Encoding(false);
+                Console.InputEncoding = utf8;
+                Console.OutputEncoding = utf8;
+                return Mcp.McpHost.Run(args.Skip(1).ToArray(), Console.In, Console.Out, Console.Error);
+            }
             return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
 

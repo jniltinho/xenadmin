@@ -451,6 +451,9 @@ namespace XenAdmin.Desktop
                 {
                     var box = new CheckBox { Content = DeviceName(c), IsChecked = order.Contains(c), MinHeight = 18, Padding = new Thickness(2, 0) };
                     box.IsCheckedChanged += (_, _) => OnChanged();
+                    // the check box takes the click: select its row too, so Move Up/Down apply to it
+                    box.AddHandler(Avalonia.Input.InputElement.PointerPressedEvent, (_, _) => _order.SelectedItem = box, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+                    box.GotFocus += (_, _) => _order.SelectedItem = box;
                     _devices.Add((c, box));
                 }
                 RefreshOrder();
@@ -629,6 +632,8 @@ namespace XenAdmin.Desktop
             var cancel = new Button { Content = Messages.CANCEL, IsCancel = true, MinWidth = 75 };
             ok.Click += (_, _) => Ok();
             cancel.Click += (_, _) => Close();
+            // Esc closes from any field (a focused TextBox would otherwise keep the key)
+            AddHandler(KeyDownEvent, (_, e) => { if (e.Key == Avalonia.Input.Key.Escape) { e.Handled = true; Close(); } }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
             var buttons = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
             var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
             right.Children.Add(ok);

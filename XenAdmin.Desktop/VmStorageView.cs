@@ -170,7 +170,7 @@ namespace XenAdmin.Desktop
             box.SelectedItem = isos.FirstOrDefault(i => i.Vdi?.opaque_ref == (cd.empty ? null : cd.VDI.opaque_ref)) ?? isos[0];
             box.SelectionChanged += (_, _) =>
             {
-                if (_updatingDvd || !(box.SelectedItem is IsoChoice choice)) return;
+                if (_updatingDvd || !(box.SelectedItem is StorageRules.IsoChoice choice)) return;
                 var current = _vm.Connection.Resolve(cd.VDI);
                 if ((choice.Vdi?.opaque_ref) == (cd.empty ? null : current?.opaque_ref)) return;
                 _run(new ChangeVMISOAction(_vm.Connection, _vm, choice.Vdi, cd));
@@ -184,26 +184,7 @@ namespace XenAdmin.Desktop
             _dvd.Content = row;
         }
 
-        public sealed class IsoChoice
-        {
-            public VDI Vdi;
-            public string Text;
-            public override string ToString() => Text;
-        }
-
-        /// <summary>"&lt;empty&gt;" plus ISOs of ISO SRs visible from the VM's home server.</summary>
-        private List<IsoChoice> IsoChoices()
-        {
-            var list = new List<IsoChoice> { new IsoChoice { Text = "<empty>" } };
-            var home = _vm.Home();
-            // ISODropDownBox: the tools SR is hidden from Stockholm (XCP-ng 8.x) on, the guest agent comes from the distro
-            foreach (var sr in _vm.Connection.Cache.SRs.Where(s => s.content_type == SR.Content_Type_ISO && s.Show(false)
-                         && !(s.IsToolsSR() && XenAdmin.Core.Helpers.StockholmOrGreater(_vm.Connection))
-                         && (home == null || s.CanBeSeenFrom(home))).OrderBy(s => s.Name()))
-                foreach (var vdi in _vm.Connection.ResolveAll(sr.VDIs).Where(v => v.Show(false)).OrderBy(v => v.Name()))
-                    list.Add(new IsoChoice { Vdi = vdi, Text = $"{sr.Name()}: {vdi.Name()}" });
-            return list;
-        }
+        private List<StorageRules.IsoChoice> IsoChoices() => StorageRules.IsoChoices(_vm);
 
         // ---------- commands ----------
 

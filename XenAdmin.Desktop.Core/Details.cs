@@ -392,7 +392,8 @@ namespace XenAdmin.Desktop
                 foreach (var vif in vm.Connection.ResolveAll(vm.VIFs).OrderBy(v => v.device))
                 {
                     var net = vm.Connection.Resolve(vif.network);
-                    var ips = gm?.networks?.Where(kv => kv.Key.StartsWith(vif.device + "/ip")).Select(kv => kv.Value) ?? Enumerable.Empty<string>();
+                    // "0/ip" and "0/ipv4/0" hold the same address: list it once
+                    var ips = gm?.networks?.Where(kv => kv.Key.StartsWith(vif.device + "/ip")).Select(kv => kv.Value).Distinct() ?? Enumerable.Empty<string>();
                     t.Rows.Add(new[] { vif.device, vif.MAC, net?.Name() ?? "", string.Join(", ", ips),
                         vif.currently_attached ? Messages.YES : Messages.NO });
                 }

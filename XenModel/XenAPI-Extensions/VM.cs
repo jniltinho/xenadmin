@@ -158,7 +158,8 @@ namespace XenAPI
         private static readonly string[] LinuxDistros =
         {
             "debian", "rhel", "fedora", "centos", "scientific", "oracle", "sles",
-            "lsb", "boot2docker", "freebsd", "ubuntu", "neokylin", "gooroom", "rocky"
+            "lsb", "boot2docker", "freebsd", "ubuntu", "neokylin", "gooroom", "rocky",
+            "alpine" // xe-guest-utilities on Alpine; "Other install media" leaves viridian on, so SSH stayed hidden
         };
 
         private static readonly DateTime Epoch = new DateTime(1970, 1, 1);

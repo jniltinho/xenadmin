@@ -217,8 +217,23 @@ namespace XenAdmin.Desktop.Tests
             }
             finally
             {
+                if (password != null)
+                    RemoveOrphanSecrets(c, password);
                 c.EndConnect();
             }
+        }
+
+        /// <summary>
+        /// XAPI turns a PBD's "password" into a secret of its own (the reattach creates one per host) and keeps it when
+        /// the PBD is destroyed: remove the test's leftovers so the lab does not collect them.
+        /// </summary>
+        private static void RemoveOrphanSecrets(XenConnection c, string password)
+        {
+            var session = c.DuplicateSession(); // shares the connection's session: never log it out
+            var used = PBD.get_all_records(session).Values.SelectMany(p => p.device_config.Where(kv => kv.Key.EndsWith("secret")).Select(kv => kv.Value)).ToHashSet();
+            foreach (var (reference, secret) in Secret.get_all_records(session).Select(kv => (kv.Key, kv.Value)))
+                if (!used.Contains(secret.uuid) && secret.value == password)
+                    Secret.destroy(session, reference.opaque_ref);
         }
     }
 }

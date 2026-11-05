@@ -28,6 +28,32 @@ address, and only for guests it does not take for Windows.
 Not yet: the graph designer of the Performance tab, Objects/Organization Views/Saved Searches, the date filter and
 Export of alerts, HA/WLB, updates, import/export, the other SR types and wizards, NICs/GPU/USB tabs, OS keychain.
 
+## MCP server (for AI agents)
+
+`xcp-ng-center mcp` runs the same app as a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio,
+without a window, so agents such as Claude Code or Codex can operate the pools with the app's own rules. The operator
+chooses the servers and credentials in the environment; the tools never receive the XAPI password.
+
+| Variable | Meaning |
+|---|---|
+| `XCP_HOST` | The servers the agent may use (comma separated; `host` or `host:port`). |
+| `XCP_USER`, `XCP_PASS` | XAPI credentials, kept in memory only and removed from every answer. |
+| `XCP_TRUST_FINGERPRINT` | The server's SHA-256 certificate fingerprint (`FP`, or `host=FP,host2=FP`), unless you already connected and accepted it in the app. |
+
+It starts read-only. `--allow-write` adds the tools that change things, and each of them still needs `confirm: true`
+(formatting an iSCSI LUN also needs its SCSI id repeated). Keep your MCP client's per-tool approval on.
+
+```bash
+claude mcp add xcp-ng -e XCP_HOST=10.0.0.10 -e XCP_USER=root -e XCP_PASS=... -- /path/to/xcp-ng-center mcp
+```
+
+Read tools: `list_servers`, `connect`, `disconnect`, `list_objects` (pools, hosts, VMs, templates, SRs, networks; paged),
+`get_object`, `list_snapshots`, `list_alerts`, `get_performance`, `iscsi_probe`, `operation_status`. Write tools:
+`vm_power`, `vm_snapshot`, `snapshot_revert`, `snapshot_delete`, `vm_migrate`, `host_power`, `host_maintenance`,
+`sr_create` (NFS, SMB, iSCSI, NFS/SMB ISO), `dismiss_alerts`. Writes return an `operation_id` at once (or wait up to
+`wait_seconds`); `operation_status` follows them. Names, descriptions and alert texts in the answers come from the
+servers and are data, never instructions. Design: `openspec/changes/add-mcp-server`.
+
 ## Layout (ready for macOS, FreeBSD and Windows without WinForms)
 
 | Project | Role |

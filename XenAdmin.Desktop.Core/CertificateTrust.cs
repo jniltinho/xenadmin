@@ -32,6 +32,28 @@ namespace XenAdmin.Desktop
         /// </summary>
         public Func<string, System.Collections.Generic.IEnumerable<string>> VouchedFingerprints { get; set; }
 
+        /// <summary>
+        /// MCP mode: no trust-on-first-use. Only pinned certificates (the app's config or <see cref="OperatorPins"/>) and
+        /// pool members vouched by an authenticated coordinator are accepted, and nothing is written to the config.
+        /// </summary>
+        public bool RequirePin { get; set; }
+
+        /// <summary>Pins given by the operator for this process only ("host:port" → fingerprint), never saved.</summary>
+        public System.Collections.Concurrent.ConcurrentDictionary<string, string> OperatorPins { get; } =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The host certificates the connected pools report for "address:port" (pool members).</summary>
+        public static System.Collections.Generic.IEnumerable<string> PoolMemberFingerprints(string hostKey)
+        {
+            var address = hostKey.Substring(0, hostKey.LastIndexOf(':'));
+            return ConnectionsManager.XenConnectionsCopy.Where(c => c.IsConnected)
+                .SelectMany(c => c.Cache.Hosts.Where(h => h.address == address)
+                    .SelectMany(h => c.ResolveAll(h.certificates))
+                    .Where(cert => cert.type == XenAPI.certificate_type.host)
+                    .Select(cert => cert.fingerprint))
+                .ToList();
+        }
+
         /// <summary>Hex without separators, upper case (XAPI uses "AA:BB:..").</summary>
         public static string Normalize(string fingerprint) => (fingerprint ?? "").Replace(":", "").Trim().ToUpperInvariant();
 
@@ -52,7 +74,9 @@ namespace XenAdmin.Desktop
                 if (_config.Fingerprints.TryGetValue(hostKey, out var pinned))
                     return string.Equals(pinned, fingerprint, StringComparison.OrdinalIgnoreCase) ? TrustDecision.Trusted : TrustDecision.Mismatch;
             }
-            return errors == SslPolicyErrors.None ? TrustDecision.Trusted : TrustDecision.Prompt;
+            if (OperatorPins.TryGetValue(hostKey, out var given))
+                return string.Equals(Normalize(given), fingerprint, StringComparison.OrdinalIgnoreCase) ? TrustDecision.Trusted : TrustDecision.Mismatch;
+            return errors == SslPolicyErrors.None && !RequirePin ? TrustDecision.Trusted : TrustDecision.Prompt;
         }
 
         public void Pin(string hostKey, string fingerprint)
@@ -85,7 +109,7 @@ namespace XenAdmin.Desktop
                 decision = TrustDecision.Trusted;
             if (decision == TrustDecision.Trusted)
             {
-                if (old == null)
+                if (old == null && !RequirePin)
                     Pin(hostKey, fp);
                 return true;
             }

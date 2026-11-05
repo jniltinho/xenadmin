@@ -668,6 +668,24 @@ namespace XenAdmin.Desktop
                     items.Add(Item(Messages.MAINWINDOW_SHUTDOWN, () => HostPower(host, false), icon: "001_ShutDown_h32bit_16"));
                 items.Add(new Separator());
             }
+            if (n.XenObject is SR sr && sr.Connection.IsConnected)
+            {
+                // the SR part of ContextMenuBuilder (shortcut: Repair, Reattach and Reclaim space are not ported yet)
+                async void Run(string command, Func<AsyncAction> action)
+                {
+                    var (title, text, yes) = SrRules.Confirmation(sr, command);
+                    if (title == null || await Dialogs.Confirm(this, title, text, yes, Messages.CANCEL, cancelIsDefault: command == "destroy"))
+                        RunTracked(action());
+                }
+                if (SrRules.CanSetDefault(sr))
+                    items.Add(Item(Messages.MAINWINDOW_SET_AS_DEFAULT_SR, () => Run("default", () => new SetSrAsDefaultAction(sr)), icon: "000_StorageDefault_h32bit_16"));
+                if (SrRules.CanDetach(sr))
+                    items.Add(Item(Messages.MAINWINDOW_DETACH_SR, () => Run("detach", () => new DetachSrAction(sr))));
+                if (SrRules.CanForget(sr))
+                    items.Add(Item(Messages.MAINWINDOW_FORGET_SR, () => Run("forget", () => new ForgetSrAction(sr))));
+                if (SrRules.CanDestroy(sr))
+                    items.Add(Item(Messages.MAINWINDOW_DESTROY_SR, () => Run("destroy", () => new DestroySrAction(sr))));
+            }
             if (n.XenObject is VM vm)
             {
                 // the WinForms commands' MenuImage
@@ -727,6 +745,10 @@ namespace XenAdmin.Desktop
                 if (items.Count > 0) items.Add(new Separator());
                 items.Add(Item("P&roperties", () => ShowProperties(n.XenObject), icon: "edit_16"));
             }
+            // no leading, trailing or doubled separators (a group can turn out empty)
+            for (var i = items.Count - 1; i >= 0; i--)
+                if (items[i] is Separator && (i == 0 || i == items.Count - 1 || items[i - 1] is Separator))
+                    items.RemoveAt(i);
             return items;
         }
 
@@ -802,7 +824,9 @@ namespace XenAdmin.Desktop
                     await Dialogs.Info(this, "XCP-ng Center", why);
                     return;
                 }
-                RunHostAction(host, HostRules.EnterMaintenance(host));
+                var (title, text) = HostRules.EvacuateConfirmation(host);
+                if (await Dialogs.Confirm(this, title, text, "&Enter Maintenance Mode", Messages.CANCEL))
+                    RunHostAction(host, HostRules.EnterMaintenance(host));
                 return;
             }
             var restore = HostRules.VmsToRestore(host);
@@ -926,11 +950,8 @@ namespace XenAdmin.Desktop
             if (!(SelectedNode()?.XenObject is VM vm) || !VmOperations.IsAllowed(vm, op)) return;
             if (VmOperations.NeedsConfirmation(op))
             {
-                var shutdown = op == VmOp.ForceShutdown;
-                if (!await Dialogs.Confirm(this,
-                        shutdown ? Messages.CONFIRM_FORCESHUTDOWN_VM_TITLE : Messages.CONFIRM_FORCEREBOOT_VM_TITLE,
-                        shutdown ? Messages.CONFIRM_FORCESHUTDOWN_VM_NO_CANCEL_TASKS : Messages.CONFIRM_FORCEREBOOT_VM_NO_CANCEL_TASKS,
-                        Messages.YES, Messages.NO))
+                var (title, text) = VmOperations.Confirmation(vm, op);
+                if (!await Dialogs.Confirm(this, title, text, Messages.YES, Messages.NO))
                     return;
             }
 
@@ -1018,7 +1039,12 @@ namespace XenAdmin.Desktop
             else
             {
                 _titleBand.Content = Views.TitleBand("notif_events_16", "Events", null);
-                SetTabs("events", () => new[] { Tab("Events", new DockPanel { Children = { Views.TabHeader("Events"), new ListBox { ItemsSource = _events } } }) });
+                SetTabs("events", () =>
+                {
+                    var header = Views.TabHeader("Events");
+                    DockPanel.SetDock(header, Dock.Top);
+                    return new[] { Tab("Events", new DockPanel { Children = { header, new ListBox { ItemsSource = _events } } }) };
+                });
             }
         }
 

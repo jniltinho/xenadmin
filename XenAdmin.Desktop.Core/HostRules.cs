@@ -72,6 +72,17 @@ namespace XenAdmin.Desktop
         private static Host NewCoordinator(Host host) =>
             host.Connection.Cache.Hosts.Where(h => h.opaque_ref != host.opaque_ref && h.enabled && h.IsLive()).OrderBy(h => h.Name()).FirstOrDefault();
 
+        /// <summary>EvacuateHostDialog: what entering maintenance mode does, the VMs it migrates and the coordinator note.</summary>
+        public static (string Title, string Text) EvacuateConfirmation(Host host)
+        {
+            var text = "This operation will migrate all VMs running on this server and transition it into maintenance mode. If a VM cannot be migrated you need to suspend it or shut it down.";
+            var vms = host.Connection.ResolveAll(host.resident_VMs).Where(v => !v.is_control_domain).Select(v => v.Name()).OrderBy(n => n).ToList();
+            text += vms.Count == 0 ? "\n\nNo VMs are running on this server." : "\n\nVMs to migrate:\n" + string.Join("\n", vms);
+            if (host.IsCoordinator())
+                text += "\n\n" + string.Format("This server is the pool coordinator. Entering maintenance mode will nominate a new coordinator for the pool. {0} will temporarily lose its connection to the pool.", BrandManager.BrandConsole);
+            return (string.Format(Messages.EVACUATE_HOST_DIALOG_TITLE, host.Name()), text);
+        }
+
         public static AsyncAction EnterMaintenance(Host host)
         {
             // a coordinator with other members hands over to one of them (EvacuateHostDialog's default choice)

@@ -195,6 +195,28 @@ namespace XenAdmin.Desktop
             };
         }
 
+        // ---------- SR commands (DetachSRCommand, ForgetSRCommand, DestroySRCommand, SetAsDefaultSRCommand) ----------
+
+        public static bool CanDetach(SR sr) => sr != null && !sr.IsDetached() && !sr.HasRunningVMs() && !sr.Locked;
+
+        public static bool CanForget(SR sr) => sr != null && !sr.HasRunningVMs() && sr.CanCreateWithXenCenter()
+                                               && sr.allowed_operations.Contains(storage_operations.forget) && !sr.Locked;
+
+        public static bool CanDestroy(SR sr) => sr != null && !sr.HasRunningVMs() && sr.CanCreateWithXenCenter()
+                                                && sr.allowed_operations.Contains(storage_operations.destroy) && !sr.Locked;
+
+        public static bool CanSetDefault(SR sr) => sr != null && sr.HasPBDs() && !SR.IsDefaultSr(sr) && sr.SupportsVdiCreate()
+                                                   && (sr.shared || sr.Connection.Cache.HostCount <= 1) && !sr.Locked;
+
+        /// <summary>The commands' confirmation (title, text, yes button); Set as Default asks nothing.</summary>
+        public static (string Title, string Text, string Yes) Confirmation(SR sr, string command) => command switch
+        {
+            "detach" => (Messages.MESSAGEBOX_DETACH_SR_CONTINUE_TITLE, Messages.MESSAGEBOX_DETACH_SR_CONTINUE, Messages.YES),
+            "forget" => (Messages.MESSAGEBOX_FORGET_SR_CONTINUE_TITLE, string.Format(Messages.MESSAGEBOX_FORGET_SR_CONTINUE, sr.Name()), Messages.MESSAGEBOX_FORGET_SR_CONTINUE_YES_BUTTON_LABEL),
+            "destroy" => (Messages.MESSAGEBOX_DESTROY_SR_CONTINUE_TITLE, string.Format(Messages.MESSAGEBOX_DESTROY_SR_CONTINUE, sr.Name()), Messages.MESSAGEBOX_DESTROY_SR_YES_BUTTON_LABEL),
+            _ => (null, null, null)
+        };
+
         /// <summary>SrWizardHelpers.SrInUse: an attached SR with this uuid on any connected pool (two pools must never share it).</summary>
         public static SR InUse(string uuid) =>
             ConnectionsManager.XenConnectionsCopy.SelectMany(c => c.Cache.SRs).FirstOrDefault(sr => sr.uuid == uuid && sr.HasPBDs());

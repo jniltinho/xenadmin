@@ -31,6 +31,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - New Storage Repository: iSCSI (target host, CHAP, Scan Target Host, target IQN and LUN; Format, or Reattach the SR
   found on the LUN) and the NFS ISO and SMB ISO libraries.
 - Lab: an iSCSI target (tgt) next to the NFS and SMB servers (`lab.sh storage-up`).
+- MCP server: `xcp-ng-center mcp [--allow-write]` lets AI agents (Claude Code, Codex...) list and operate pools, hosts,
+  VMs, snapshots, storage and alerts with the app's rules; servers and credentials come from the operator's
+  environment, certificates must already be trusted, and writes need `--allow-write` and `confirm: true`.
 - Nested XCP-ng lab in VirtualBox (`tools/vagrant/xcp-ng-lab`) for pool and write tests.
 
 ### Changed
@@ -40,6 +43,16 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - One TLS trust policy for XenAPI and the console tunnel; pool members trusted through the coordinator.
 
 ### Fixed
+- New VM: the Storage page can add and delete disks (a template without disks no longer gives a diskless VM).
+- Shut Down, Reboot and Suspend of a VM ask for confirmation, and Enter Maintenance Mode lists the VMs it migrates,
+  as in the Windows app.
+- Storage repositories: Set as Default, Detach, Forget and Destroy in the context menu, with the Windows rules and
+  confirmations.
+- Console: the DVD band shows the VM's drive and its ISO picker (or creates a drive).
+- Boot Options: clicking a device selects it for Move Up/Down; Esc closes Properties and the other dialogs; the Events
+  list lays out correctly; a VM's IPv4 address is listed once; no doubled separators in context menus.
+- Alpine guests count as Linux (XenModel), so the console offers Launch SSH Console for them.
+- XenAPI.HTTP refuses a redirect from HTTPS to plain HTTP.
 - Connections on ports 80/8080 (plain HTTP) are refused, so passwords never cross the network unencrypted; IPv6
   addresses (bare or `[addr]:port`) are parsed correctly.
 - The console key log (`XCP_CONSOLE_KEYLOG`) exists only in debug builds.

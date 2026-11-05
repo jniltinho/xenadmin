@@ -363,11 +363,14 @@ namespace XenAdmin.Desktop
             rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
             H(0, "Position"); H(1, "Name"); H(2, "Size"); H(3, "Location");
             int r = 1;
+            DiskDescription selected = null;
+            var remove = new Button { Content = Dialogs.M("&Delete"), IsEnabled = false, MinWidth = 75 };
             foreach (var d in _disks)
             {
                 rows.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-                var pos = new TextBlock { Text = d.Device.userdevice, VerticalAlignment = VerticalAlignment.Center };
-                var name = new TextBox { Text = d.Disk.name_label };
+                var pos = new RadioButton { Content = d.Device.userdevice, GroupName = "disk", VerticalAlignment = VerticalAlignment.Center };
+                pos.IsCheckedChanged += (_, _) => { if (pos.IsChecked == true) { selected = d; remove.IsEnabled = true; } };
+                var name = new TextBox { Text = d.Disk.name_label, MinWidth = 160 };
                 name.TextChanged += (_, _) => d.Disk.name_label = name.Text ?? "";
                 var size = new NumericUpDown { Value = (decimal)d.Disk.virtual_size / Util.BINARY_GIGA, Minimum = 0.0625m, Maximum = 2040, Increment = 1, FormatString = "0.###", Width = 110 };
                 size.ValueChanged += (_, _) => d.Disk.virtual_size = (long)((size.Value ?? 1) * Util.BINARY_GIGA);
@@ -379,11 +382,19 @@ namespace XenAdmin.Desktop
                 rows.Children.Add(pos); rows.Children.Add(name); rows.Children.Add(size); rows.Children.Add(sr);
                 r++;
             }
+            // Page_Storage: Add a new disk, Delete the selected one (the radio in the Position column)
+            var add = new Button { Content = Dialogs.M("&Add..."), MinWidth = 75, IsEnabled = srs.Count > 0 };
+            add.Click += (_, _) => { _disks.Add(NewVmDefaults.NewDisk(_c, _home, _disks)); _page.Content = StoragePage(); };
+            remove.Click += (_, _) => { if (selected != null) { _disks.Remove(selected); _page.Content = StoragePage(); } };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 10, 0, 0) };
+            buttons.Children.Add(add);
+            buttons.Children.Add(remove);
             var p = new StackPanel();
             p.Children.Add(Text(_disks.Count == 0
-                ? "This template has no virtual disks. The new VM will be created without disks and can boot from the network or a DVD."
-                : "The virtual machine template you selected provides the virtual disks listed below. You can change their size and location."));
+                ? "This template has no virtual disks. Add one, or the new VM will be created without disks and can boot from the network or a DVD."
+                : "The virtual machine template you selected provides the virtual disks listed below. You can change their size and location, add disks or delete them."));
             p.Children.Add(rows);
+            p.Children.Add(buttons);
             return p;
         }
 

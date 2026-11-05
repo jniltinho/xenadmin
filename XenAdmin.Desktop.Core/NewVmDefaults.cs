@@ -34,6 +34,24 @@ namespace XenAdmin.Desktop
             }
         }
 
+        /// <summary>
+        /// Page_Storage Add (NewDiskDialog): "New virtual disk" with a unique name, 1 GB, on the best SR, at the first free
+        /// position (CreateVMAction moves it to an allowed device if needed).
+        /// </summary>
+        public static DiskDescription NewDisk(IXenConnection c, Host home, IList<DiskDescription> disks)
+        {
+            var names = c.Cache.VDIs.Select(v => v.Name()).Concat(disks.Select(d => d.Disk.name_label)).ToList();
+            var used = disks.Select(d => d.Device.userdevice).ToHashSet();
+            var position = Enumerable.Range(0, 16).Select(i => i.ToString()).First(i => !used.Contains(i) && i != "3"); // 3: the DVD drive
+            var sr = BestSr(c, home, null);
+            var disk = new VDI
+            {
+                name_label = Helpers.MakeUniqueName(Messages.DEFAULT_VDI_NAME, names), name_description = "", virtual_size = Util.BINARY_GIGA,
+                type = vdi_type.user, read_only = false, SR = new XenRef<SR>(sr != null ? sr.opaque_ref : Helper.NullOpaqueRef)
+            };
+            return new DiskDescription(disk, new VBD { userdevice = position, bootable = position == "0", mode = vbd_mode.RW });
+        }
+
         /// <summary>Page_Storage.LoadDisks: provisioned disks of a default template, or the custom template's disks.</summary>
         public static List<DiskDescription> DisksFor(IXenConnection c, VM t, string vmName, Host home)
         {
