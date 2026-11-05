@@ -192,6 +192,67 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>
+        /// Pool menu on the lab pool of two: Remove Server (eject the member), Make into standalone server on the pool of
+        /// one, then a new pool and Add Server for the member, so the lab ends as a pool of two again.
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void RemoveStandaloneAndAddServerOnLab()
+        {
+            var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (lab == null || lab.Length != 2 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_LAB_HOSTS=coordinator,member and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(lab[0]);
+            XenConnection member = null;
+            try
+            {
+                var pool = Helpers.GetPool(c);
+                if (pool == null || c.Cache.Hosts.Length != 2)
+                    Assert.Inconclusive("needs the lab pool of two");
+                Assert.IsFalse(PoolRules.CanMakeStandalone(pool), "a pool of two cannot be dissolved");
+                var coordinator = Helpers.GetCoordinator(c);
+                var joined = c.Cache.Hosts.Single(h => h.opaque_ref != coordinator.opaque_ref);
+                Assert.IsTrue(HostRules.CanRemoveFromPool(joined));
+
+                // Remove Server: XAPI resets and reboots the member
+                Run(new EjectHostFromPoolAction(pool, joined), 10);
+                Until(() => c.Cache.Hosts.Length == 1, 120, "member gone from the pool");
+                pool = Helpers.GetPoolOfOne(c);
+                Assert.IsTrue(PoolRules.CanMakeStandalone(Helpers.GetPool(c) ?? pool), "a pool of one can be made standalone");
+                Assert.IsNull(PoolRules.MakeStandaloneBlocker(pool));
+
+                // Make into standalone server
+                Run(new DestroyPoolAction(pool), 5);
+                Until(() => Helpers.GetPool(c) == null, 60, "standalone");
+
+                // a new pool, then Add Server once the member is back
+                Run(PoolRules.Create(coordinator, new(), "lab-pool", "created by the desktop app test"), 5);
+                Until(() => Helpers.GetPool(c)?.Name() == "lab-pool", 60, "pool of one named");
+                var deadline = DateTime.Now.AddMinutes(10);
+                while (member == null && DateTime.Now < deadline)
+                {
+                    try { member = ConnectionIntegrationTests.Connect(lab[1]); }
+                    catch (AssertFailedException) { Thread.Sleep(15000); }
+                }
+                Assert.IsNotNull(member, "the ejected server came back");
+                var candidate = PoolRules.JoinCandidates(new IXenConnection[] { c, member }, Helpers.GetPool(c)).Single();
+                Assert.IsTrue(candidate.AllowedAsSupporter, candidate.Description);
+                Assert.IsTrue(PoolRules.AddToPoolMessages(Helpers.GetCoordinator(member), Helpers.GetPool(c)).Count >= 1);
+                Run(PoolRules.AddToPool(Helpers.GetCoordinator(member), Helpers.GetPool(c)), 10);
+                Until(() => c.Cache.Hosts.Length == 2 && c.Cache.Hosts.All(h => h.IsLive()), 300, "pool of two again");
+            }
+            finally
+            {
+                lock (ConnectionsManager.ConnectionsLock)
+                {
+                    ConnectionsManager.XenConnections.Remove(c);
+                    if (member != null) ConnectionsManager.XenConnections.Remove(member);
+                }
+                c.EndConnect();
+                member?.EndConnect();
+            }
+        }
+
         private static void CreateAndRemoveVlan(IXenConnection c, IXenObject owner, int vlan, int hosts)
         {
             var nic = NetworkRules.WizardNics(NetworkRules.WizardHost(owner)).First();

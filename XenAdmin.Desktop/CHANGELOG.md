@@ -34,7 +34,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Memory tab: the memory bar of a VM (in use, dynamic range) or of a server (Xen and control domain, each VM, free),
   and Edit: the Memory Settings dialog (a fixed size or a range, or the advanced dynamic minimum, maximum and static
   maximum), with the server's limits and the restart warning.
-- Pool menu: Reconnect As, Disconnect, Change Server Password and Rotate Pool Secret; Server menu: Change Server
+- Pool menu: Add Server (the connected standalone servers that may join), Remove Server, Make into standalone server,
+  Reconnect As, Disconnect, Change Server Password and Rotate Pool Secret; Server menu: Change Server
   Password (current password checked, the passwords kept in memory only).
 - Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
   Properties.

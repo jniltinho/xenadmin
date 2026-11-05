@@ -57,7 +57,7 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
             _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
-            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword;
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -299,10 +299,12 @@ namespace XenAdmin.Desktop
                     Top("_View", Item("_Infrastructure", () => { _showEvents = false; UpdateContent(); }),
                         Item("_Notifications", () => { _showEvents = true; UpdateContent(); })),
                     Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool(), icon: "000_PoolNew_h32bit_16"), "-",
+                        _poolAddServer = PoolServersMenu("_Add Server", true), _poolRemoveServer = PoolServersMenu("Re_move Server", false),
                         _poolReconnectAs = Item("Reconnect _As...", async () => { if (SelectedConnection() is XenConnection c) await ReconnectAs(c); }),
                         _poolDisconnect = Item("_Disconnect", () => { if (SelectedConnection() is XenConnection c) Disconnect(c); }), "-",
                         _poolPassword = Item("Change Server Pass_word...", () => ChangePassword(SelectedNode()?.XenObject as Pool)),
                         _rotateSecret = Item("Rotate Pool _Secret", () => RotateSecret(SelectedNode()?.Connection)), "-",
+                        _makeStandalone = Item(Dialogs.M(Messages.MAINWINDOW_DELETE_POOL), () => MakeStandalone(SelectedNode()?.Connection)), "-",
                         _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
                     Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
                         _hostReboot = Item("_Reboot", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, true); }, icon: "001_Reboot_h32bit_16"),
@@ -535,6 +537,10 @@ namespace XenAdmin.Desktop
             _poolPassword.IsEnabled = o is Pool && PoolRules.CanChangePassword(o);
             _hostPassword.IsEnabled = o is Host && PoolRules.CanChangePassword(o);
             _rotateSecret.IsEnabled = (o is Pool || o is Host) && PoolRules.CanRotateSecret(c);
+            var selectedPool = poolConnection == null ? null : XenAdmin.Core.Helpers.GetPool(poolConnection);
+            _poolAddServer.IsEnabled = selectedPool != null && poolConnection.IsConnected;
+            _poolRemoveServer.IsEnabled = selectedPool != null && poolConnection.IsConnected;
+            _makeStandalone.IsEnabled = PoolRules.CanMakeStandalone(selectedPool);
             _hostProps.IsEnabled = o is Host && VmRules.CanEditProperties(o);
             _vmProps.IsEnabled = o is VM && VmRules.CanEditProperties(o);
             _newVm.IsEnabled = _newVmMenu.IsEnabled = c != null && c.IsConnected;
@@ -871,6 +877,69 @@ namespace XenAdmin.Desktop
         /// MigrateVMToolStripMenuItem: one item per host, disabled with the reason when the VM cannot go there.
         /// The reasons need VM.assert_can_boot_here, so they load when the submenu opens.
         /// </summary>
+        /// <summary>
+        /// Pool > Add Server (the other connected standalone servers, each with the reason it cannot join) and Remove
+        /// Server (the members; RemoveHostFromPoolCommand), filled when the submenu opens.
+        /// </summary>
+        private MenuItem PoolServersMenu(string header, bool add)
+        {
+            var menu = new MenuItem { Header = header };
+            menu.Items.Add(new MenuItem { Header = Messages.DELAY_LOADING_COMBO_BOX_WAITING, IsEnabled = false });
+            menu.SubmenuOpened += (_, e) =>
+            {
+                if (e.Source != menu || SelectedNode()?.Connection is not IXenConnection c || XenAdmin.Core.Helpers.GetPool(c) is not Pool pool) return;
+                menu.Items.Clear();
+                if (add)
+                {
+                    foreach (var candidate in PoolRules.JoinCandidates(_connections, pool))
+                    {
+                        var host = XenAdmin.Core.Helpers.GetCoordinator(candidate.Connection);
+                        var item = new MenuItem { Header = candidate.AllowedAsSupporter ? candidate.Name : $"{candidate.Name} ({candidate.Description})", IsEnabled = candidate.AllowedAsSupporter && host != null };
+                        item.Click += (_, _) => AddToPool(host, pool);
+                        menu.Items.Add(item);
+                    }
+                    if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+                    var other = new MenuItem { Header = Dialogs.M(Messages.ADD_POOL_OR_SERVER) };
+                    other.Click += async (_, _) => await AddServer();
+                    menu.Items.Add(other);
+                }
+                else
+                {
+                    foreach (var host in c.Cache.Hosts.OrderBy(h => h.Name()))
+                    {
+                        var item = new MenuItem { Header = host.Name(), IsEnabled = HostRules.CanRemoveFromPool(host) && !Busy(host) };
+                        item.Click += (_, _) => RemoveFromPool(host);
+                        menu.Items.Add(item);
+                    }
+                }
+                if (menu.Items.Count == 0)
+                    menu.Items.Add(new MenuItem { Header = Messages.NONE, IsEnabled = false });
+            };
+            return menu;
+        }
+
+        /// <summary>AddHostToPoolCommand: the confirmation and the pool warnings, then AddHostToPoolAction.</summary>
+        private async void AddToPool(Host host, Pool pool)
+        {
+            foreach (var message in PoolRules.AddToPoolMessages(host, pool))
+                if (!await Dialogs.Confirm(this, Messages.POOLCREATE_ADDING, message, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+                    return;
+            RunTracked(PoolRules.AddToPool(host, pool));
+        }
+
+        /// <summary>DeletePoolCommand ("Make into standalone server"): DestroyPoolAction on a pool of one server.</summary>
+        private async void MakeStandalone(IXenConnection c)
+        {
+            var pool = c == null ? null : XenAdmin.Core.Helpers.GetPool(c);
+            if (!PoolRules.CanMakeStandalone(pool)) return;
+            if (PoolRules.MakeStandaloneBlocker(pool) is string blocker)
+            {
+                await Dialogs.Info(this, Messages.MAINWINDOW_DELETE_POOL.Replace("&", ""), blocker);
+                return;
+            }
+            RunTracked(new DestroyPoolAction(pool));
+        }
+
         private MenuItem MigrateMenu(Func<VM> current)
         {
             var menu = new MenuItem { Header = Dialogs.M(Messages.MAINWINDOW_MIGRATE_TO_SERVER) };

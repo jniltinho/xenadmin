@@ -108,6 +108,33 @@ namespace XenAdmin.Desktop
             return result.Where(m => m != null).ToList();
         }
 
+        /// <summary>Pool > Add Server: the other connected servers and whether each may join this pool (PoolJoinRules).</summary>
+        public static List<Candidate> JoinCandidates(IEnumerable<IXenConnection> connections, Pool pool) =>
+            connections.Where(c => c != null && c != pool.Connection && c.IsConnected && Helpers.GetPool(c) == null)
+                .Select(c => new Candidate(c, PoolJoinRules.CanJoinPool(c, pool.Connection, true, AllowSupporterAdConfig, 1)))
+                .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+        /// <summary>AddHostToPoolCommand: the confirmation, then the same warnings as New Pool (license, CPU, packs).</summary>
+        public static List<string> AddToPoolMessages(Host host, Pool pool)
+        {
+            var result = new List<string> { string.Format(Messages.MAINWINDOW_CONFIRM_MOVE_TO_POOL, host.Name().Ellipsise(500), pool.Name().Ellipsise(500)) };
+            result.AddRange(Warnings(new List<Host> { host }, Helpers.GetCoordinator(pool)));
+            return result;
+        }
+
+        /// <summary>AddHostToPoolCommand: AddHostToPoolAction (licence failures are reported through the action's error).</summary>
+        public static AsyncAction AddToPool(Host host, Pool pool) => new AddHostToPoolAction(pool, host, _ => null, (_, _) => { });
+
+        /// <summary>DeletePoolCommand.CanRun ("Make into standalone server"): a visible pool of one server.</summary>
+        public static bool CanMakeStandalone(Pool pool) => pool != null && pool.IsVisible() && pool.Connection.Cache.HostCount == 1;
+
+        /// <summary>DeletePoolCommand: why the pool cannot be dissolved now (HA, more than one server), or null.</summary>
+        public static string MakeStandaloneBlocker(Pool pool) =>
+            pool.current_operations.Values.Contains(pool_allowed_operations.ha_enable) ? string.Format(Messages.POOL_DELETE_HA_ENABLING, pool.Name())
+            : pool.ha_enabled ? string.Format(Messages.POOL_DELETE_HA_ENABLED, pool.Name())
+            : pool.Connection.Cache.HostCount > 1 ? Messages.MESSAGEBOX_POOL_MEMBERS_EJECT
+            : null;
+
         /// <summary>CreatePoolAction as NewPoolDialog runs it; licence failures are reported through the action's error.</summary>
         public static CreatePoolAction Create(Host coordinator, List<Host> supporters, string name, string description) =>
             new CreatePoolAction(coordinator, supporters, name.Trim(), description ?? "", _ => null, (_, _) => { });
