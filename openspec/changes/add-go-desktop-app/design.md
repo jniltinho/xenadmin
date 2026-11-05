@@ -74,8 +74,9 @@ desktop-go/
 Um binário e um pacote por plataforma, como o app C# (`xcp-ng-center mcp`): `xcp-ng-center-go` sem subcomando abre a
 janela; `mcp`, `vm`, `host`, `sr`, `server` e `version` rodam sem janela, e só `cmd/gui.go` importa `internal/gui`
 (Wails). São dois módulos Go (raiz e `sdk/xenapi`); `make check` e `make test` rodam nos dois, porque `go test ./...`
-não entra em módulos aninhados. O núcleo e a CLI são testados sem CGO (`go test ./internal/... ./cmd/...` com a tag
-`nogui`, que troca `cmd/gui.go` por um stub).
+não entra em módulos aninhados. O núcleo e a CLI são testados sem CGO com a tag `nogui`: todos os arquivos de
+`internal/gui` e `cmd/gui.go` levam `//go:build !nogui`, `cmd/gui_nogui.go` é o stub, e o check headless roda
+`go test -tags nogui` só nos pacotes fora de `internal/gui` (listados por `go list` excluindo esse caminho).
 
 Diferente do ad-manager, cujo `desktop/` é um módulo separado porque só faz proxy para o painel web remoto, aqui o
 desktop roda o núcleo localmente, então janela, CLI e MCP ficam no mesmo módulo e no mesmo binário.
@@ -87,8 +88,9 @@ Flags (Cobra, persistentes no root): `--config`, `--json`, `--host` (repetível;
 O binário liga GTK4/WebKitGTK no Linux mesmo nos modos sem janela, então MCP e CLI precisam dessas bibliotecas; numa
 máquina sem elas, o próprio AppImage roda `xcp-ng-center-go-<ver>-x86_64.AppImage mcp` com as bibliotecas que traz
 (`--appimage-extract-and-run` quando não houver FUSE). No Windows o exe é `-H windowsgui` e, com subcomando, chama
-`AttachConsole(ATTACH_PARENT_PROCESS)` para escrever no terminal; com stdin/stdout redirecionados (MCP) usa os handles
-herdados. Testes cobrem os dois casos. Durante o preview o nome termina em `-go` para conviver
+`AttachConsole(ATTACH_PARENT_PROCESS)` e, como o Go guarda os handles padrão na inicialização, reabre `os.Stdin`,
+`os.Stdout` e `os.Stderr` em `CONIN$`/`CONOUT$` só quando o handle herdado é inválido; com stdin/stdout redirecionados
+(MCP) os pipes herdados são mantidos. Testes cobrem os dois casos. Durante o preview o nome termina em `-go` para conviver
 com o `xcp-ng-center` do app C# (mesmas configs de MCP, PATH, AppImage); o nome final é decidido na paridade.
 
 ### D2. Núcleo portado, não reinventado

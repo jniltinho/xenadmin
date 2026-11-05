@@ -17,7 +17,7 @@
 - [ ] 2.4 `internal/model`: cache por conexão com `event.from` e `DecodeRecord`, `Workspace`, assinaturas, reconexão e recarga em `EVENTS_LOST` com diffs (inclusive remoções); teste com 1000 VMs no servidor falso
 - [ ] 2.5 Servidor JSON-RPC falso (`internal/xapitest`) para testes do núcleo
 - [ ] 2.6 `internal/app`: casos de uso de conexão e árvore com `Workspace` pelo contexto; teste de dois workspaces isolados
-- [ ] 2.7 CLI `server add/list/connect`, `vm list` (tabela e `--json`), credenciais só do ambiente ou prompt sem eco
+- [ ] 2.7 CLI `server add/list/connect`, `vm list` (tabela e `--json`); servidor e usuário do ambiente ou das flags, senha de `XCP_PASS` ou prompt sem eco
 - [ ] 2.8 Lab KVM: conectar ao pool, TLS real (recusa sem aceite, aceite, troca de certificado), membro → coordenador
 
 ## 3. Shell do desktop e tema

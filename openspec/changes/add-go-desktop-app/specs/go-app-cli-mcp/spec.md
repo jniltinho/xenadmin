@@ -23,10 +23,13 @@ argumentos abre a janela; `version`, `server`, `vm`, `host` e `sr` rodam sem jan
 
 ### Requirement: Servidor MCP equivalente ao do app C#
 `xcp-ng-center-go mcp [--allow-write]` SHALL servir MCP por stdio com `github.com/modelcontextprotocol/go-sdk`, expondo as
-mesmas ferramentas e regras de `openspec/changes/add-mcp-server`: servidores e credenciais só do ambiente, certificado
-já confiado ou `XCP_TRUST_FINGERPRINT`, somente leitura por padrão, escrita só com `--allow-write` e `confirm: true`,
+mesmas ferramentas e regras de `openspec/changes/add-mcp-server`: somente leitura por padrão, escrita só com `--allow-write` e `confirm: true`,
 `operation_id` para operações longas, textos dos servidores tratados como dados e o sanitizador comum de segredos do
 núcleo.
+
+#### Scenario: Servidores definidos pelo operador
+- **WHEN** o MCP inicia com `--host`/`--user` ou `XCP_HOST`/`XCP_USER`, senha em `XCP_PASS` e certificado já confiado ou `--trust-fingerprint`/`XCP_TRUST_FINGERPRINT`
+- **THEN** só esses servidores podem ser conectados, e nenhuma ferramenta aceita servidor, usuário ou senha do XAPI
 
 #### Scenario: Escrita sem confirmação
 - **WHEN** o agente chama `vm_power` com `--allow-write` mas sem `confirm: true`
