@@ -328,6 +328,41 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>GPU and USB tabs (read only): the rules run on every server and the pool of XCP_HOST.</summary>
+        [TestMethod, TestCategory("Integration")]
+        public void GpuAndUsbTabsReadOnly()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host))
+                Assert.Inconclusive("XCP_HOST required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            try
+            {
+                var pool = XenAdmin.Core.Helpers.GetPoolOfOne(c);
+                foreach (IXenObject o in c.Cache.Hosts.Cast<IXenObject>().Append(pool))
+                {
+                    var groups = HardwareRules.Groups(o);
+                    Assert.AreEqual(HardwareRules.Pgpus(o).Count, groups.Sum(g => g.Count), "every GPU is in one row");
+                    foreach (var g in groups)
+                        Assert.IsTrue(HardwareRules.TypeRows(g).Count > 0, "a GPU row lists its vGPU types");
+                    if (groups.Count == 0)
+                        Assert.IsFalse(string.IsNullOrEmpty(HardwareRules.NoGpuText(o)));
+                    Assert.IsFalse(string.IsNullOrEmpty(HardwareRules.PolicyText(HardwareRules.PlacementPolicy(c))));
+                    Assert.IsNull(HardwareRules.PlacementAction(c, HardwareRules.PlacementPolicy(c)), "unchanged policy: nothing to save");
+                    if (o is Host h)
+                    {
+                        Assert.AreEqual(h.PUSBs.Count > 0 && !XenAdmin.Core.Helpers.FeatureForbidden(c, Host.RestrictUsbPassthrough), Details.Tabs(h).Contains("USB"));
+                        foreach (var p in HardwareRules.Pusbs(h))
+                            Assert.IsNotNull(HardwareRules.PassthroughButton(p).Text);
+                    }
+                }
+            }
+            finally
+            {
+                c.EndConnect();
+            }
+        }
+
         /// <summary>vApps: New vApp wizard (create with a VM, startup order), Assign to vApp, Properties VMs, Delete.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void VappCreateAssignDeleteOnThrowawayVms()

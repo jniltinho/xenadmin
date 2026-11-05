@@ -51,6 +51,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - vApps: Pool > Manage vApps (New vApp, Delete, Properties, Start, Shut down and the VMs of each vApp), the New vApp
   wizard (name, VMs, VM startup sequence), vApp Properties and VM > Assign to vApp. Importing and exporting a vApp
   (OVF) are not available yet.
+- GPU tab of servers and pools (placement policy, the GPUs with their running vGPUs and allowed vGPU types, Edit) and
+  USB tab of servers (USB devices, Enable/Disable pass-through), shown only where they apply, as in Windows.
 
 ### Fixed
 - VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).

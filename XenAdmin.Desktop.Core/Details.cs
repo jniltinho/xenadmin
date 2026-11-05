@@ -58,18 +58,26 @@ namespace XenAdmin.Desktop
             }
         }
 
-        /// <summary>Same tabs and order as the WinForms app; the ones in <see cref="NotPorted"/> are shown disabled.</summary>
+        /// <summary>
+        /// Same tabs and order as the WinForms app (MainWindow.ChangeToNewTabs, GPU and USB only where they apply); the
+        /// ones in <see cref="NotPorted"/> are shown disabled.
+        /// </summary>
         public static string[] Tabs(IXenObject o) => o switch
         {
             VM _ => new[] { "General", "Memory", "Storage", "Networking", "Console", "Performance", "Snapshots", "Search" },
-            Host _ => new[] { "General", "Memory", "Storage", "Networking", "NICs", "GPU", "USB", "Console", "Performance", "Search" },
-            Pool _ => new[] { "General", "Memory", "Storage", "Networking", "GPU", "Search" },
+            Host _ => new[] { "General", "Memory", "Storage", "Networking", "NICs" }
+                .Concat(HardwareRules.ShowGpuTab(o) ? new[] { "GPU" } : Array.Empty<string>())
+                .Concat(HardwareRules.ShowUsbTab(o) ? new[] { "USB" } : Array.Empty<string>())
+                .Concat(new[] { "Console", "Performance", "Search" }).ToArray(),
+            Pool _ => new[] { "General", "Memory", "Storage", "Networking" }
+                .Concat(HardwareRules.ShowGpuTab(o) ? new[] { "GPU" } : Array.Empty<string>())
+                .Concat(new[] { "Search" }).ToArray(),
             SR _ => new[] { "General", "Storage", "Search" },
             _ => new[] { "General" }
         };
 
         public static bool NotPorted(IXenObject o, string tab) =>
-            tab is "GPU" or "USB" || tab == "Console" && !(o is VM || o is Host) || tab == "Search" && o is SR;
+            tab == "Console" && !(o is VM || o is Host) || tab == "Search" && o is SR;
 
         private static Section Common(IXenObject o)
         {

@@ -159,6 +159,8 @@ namespace XenAdmin.Desktop.Tests
             Assert.IsFalse(Details.NotPorted(new VM(), "Performance"));
             Assert.IsFalse(Details.NotPorted(new Host(), "Performance"));
             Assert.IsFalse(Details.NotPorted(new Host(), "NICs"));
+            Assert.IsFalse(Details.NotPorted(new Host(), "GPU"));
+            Assert.IsFalse(Details.NotPorted(new Host(), "USB"));
             CollectionAssert.AreEqual(new[] { "-", "-", "-", "-", "-", "-" }, OverviewColumns.Values(new Pool()).Select(v => v.Text).ToArray());
         }
 

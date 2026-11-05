@@ -184,7 +184,7 @@ namespace XenAdmin.Desktop
             right.Children.Add(_tabs);
             _tabs.SelectionChanged += (_, _) =>
             {
-                if (_tabs.SelectedItem is TabItem t && SelectedNode()?.XenObject is IXenObject x && _tabsSignature == x.opaque_ref)
+                if (_tabs.SelectedItem is TabItem t && SelectedNode()?.XenObject is IXenObject x && _tabsSignature?.StartsWith(x.opaque_ref + "|") == true)
                 {
                     _lastTab[x.opaque_ref] = (string)t.Header;
                     _lastTabAny = (string)t.Header;
@@ -613,10 +613,11 @@ namespace XenAdmin.Desktop
 
             _titleBand.Content = Views.TitleBand(node.Icon, Details.Heading(o), user);
             // rebuild the tab bodies on every refresh so values stay live, but keep the selected tab
-            var sig = o.opaque_ref;
+            // the object and its tab list: a tab that comes or goes (USB plugged in, host down) rebuilds the tabs
+            var sig = o.opaque_ref + "|" + string.Join(",", Details.Tabs(o));
             string current = _lastTabAny;
             if (_config.Options.RememberLastSelectedTab)
-                _lastTab.TryGetValue(sig, out current);
+                _lastTab.TryGetValue(o.opaque_ref, out current);
             if (_tabsSignature == sig)
             {
                 foreach (var existing in _tabs.Items.OfType<TabItem>().Where(i => i.IsEnabled && (string)i.Header != "Console"))
@@ -679,6 +680,10 @@ namespace XenAdmin.Desktop
                         : new HostNetworkView(o, RunTracked, ShowProperties));
                 case "NICs":
                     return Body("Network Interface Cards", new NicsView((Host)o, RunTracked));
+                case "GPU":
+                    return Body("GPU", new ScrollViewer { Content = new GpuView(o, RunTracked) });
+                case "USB":
+                    return Body(Messages.USB, new UsbView((Host)o, RunTracked));
                 case "Console":
                     // TabPageConsole of a server: the console of its control domain
                     return ConsoleView.For(o is Host consoleHost ? consoleHost.ControlDomainZero() : o as VM);
