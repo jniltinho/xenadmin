@@ -11,17 +11,18 @@ segue o XCP-ng Center v25.04 do Windows), com um layout mais moderno e sem canto
 
 - Nova pasta `desktop-go/` com um projeto Go independente do .NET, no padrão dos projetos `ad-manager` e `ova2xva`:
   `main.go` → `cmd.Execute()` (Cobra), `internal/` com um pacote por responsabilidade, `sdk/xenapi/` (SDK oficial
-  vendorizado com `replace xenapi => ./sdk/xenapi`), `frontend/` (Vue 3 + TailwindCSS 4 + Vite), `desktop/` (módulo
-  Wails v3.1.0), `web/` (embed da SPA para o futuro modo web), `docs/`, `packaging/`, `openspec` do repositório.
+  vendorizado com `replace xenapi => ./sdk/xenapi`), `frontend/` (Vue 3 + TailwindCSS 4 + Vite), `internal/gui` (Wails
+  v3.1.0, no mesmo módulo e binário), `web/` (embed da SPA para o futuro modo web), `docs/`, `packaging/`, `openspec` do repositório.
 - Núcleo sem UI (`internal/`): conexão e sessão XAPI com TLS confiado na primeira vez e certificados de membros do pool
   confiados pelo coordenador; cache de objetos alimentado por `event.from`; regras portadas de
   `XenAdmin.Desktop.Core` (VM, host, pool, SR, migração, notificações, performance, New VM); operações longas com
   acompanhamento de `task`; proxy do console VNC (RFB) para WebSocket.
 - Camada de serviço neutra de transporte (`internal/app`): os mesmos métodos são expostos como serviços do Wails no
   desktop, como ferramentas MCP e, depois, como API HTTP + eventos no modo web.
-- CLI Cobra no mesmo binário: `xcp-ng-center-go` (abre a janela), `xcp-ng-center-go mcp [--allow-write]` (servidor MCP por
-  stdio com `github.com/modelcontextprotocol/go-sdk`, as mesmas regras de segurança do MCP em C#), `version` e comandos
-  de leitura/operação (`server`, `vm`, `host`, `sr`) para scripts.
+- CLI Cobra no mesmo binário e pacote, com flags: `xcp-ng-center-go` (abre a janela), `xcp-ng-center-go mcp
+  [--allow-write]` (servidor MCP padrão por stdio com o SDK oficial `github.com/modelcontextprotocol/go-sdk`, as mesmas
+  regras de segurança do MCP em C#), `version` e comandos de leitura/operação (`server`, `vm`, `host`, `sr`) para
+  scripts; flags globais `--host`, `--user`, `--trust-fingerprint`, `--json` e `--config` (a senha nunca é flag).
 - Interface Vue com paridade de telas do app C#: árvore de recursos, abas (General, Memory, Storage, Networking,
   Console, Performance, Snapshots, Search), menus e barra de ferramentas, Notifications (Alerts, Events), Properties,
   wizards (New VM, New SR NFS/SMB/iSCSI/ISO, New Pool, Copy VM, Delete VM, Migrate), modo manutenção.
@@ -29,7 +30,7 @@ segue o XCP-ng Center v25.04 do Windows), com um layout mais moderno e sem canto
 - Recursos removidos do XenServer 9 e os que não existem no XCP-ng (Health Check, licenciamento Citrix, CDN de
   updates, guests PV, SSL legado, FCoE por software, entre outros listados no design) não são portados.
 - Empacotamento: Linux (AppImage e tarball), macOS universal (Apple Silicon + Intel, `.app` em zip) e Windows x64
-  (exe em zip), mais o binário `xcp-ng-center-go-cli` sem interface (CLI e MCP) nas três plataformas; builds em
+  (exe em zip), um binário por plataforma para janela, CLI e MCP; builds em
   container, exceto o macOS, que precisa do SDK da Apple num runner macOS.
 
 ## Capabilities

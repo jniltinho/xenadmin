@@ -3,7 +3,7 @@
 ### Requirement: Builds em container
 `make go-test`, `make go-linux` e `make go-windows` SHALL rodar em container (Go 1.27, Node 24, GTK4/WebKitGTK 6.0
 do Wails v3), sem instalar nada no host, como os alvos atuais do app C#, e MUST rodar os checks em cada módulo Go
-(raiz, `desktop/` e `sdk/xenapi`). O build macOS é a exceção: SHALL rodar num runner macOS, porque o Wails precisa de
+(raiz e `sdk/xenapi`). O build macOS é a exceção: SHALL rodar num runner macOS, porque o Wails precisa de
 CGO com o SDK da Apple.
 
 #### Scenario: Build limpo
@@ -13,8 +13,7 @@ CGO com o SDK da Apple.
 ### Requirement: Artefatos por plataforma
 Cada release SHALL publicar: `xcp-ng-center-go-<ver>-x86_64.AppImage` e `-linux-x64.tar.gz`,
 `xcp-ng-center-go-<ver>_macos_universal.zip` (um `.app` com binário universal arm64 + x86_64 via `lipo`, mínimo
-macOS 14) e `xcp-ng-center-go-<ver>-win-x64.zip`, cada um com o binário `xcp-ng-center-go-cli` sem interface, e
-`SHA256SUMS`. O AppImage MUST ser gerado sobre uma base fixa (Ubuntu 24.04) e o README MUST listar as distribuições
+macOS 14) e `xcp-ng-center-go-<ver>-win-x64.zip`, cada um com um único binário para janela, CLI e MCP, e `SHA256SUMS`. O AppImage MUST ser gerado sobre uma base fixa (Ubuntu 24.04) e o README MUST listar as distribuições
 suportadas (glibc e WebKitGTK 6.0 dessa base ou mais novas).
 
 #### Scenario: App macOS universal

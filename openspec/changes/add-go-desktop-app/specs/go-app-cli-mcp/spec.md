@@ -2,9 +2,8 @@
 
 ### Requirement: CLI Cobra no mesmo binário
 O binário SHALL usar Cobra com um arquivo por grupo de comandos em `cmd/` (padrão `ad-manager`/`ova2xva`): sem
-argumentos abre a janela; `version` mostra versão, commit e data (via `internal/buildinfo`); `server`, `vm`, `host` e
-`sr` listam e operam objetos com as mesmas regras da UI; `--json` muda a saída para JSON. As credenciais MUST vir do
-ambiente (`XCP_HOST`, `XCP_USER`, `XCP_PASS`) ou de um prompt sem eco, nunca de flags.
+argumentos abre a janela; `version`, `server`, `vm`, `host` e `sr` rodam sem janela com as mesmas regras da UI, e
+`--json` muda a saída para JSON. A senha MUST vir de `XCP_PASS` ou de um prompt sem eco, nunca de uma flag.
 
 #### Scenario: Listar VMs em JSON
 - **WHEN** o usuário roda `xcp-ng-center-go vm list --json` com `XCP_HOST`, `XCP_USER` e `XCP_PASS` definidos
@@ -12,7 +11,11 @@ ambiente (`XCP_HOST`, `XCP_USER`, `XCP_PASS`) ou de um prompt sem eco, nunca de 
 
 #### Scenario: Console do Windows
 - **WHEN** `xcp-ng-center-go.exe version` ou `mcp` roda num terminal ou com stdin/stdout redirecionados no Windows
-- **THEN** a saída chega ao terminal ou ao pipe (o exe GUI anexa o console do processo pai), e o `xcp-ng-center-go-cli.exe` sem interface faz o mesmo sem anexar nada
+- **THEN** a saída chega ao terminal ou ao pipe (o exe anexa o console do processo pai ou usa os handles herdados)
+
+#### Scenario: Flags sobre o ambiente
+- **WHEN** o usuário roda `xcp-ng-center-go vm list --host 10.0.0.5 --user admin` com `XCP_HOST` apontando para outro servidor
+- **THEN** o comando usa `10.0.0.5` e `admin`, e a senha continua vindo de `XCP_PASS` ou do prompt
 
 #### Scenario: Senha em flag
 - **WHEN** o usuário tenta passar a senha como flag
@@ -37,10 +40,14 @@ núcleo.
 - **WHEN** o teste compara os nomes e esquemas de ferramentas do servidor Go com a lista do servidor C#
 - **THEN** os nomes são os mesmos e as diferenças de esquema estão documentadas
 
-### Requirement: Binário sem interface para MCP e CLI
-O binário `xcp-ng-center-go-cli` (módulo raiz, sem CGO) SHALL oferecer os mesmos comandos, exceto abrir a janela, e a
-configuração recomendada nos clientes MCP SHALL usá-lo.
+### Requirement: Um binário para janela, CLI e MCP
+O mesmo binário e o mesmo pacote de cada plataforma SHALL abrir a janela sem subcomando e rodar `mcp` e os comandos da
+CLI sem abrir janela nem conectar a um display.
 
-#### Scenario: Servidor sem interface gráfica
-- **WHEN** `xcp-ng-center-go-cli mcp` roda num Linux sem GTK nem WebKit
-- **THEN** o servidor MCP inicia e responde a `initialize`
+#### Scenario: MCP sem display
+- **WHEN** `xcp-ng-center-go mcp` roda num Linux sem `DISPLAY` nem `WAYLAND_DISPLAY`
+- **THEN** o servidor MCP inicia e responde a `initialize` sem tentar abrir janela
+
+#### Scenario: AppImage como servidor MCP
+- **WHEN** o AppImage roda com o subcomando `mcp` numa máquina sem GTK4/WebKitGTK instalados
+- **THEN** o servidor MCP inicia com as bibliotecas que o AppImage traz

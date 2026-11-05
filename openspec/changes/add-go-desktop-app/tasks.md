@@ -2,9 +2,9 @@
 
 - [ ] 1.1 `desktop-go/` com `go.mod` (`xcpng-center`, Go 1.27), `main.go` → `cmd.Execute()`, `cmd/root.go` (`--json`, `--config`), `cmd/version.go`, `internal/buildinfo`
 - [ ] 1.2 `sdk/xenapi` com o SDK 26.16.1, `PATCHES.md`, script `tools/sdk-update.sh` e os patches `HTTPClient`, erros sem `log.Fatal`, `APIError` tipado e `DecodeRecord`; teste que falha se o SDK abrir conexão sem o cliente do app
-- [ ] 1.3 Módulo `desktop/` com Wails v3.1.0 (`replace xcpng-center => ../` e `replace xenapi => ../sdk/xenapi`), janela vazia carregando a SPA, delegação dos argumentos ao `cmd/`
-- [ ] 1.4 `frontend/` Vue 3 + TS + Tailwind 4 + Vite com `--mode desktop` (→ `desktop/frontend/dist`) e `--mode web` (→ `web/dist`); `src/api/` com interface, `wails.ts` e `http.ts` vazio
-- [ ] 1.5 Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos três módulos (raiz, `desktop/`, `sdk/xenapi`); alvos `go-*` no Makefile raiz
+- [ ] 1.3 `internal/gui` com Wails v3.1.0 e `cmd/gui.go` (root sem subcomando abre a janela vazia carregando a SPA); tag `nogui` para testar núcleo e CLI sem CGO
+- [ ] 1.4 `frontend/` Vue 3 + TS + Tailwind 4 + Vite com `--mode desktop` (→ `frontend/dist`) e `--mode web` (→ `web/dist`); `src/api/` com interface, `wails.ts` e `http.ts` vazio
+- [ ] 1.5 Makefile (`test`, `check`, `frontend`, `linux`, `windows`, `macos`, `appimage`, `dist`, `web-check`, `smoke`) em container Ubuntu 24.04 com Go 1.27, Node 24 e GTK4/WebKitGTK 6.0, rodando os checks nos dois módulos (raiz e `sdk/xenapi`); alvos `go-*` no Makefile raiz
 - [ ] 1.6 Workflow `desktop-go.yml` (PR: check, testes, web-check, fumaça Xvfb, build Windows); README, `docs/architecture.md`, `docs/development.md`, `AGENTS.md` e `CHANGELOG.md` do `desktop-go/`
 - [ ] 1.7 Teste de arquitetura: `internal/{xapi,model,rules,ops,console,app}` sem Wails, Cobra, MCP ou `internal/server`
 
@@ -24,7 +24,8 @@
 
 - [ ] 3.1 Tema Tailwind (tokens, claro/escuro, densidade, `--radius-*: 0`, regra base) e teste Playwright de cantos
 - [ ] 3.2 Componentes base: Splitter, Tree, Tabs, DataGrid virtualizado, MenuBar, Toolbar, ContextMenu, Dialog, Wizard, StatusBar, Field, Button
-- [ ] 3.3 Janela principal: árvore (ícones do XenCenter), abas, menus e barra de ferramentas, Add Server e diálogo de certificado, barra de status
+- [ ] 3.2b Ícones: cópia de `XenAdmin/Images` e `branding-xcp-ng/Images` no build e porta de `IconNames` (objeto, estado, toolbar, menus) com teste de tabela
+- [ ] 3.3 Janela principal: árvore (ícones do app C#), abas, menus e barra de ferramentas, Add Server e diálogo de certificado, barra de status
 - [ ] 3.4 Abas General de pool, host, VM e SR (porta de `Details` e `OverviewColumns`)
 - [ ] 3.4b Segurança do webview: CSP, bloqueio de navegação externa, permissões negadas, lint sem `v-html`, teste com nome de VM contendo HTML
 - [ ] 3.5 Serviços Wails e eventos `xcp:*` coalescidos; instância única; estado da janela; menu nativo no macOS
@@ -68,7 +69,7 @@
 - [ ] 8.1 `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
 - [ ] 8.2 Teste de paridade de nomes e esquemas com o MCP C#; teste do processo real por stdio no lab
 - [ ] 8.3 CLI `vm`, `host` e `sr` com as operações e confirmações (`--yes` explícito para escrita)
-- [ ] 8.3b `xcp-ng-center-go-cli` (raiz, sem CGO) e `AttachConsole` no exe GUI do Windows; testes de terminal e de stdin/stdout redirecionados
+- [ ] 8.3b Flags globais (`--host`, `--user`, `--trust-fingerprint`, `--json`, `--config`), `mcp` sem display no Linux e pelo AppImage, `AttachConsole` no exe do Windows; testes de terminal e de stdin/stdout redirecionados
 - [ ] 8.4 `docs/mcp.md` e `docs/cli.md`
 
 ## 9. Empacotamento, release e web

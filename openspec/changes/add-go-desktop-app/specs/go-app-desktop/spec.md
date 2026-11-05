@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: App desktop Wails v3 com Vue e TailwindCSS
-O app desktop SHALL ser um binário Wails v3.1.0 (`desktop-go/desktop`) com a SPA Vue 3 + TailwindCSS 4 embutida, rodando
+O app desktop SHALL ser um binário Wails v3.1.0 (`desktop-go`, pacote `internal/gui`) com a SPA Vue 3 + TailwindCSS 4 embutida, rodando
 em Linux (WebKitGTK), macOS (WKWebView) e Windows (WebView2). A SPA MUST falar com o núcleo só pela interface `api` do
 frontend, nunca chamando o runtime do Wails diretamente nas telas.
 
@@ -29,6 +29,10 @@ comparada com a do app C# e do XCP-ng Center v25.04 antes de ser dada como pront
 #### Scenario: Comportamentos do 0.2.0
 - **WHEN** a paridade é conferida no fim da mudança
 - **THEN** funcionam como no app C#: duplo clique conecta um servidor ou liga uma VM; a aba é lembrada por objeto; Turn on / Switch to Remote Desktop; New SR reanexa ou introduz um SR NFS/SMB existente; sair e voltar à aba Console não derruba a sessão; Full copy nunca vira fast clone; SRs ocultos nunca são o padrão de discos novos
+
+#### Scenario: Mesmos ícones do app C#
+- **WHEN** a árvore, as abas, a barra de ferramentas e os menus mostram um objeto ou comando
+- **THEN** o ícone é o mesmo PNG que o app C# mostra para aquele objeto, estado ou comando (`XenAdmin/Images` pelas regras de `IconNames`)
 
 #### Scenario: Comando desabilitado
 - **WHEN** um comando não é permitido pelo objeto selecionado

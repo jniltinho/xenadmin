@@ -43,9 +43,10 @@ Referências usadas:
 
 ```
 desktop-go/
-  go.mod                 module xcpng-center (Go 1.27), replace xenapi => ./sdk/xenapi; sem CGO
-  main.go                cmd.Execute(): CLI + MCP sem janela (binário headless para servidores e CI)
-  cmd/                   Cobra: root.go, version.go, mcp.go, server.go, vm.go, host.go, sr.go (+ _test.go)
+  go.mod                 module xcpng-center (Go 1.27), Wails v3.1.0, replace xenapi => ./sdk/xenapi
+  main.go                cmd.Execute(): um binário para janela, CLI e MCP
+  cmd/                   Cobra: root.go (sem subcomando abre a janela), gui.go, version.go, mcp.go, server.go,
+                         vm.go, host.go, sr.go (+ _test.go)
   internal/
     buildinfo/           versão, commit e data por -ldflags
     config/              settings.toml em os.UserConfigDir()/xcp-ng-center-go (0600; recusa arquivo legível por outros)
@@ -58,27 +59,36 @@ desktop-go/
     rrd/                 rrd_updates e archives para Performance
     messages/            textos de XenModel/Messages.resx usados pelas regras (gerado por tools/resx2go)
     app/                 casos de uso neutros de transporte (D4)
-    mcp/                 ferramentas MCP sobre internal/app
+    mcp/                 ferramentas MCP sobre internal/app (github.com/modelcontextprotocol/go-sdk)
+    gui/                 app Wails: janela, serviços finos sobre internal/app, nativos (SSH, RDP, janela, bandeja)
   sdk/xenapi/            XenServer SDK 26.16.1 + PATCHES.md (D3)
-  frontend/              Vue 3 + TypeScript + TailwindCSS 4 + Vite (D6)
+  frontend/              Vue 3 + TypeScript + TailwindCSS 4 + Vite (D6); dist embutido por internal/gui
   web/                   embed.go (//go:embed all:dist) reservado para o modo web
-  desktop/               módulo Go xcpng-center/desktop com Wails v3.1.0 (CGO no Linux/macOS),
-                         replace xcpng-center => ../ e replace xenapi => ../sdk/xenapi (o replace da raiz não é herdado)
-    main.go              sem argumentos abre a janela; com argumentos delega ao mesmo cmd/ (mcp, vm, version...)
-    services/            serviços Wails finos sobre internal/app e os nativos (diálogos, SSH, RDP, janela)
-    build/               Taskfile e configs do Wails (ícones, Info.plist, NSIS, AppImage)
+  build/                 Taskfile e configs do Wails (ícones, Info.plist, NSIS, AppImage), layout do wails3 init
   packaging/             .desktop, ícones, Info.plist, launcher
   docs/                  architecture.md, development.md, parity.md, mcp.md, cli.md
   tools/resx2go/         gera internal/messages a partir dos .resx
   Makefile, README.md, CHANGELOG.md, AGENTS.md
 ```
 
-São três módulos Go (raiz, `desktop/`, `sdk/xenapi`); `make check` e `make test` rodam em cada um, porque
-`go test ./...` na raiz não entra em módulos aninhados. Os releases trazem dois binários: o de `desktop/`
-(`xcp-ng-center-go`: janela + todos os comandos, como o app C#) e o da raiz (`xcp-ng-center-go-cli`, sem CGO nem
-bibliotecas gráficas), recomendado para MCP, scripts e servidores. No Windows o exe GUI é `-H windowsgui` e, quando
-recebe argumentos, chama `AttachConsole(ATTACH_PARENT_PROCESS)` para escrever no terminal; com stdin/stdout
-redirecionados (MCP) usa os handles herdados. Testes cobrem os dois casos. Durante o preview o nome termina em `-go` para conviver
+Um binário e um pacote por plataforma, como o app C# (`xcp-ng-center mcp`): `xcp-ng-center-go` sem subcomando abre a
+janela; `mcp`, `vm`, `host`, `sr`, `server` e `version` rodam sem janela, e só `cmd/gui.go` importa `internal/gui`
+(Wails). São dois módulos Go (raiz e `sdk/xenapi`); `make check` e `make test` rodam nos dois, porque `go test ./...`
+não entra em módulos aninhados. O núcleo e a CLI são testados sem CGO (`go test ./internal/... ./cmd/...` com a tag
+`nogui`, que troca `cmd/gui.go` por um stub).
+
+Diferente do ad-manager, cujo `desktop/` é um módulo separado porque só faz proxy para o painel web remoto, aqui o
+desktop roda o núcleo localmente, então janela, CLI e MCP ficam no mesmo módulo e no mesmo binário.
+
+Flags (Cobra, persistentes no root): `--config`, `--json`, `--host` (repetível; sobrepõe `XCP_HOST`), `--user`
+(sobrepõe `XCP_USER`) e `--trust-fingerprint` (sobrepõe `XCP_TRUST_FINGERPRINT`); `mcp` acrescenta `--allow-write`
+(padrão somente leitura). A senha nunca é flag: vem de `XCP_PASS` ou, na CLI interativa, de um prompt sem eco.
+
+O binário liga GTK4/WebKitGTK no Linux mesmo nos modos sem janela, então MCP e CLI precisam dessas bibliotecas; numa
+máquina sem elas, o próprio AppImage roda `xcp-ng-center-go-<ver>-x86_64.AppImage mcp` com as bibliotecas que traz
+(`--appimage-extract-and-run` quando não houver FUSE). No Windows o exe é `-H windowsgui` e, com subcomando, chama
+`AttachConsole(ATTACH_PARENT_PROCESS)` para escrever no terminal; com stdin/stdout redirecionados (MCP) usa os handles
+herdados. Testes cobrem os dois casos. Durante o preview o nome termina em `-go` para conviver
 com o `xcp-ng-center` do app C# (mesmas configs de MCP, PATH, AppImage); o nome final é decidido na paridade.
 
 ### D2. Núcleo portado, não reinventado
@@ -115,7 +125,7 @@ gravadas de XCP-ng 8.2 e 8.3 (respostas JSON-RPC reais do lab, sem segredos) ali
 `internal/app` expõe os casos de uso (conectar, árvore, detalhes, operações de VM/host/SR, wizards, alertas,
 performance, console) com `context.Context`, DTOs JSON e erros tipados (`code`, `message`, `details`). O estado do
 usuário fica num `Workspace` (conexões, cache, confiança, operações) obtido do contexto. Adaptadores finos, sem regras:
-- **Desktop**: serviços Wails em `desktop/services` (bindings TS gerados por `wails3 generate bindings`); mudanças do
+- **Desktop**: serviços Wails em `internal/gui` (bindings TS gerados por `wails3 generate bindings`); mudanças do
   cache e das operações chegam como eventos Wails tipados (`xcp:objects`, `xcp:operation`, `xcp:connection`), com
   coalescência a cada 100 ms para não inundar o webview.
 - **MCP**: `internal/mcp` registra as ferramentas sobre os mesmos casos de uso.
@@ -157,16 +167,18 @@ frontend/src/
 
 Sem biblioteca de componentes pronta (elas trazem cantos arredondados e um visual web); componentes próprios, poucos e
 testados. A barra de menus é desenhada na janela (como no app C#, e funciona no modo web); no macOS o menu nativo
-também tem os itens padrão do app. Ícones de objetos (VM, host, pool, SR e estados) reaproveitam os do XenCenter
-(`XenAdmin/Images`, BSD-2, como o app C# faz) para reconhecimento imediato; ícones de ação usam um conjunto de linha
-(lucide). Gráficos de Performance com uPlot. Console com noVNC (MPL-2.0, sem modificações, arquivo de licença no
+também tem os itens padrão do app. Todos os ícones são os mesmos do app desktop C#: os PNG de `XenAdmin/Images`
+(BSD-2) e o logo/ícone de `branding-xcp-ng/Images`, copiados no build para `frontend/public/images/` (sem duplicar no
+git) e escolhidos pelas mesmas regras de `IconNames` (objeto, estado, alertas, barra de ferramentas e menus), para que
+árvore, abas e botões fiquem iguais ao app C#; nenhum outro conjunto de ícones é usado. Gráficos de Performance com uPlot. Console com noVNC (MPL-2.0, sem modificações, arquivo de licença no
 pacote).
 
 ### D7. Tema: moderno e sem cantos arredondados
 - Tokens em `@theme`: todas as `--radius-*` = `0`; regra base `*, ::before, ::after { border-radius: 0 }` para cobrir
   componentes de terceiros (noVNC, uPlot); foco por `outline` quadrado de 2 px.
 - Densidade de desktop (linhas de 24–28 px na árvore e nas grades), fonte do sistema (`system-ui`), cor de destaque
-  única, superfícies planas com bordas de 1 px em vez de sombras grandes, ícones de 16 px.
+  única, superfícies planas com bordas de 1 px em vez de sombras grandes; ícones de 16 px do app C# (os PNG de 32 px
+  onde o app C# os usa), renderizados sem suavização extra para não borrar.
 - Claro e escuro pelo `prefers-color-scheme` com escolha manual em Settings; contraste WCAG AA.
 - Teste Playwright percorre as telas e diálogos e falha se algum `getComputedStyle(el).borderRadius` não for `0px`.
 - Os cantos da própria janela pertencem ao sistema (macOS e Windows 11 arredondam a moldura); janelas sem moldura não
@@ -254,7 +266,7 @@ XenServer 9 recomenda.
 - Windows: `CGO_ENABLED=0`, `-H windowsgui`, ícone/manifesto, exe em zip; NSIS fica para depois.
 - Workflow `desktop-go.yml`: testes e checks em PR; tag `go-v*` publica pre-release com
   `xcp-ng-center-go-<ver>-x86_64.AppImage`, `-linux-x64.tar.gz`, `_macos_universal.zip`, `-win-x64.zip` (os três
-  arquivos com o `xcp-ng-center-go-cli` junto) e `SHA256SUMS`, notas de `desktop-go/CHANGELOG.md` no estilo do rustXterm; skill `create-release` ganha a seção Go.
+  com o mesmo binário para janela, CLI e MCP) e `SHA256SUMS`, notas de `desktop-go/CHANGELOG.md` no estilo do rustXterm; skill `create-release` ganha a seção Go.
 
 ## Risks / Trade-offs
 
