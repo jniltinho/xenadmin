@@ -30,7 +30,9 @@ const selectedVm = computed(() => (selected.value?.object?.kind === "vms" ? sele
 const canRun = (c: VmCommand, n: Node | null) => !!n?.object?.allowed?.includes(c.needs);
 const menu = ref<{ x: number; y: number; node: Node } | null>(null);
 const vmMenuOpen = ref(false);
-const ask = ref<(Confirm & { resolve: (ok: boolean) => void }) | null>(null);
+// the message box: a title, a text and its buttons; resolves with the index of the button clicked (-1: closed)
+const ask = ref<(Confirm & { buttons: string[]; resolve: (i: number) => void }) | null>(null);
+const choose = (q: Confirm, buttons: string[]) => new Promise<number>((resolve) => (ask.value = { ...q, buttons, resolve }));
 
 async function runVm(c: VmCommand, n: Node | null) {
   menu.value = null; vmMenuOpen.value = false;
@@ -66,7 +68,7 @@ const view = ref<"infrastructure" | "alerts">("infrastructure");
 type AlertRow = Alert & { server: string };
 const alerts = ref<AlertRow[]>([]);
 const picked = reactive(new Set<string>());
-const confirm = (q: Confirm) => new Promise<boolean>((resolve) => (ask.value = { ...q, resolve }));
+const confirm = async (q: Confirm) => (await choose(q, ["Yes", "No"])) === 0;
 
 async function loadAlerts() {
   const rows: AlertRow[] = [];
@@ -105,7 +107,45 @@ async function showView(v: "infrastructure" | "alerts") {
   if (v === "alerts") await loadAlerts();
 }
 
-function answer(ok: boolean) { ask.value?.resolve(ok); ask.value = null; }
+function answer(i: number) { ask.value?.resolve(i); ask.value = null; }
+
+// The server commands (ShutDownHostCommand, RebootHostCommand, HostMaintenanceModeCommand) with the C# questions.
+const hostCommands = [
+  { op: "shutdown", label: "Shut Down", icon: "001_ShutDown" },
+  { op: "reboot", label: "Reboot", icon: "001_Reboot" },
+  { op: "enter_maintenance", label: "Enter Maintenance Mode...", icon: "000_ServerMaintenance" },
+  { op: "exit_maintenance", label: "Exit Maintenance Mode", icon: "000_ServerMaintenance" },
+];
+type HostCommand = (typeof hostCommands)[number];
+const selectedHost = computed(() => (selected.value?.object?.kind === "hosts" ? selected.value : null));
+const hostCanRun = (c: HostCommand, n: Node | null) =>
+  !!n?.object?.live && (c.op === "enter_maintenance" ? !n.object.maintenance : c.op === "exit_maintenance" ? !!n.object.maintenance : true);
+const serverMenuOpen = ref(false);
+
+async function runHost(c: HostCommand, n: Node | null) {
+  menu.value = null; vmMenuOpen.value = false; serverMenuOpen.value = false;
+  if (!n?.object || !n.server || !hostCanRun(c, n)) return;
+  const q = await api.hostQuestion(n.server, n.object.uuid, c.op);
+  let restore = false;
+  if (q.error) { await choose({ title: "XCP-ng Center", text: q.error }, ["OK"]); return; }
+  if (c.op === "exit_maintenance") {
+    if (q.text) {
+      const i = await choose({ title: q.title ?? "", text: q.text }, ["Restore VMs", "Skip", "Cancel"]);
+      if (i !== 0 && i !== 1) return; // Cancel leaves the server in maintenance mode
+      restore = i === 0;
+    }
+  } else {
+    const enter = c.op === "enter_maintenance";
+    if ((await choose({ title: q.title ?? "", text: q.text ?? "" }, enter ? ["Enter Maintenance Mode", "Cancel"] : ["Yes", "No"])) !== 0) return;
+  }
+  const label = c.label.replace("...", "");
+  status.value = `${label}: '${n.label}'...`;
+  let error = "";
+  try { await api.hostCommand(n.server, n.object.uuid, c.op, restore); } catch (e) { error = `${label} '${n.label}': ${String(e)}`; }
+  await load(n.server);
+  if (error) failure.value = error;
+  reselect(n.id);
+}
 
 const cert = ref<{ key: string; fingerprint: string; previous?: string } | null>(null);
 
@@ -117,12 +157,14 @@ const tree = computed<Node>(() => ({
     if (!s.connected || !d) return { id: s.key, label: s.name || s.host, icon: "000_ServerDisconnected_h32bit_16", server: s.key, children: [] };
     const pool = d.pools?.[0];
     const hosts = (d.hosts ?? []).map<Node>((h) => ({
-      id: h.uuid, label: h.name, icon: "000_TreeConnected_h32bit_16", object: h, server: s.key,
+      id: h.uuid, label: h.name, icon: !h.live ? "000_ServerDisconnected_h32bit_16" : h.maintenance ? "000_ServerMaintenance_h32bit_16" : "000_TreeConnected_h32bit_16", object: h, server: s.key,
       children: (d.vms ?? []).filter((v) => v.host_uuid === h.uuid).map((v) => ({ id: v.uuid, label: v.name, icon: vmIcon(v), object: v, server: s.key, children: [] })),
     }));
     const loose = (d.vms ?? []).filter((v) => !v.host_uuid).map<Node>((v) => ({ id: v.uuid, label: v.name, icon: vmIcon(v), object: v, server: s.key, children: [] }));
     const srs = (d.srs ?? []).map<Node>((r) => ({ id: r.uuid, label: r.name, icon: "000_Storage_h32bit_16", object: r, server: s.key, children: [] }));
-    return { id: s.key, label: pool?.name || s.name || s.host, icon: "000_PoolConnected_h32bit_16", object: pool, server: s.key, children: [...hosts, ...loose, ...srs] };
+    // Pool.Name: an unnamed pool is called after its coordinator
+    const coordinator = (d.hosts ?? []).find((h) => h.coordinator);
+    return { id: s.key, label: pool?.name || coordinator?.name || s.name || s.host, icon: "000_PoolConnected_h32bit_16", object: pool, server: s.key, children: [...hosts, ...loose, ...srs] };
   }),
 }));
 
@@ -188,8 +230,16 @@ onMounted(async () => { await refreshServers(); });
   <div class="flex h-full flex-col" @click="menu = null">
     <nav class="flex gap-4 border-b border-line bg-pane px-2 py-1">
       <span class="cursor-default hover:bg-neutral-200 px-1" @click="addOpen = true">File</span>
-      <span v-for="m in ['View', 'Pool', 'Server']" :key="m" class="cursor-default px-1 text-neutral-400">{{ m }}</span>
-      <span class="relative cursor-default px-1 hover:bg-neutral-200" @click.stop="vmMenuOpen = !vmMenuOpen">VM
+      <span v-for="m in ['View', 'Pool']" :key="m" class="cursor-default px-1 text-neutral-400">{{ m }}</span>
+      <span class="relative cursor-default px-1 hover:bg-neutral-200" @click.stop="serverMenuOpen = !serverMenuOpen; vmMenuOpen = false">Server
+        <div v-if="serverMenuOpen" class="absolute left-0 top-full z-10 w-56 border border-neutral-400 bg-white py-1 shadow">
+          <div v-for="c in hostCommands" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
+               :class="hostCanRun(c, selectedHost) ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click.stop="runHost(c, selectedHost)">
+            <img :src="`/icons/${c.icon}_h32bit_16.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !hostCanRun(c, selectedHost) }" />{{ c.label }}
+          </div>
+        </div>
+      </span>
+      <span class="relative cursor-default px-1 hover:bg-neutral-200" @click.stop="vmMenuOpen = !vmMenuOpen; serverMenuOpen = false">VM
         <div v-if="vmMenuOpen" class="absolute left-0 top-full z-10 w-48 border border-neutral-400 bg-white py-1 shadow">
           <div v-for="c in vmCommands" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
                :class="canRun(c, selectedVm) ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click.stop="runVm(c, selectedVm)">
@@ -203,6 +253,11 @@ onMounted(async () => { await refreshServers(); });
       <button class="flex items-center gap-1 px-2 py-0.5 hover:bg-neutral-200" @click="addOpen = true">
         <img src="/icons/000_AddApplicationServer_h32bit_16.png" alt="" /> Add New Server
       </button>
+      <template v-for="c in hostCommands.slice(0, 2)" :key="c.op">
+        <button v-if="hostCanRun(c, selectedHost)" class="flex items-center gap-1 px-2 py-0.5 hover:bg-neutral-200" @click="runHost(c, selectedHost)">
+          <img :src="`/icons/${c.icon}_h32bit_24.png`" alt="" class="h-6 w-6" /> {{ c.label }}
+        </button>
+      </template>
       <template v-for="c in vmCommands" :key="c.op">
         <button v-if="canRun(c, selectedVm)" class="flex items-center gap-1 px-2 py-0.5 hover:bg-neutral-200" @click="runVm(c, selectedVm)">
           <img :src="`/icons/${c.icon}_h32bit_24.png`" alt="" class="h-6 w-6" /> {{ c.label }}
@@ -218,7 +273,7 @@ onMounted(async () => { await refreshServers(); });
              :class="selected?.id === node.id ? 'bg-select text-white' : 'hover:bg-neutral-100'"
              :style="{ paddingLeft: `${0.25 + depth * 1.1}rem` }"
              @click="selected = node" @dblclick="toggle(node)"
-             @contextmenu.prevent.stop="selected = node; menu = node.object?.kind === 'vms' ? { x: $event.clientX, y: $event.clientY, node } : null">
+             @contextmenu.prevent.stop="selected = node; menu = node.object?.kind === 'vms' || node.object?.kind === 'hosts' ? { x: $event.clientX, y: $event.clientY, node } : null">
           <span class="w-3 text-center text-[10px]" @click.stop="toggle(node)">{{ node.children.length ? (expanded.has(node.id) ? "−" : "+") : "" }}</span>
           <img :src="`/icons/${node.icon}.png`" alt="" class="h-4 w-4" />
           <span>{{ node.label }}</span>
@@ -287,8 +342,14 @@ onMounted(async () => { await refreshServers(); });
       <span>{{ status }}</span><span v-if="failure" class="text-red-700">{{ failure }}</span>
     </footer>
 
-    <div v-if="menu" class="fixed z-20 w-48 border border-neutral-400 bg-white py-1 shadow" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @click.stop>
-      <div v-for="c in vmCommands" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
+    <div v-if="menu" class="fixed z-20 w-60 border border-neutral-400 bg-white py-1 shadow" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @click.stop>
+      <template v-if="menu.node.object?.kind === 'hosts'">
+        <div v-for="c in hostCommands" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
+             :class="hostCanRun(c, menu.node) ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click="runHost(c, menu.node)">
+          <img :src="`/icons/${c.icon}_h32bit_16.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !hostCanRun(c, menu.node) }" />{{ c.label }}
+        </div>
+      </template>
+      <div v-for="c in menu.node.object?.kind === 'vms' ? vmCommands : []" :key="c.op" class="flex items-center gap-2 px-2 py-0.5"
            :class="canRun(c, menu.node) ? 'hover:bg-select hover:text-white' : 'text-neutral-400'" @click="runVm(c, menu.node)">
         <img :src="`/icons/${c.menuIcon ?? c.icon}_h32bit_16.png`" alt="" class="h-4 w-4" :class="{ 'opacity-40 grayscale': !canRun(c, menu.node) }" />{{ c.label }}
       </div>
@@ -298,10 +359,9 @@ onMounted(async () => { await refreshServers(); });
       <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">
         <div class="bg-band-dark px-3 py-1 font-semibold text-white">{{ ask.title }}</div>
         <div class="space-y-3 p-3">
-          <p>{{ ask.text }}</p>
+          <p class="whitespace-pre-line">{{ ask.text }}</p>
           <div class="flex justify-end gap-2">
-            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(true)">Yes</button>
-            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(false)">No</button>
+            <button v-for="(b, i) in ask.buttons" :key="b" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(i)">{{ b }}</button>
           </div>
         </div>
       </div>

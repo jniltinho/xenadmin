@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -185,6 +186,57 @@ func (w *Workspace) VMConfirmation(op string, haProtected bool) Confirm {
 // VMPower runs a VM power operation (the window asked VMConfirmation first).
 func (w *Workspace) VMPower(key, uuid, op string) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.VMPower(c, uuid, rules.VMOp(op)) })
+}
+
+// HostQuestion is what the window asks before a server command: Error (it cannot run, say why), else Title and
+// Text (the confirmation); for Exit Maintenance Mode, Text is the restore question ("" when no VM can go back).
+type HostQuestion struct {
+	Error string `json:"error,omitempty"`
+	Title string `json:"title,omitempty"`
+	Text  string `json:"text,omitempty"`
+}
+
+// HostQuestion for op "shutdown", "reboot", "enter_maintenance" or "exit_maintenance".
+func (w *Workspace) HostQuestion(key, uuid, op string) (q HostQuestion, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		if op == "exit_maintenance" {
+			name, restore, err := ops.VMsToRestore(c, uuid)
+			q = HostQuestion{Title: messages.Get("EXIT_MAINTENANCE_MODE_CONTEXT_MENU"), Text: rules.ExitMaintenanceQuestion(name, restore)}
+			return err
+		}
+		h, err := ops.HostInfo(c, uuid)
+		if err != nil {
+			return err
+		}
+		switch op {
+		case "shutdown", "reboot":
+			q.Title, q.Text = rules.HostConfirmation(h, op == "reboot")
+		case "enter_maintenance":
+			if q.Error = rules.CannotEnterMaintenance(h); q.Error == "" {
+				q.Title, q.Text = rules.EvacuateConfirmation(h)
+			}
+		default:
+			return fmt.Errorf("unknown server command %q", op)
+		}
+		return nil
+	})
+	q.Title = strings.ReplaceAll(strings.ReplaceAll(q.Title, "&", ""), "...", "")
+	return q, err
+}
+
+// HostCommand runs a server command after its question (restore: Exit Maintenance Mode puts the VMs back).
+func (w *Workspace) HostCommand(key, uuid, op string, restore bool) error {
+	return w.with(key, func(c *xapi.Connection) error {
+		switch op {
+		case "shutdown", "reboot":
+			return ops.HostPower(c, uuid, op == "reboot")
+		case "enter_maintenance":
+			return ops.EnterMaintenance(c, uuid)
+		case "exit_maintenance":
+			return ops.ExitMaintenance(c, uuid, restore)
+		}
+		return fmt.Errorf("unknown server command %q", op)
+	})
 }
 
 // Close logs out of every server (the window closes).

@@ -1,6 +1,6 @@
 // Package mcp is the MCP server of the app (xcp-ng-center-go mcp), on the official Go SDK
 // (github.com/modelcontextprotocol/go-sdk). The tools keep the names and arguments of the C# app's MCP server
-// (XenAdmin.Desktop.Core/Mcp/XcpTools.cs). The write tools (vm_power) are listed only with --allow-write and run only
+// (XenAdmin.Desktop.Core/Mcp/XcpTools.cs). The write tools (vm_power, host_power, host_maintenance, dismiss_alerts) are listed only with --allow-write and run only
 // with confirm: true, as McpServer.cs.
 package mcp
 
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -179,21 +180,37 @@ func (s *Server) Register(m *sdk.Server) {
 			}
 			return nil, out, nil
 		})
+	sdk.AddTool(m, &sdk.Tool{Name: "list_alerts", Annotations: readOnly(),
+		Description: "The servers' alerts (Notifications > Alerts), newest first, a page at a time." + DataNote},
+		func(ctx context.Context, _ *sdk.CallToolRequest, in listAlertsIn) (*sdk.CallToolResult, listAlertsOut, error) {
+			out, err := s.ListAlerts(in)
+			if err != nil {
+				return nil, out, s.fail(err)
+			}
+			return nil, out, nil
+		})
 	if !s.write {
 		return
 	}
-	sdk.AddTool(m, &sdk.Tool{Name: "vm_power", Annotations: &sdk.ToolAnnotations{DestructiveHint: ptr(true)},
-		Description: "Starts, shuts down, reboots, suspends or resumes a VM, if the VM allows that operation now."},
-		func(ctx context.Context, _ *sdk.CallToolRequest, in vmPowerIn) (*sdk.CallToolResult, statusOut, error) {
-			out, err := s.VMPower(in)
+	writeTool(s, m, "host_power", "Reboots or shuts down a host (its VMs are shut down or moved by XAPI first).", s.HostPower)
+	writeTool(s, m, "host_maintenance", "Enters maintenance mode (moves the VMs away) or exits it (optionally bringing the VMs back).", s.HostMaintenance)
+	writeTool(s, m, "dismiss_alerts", "Dismisses (deletes) alerts by their uuid (list_alerts).", s.DismissAlerts)
+	writeTool(s, m, "vm_power", "Starts, shuts down, reboots, suspends or resumes a VM, if the VM allows that operation now.", s.VMPower)
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// writeTool adds a tool that changes the servers (listed only with --allow-write; each run needs confirm: true).
+func writeTool[In, Out any](s *Server, m *sdk.Server, name, description string, run func(In) (Out, error)) {
+	sdk.AddTool(m, &sdk.Tool{Name: name, Description: description, Annotations: &sdk.ToolAnnotations{DestructiveHint: ptr(true)}},
+		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Out, error) {
+			out, err := run(in)
 			if err != nil {
 				return nil, out, s.fail(err)
 			}
 			return nil, out, nil
 		})
 }
-
-func ptr[T any](v T) *T { return &v }
 
 type vmPowerIn struct {
 	VM          string `json:"vm" jsonschema:"VM uuid."`
@@ -204,11 +221,49 @@ type vmPowerIn struct {
 
 // VMPower is the vm_power tool: the VM is looked up on every connected server.
 func (s *Server) VMPower(in vmPowerIn) (statusOut, error) {
-	if !in.Confirm {
-		return statusOut{}, errors.New(`this tool changes the pool: call it again with "confirm": true once the user agreed`)
-	}
 	if !rules.Known(rules.VMOp(in.Operation)) {
 		return statusOut{}, fmt.Errorf("unknown operation %q", in.Operation)
+	}
+	return s.onObject(in.Confirm, in.VM, ops.HasVM, func(c *xapi.Connection) error { return ops.VMPower(c, in.VM, rules.VMOp(in.Operation)) })
+}
+
+type hostPowerIn struct {
+	Host        string `json:"host" jsonschema:"Host uuid."`
+	Operation   string `json:"operation" jsonschema:"reboot or shutdown."`
+	Confirm     bool   `json:"confirm" jsonschema:"Must be true: the user agreed to this change."`
+	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Accepted for the C# schema; this version always waits for the end."`
+}
+
+type hostMaintenanceIn struct {
+	Host        string `json:"host" jsonschema:"Host uuid."`
+	Enter       bool   `json:"enter" jsonschema:"true to enter, false to exit."`
+	RestoreVMs  bool   `json:"restore_vms,omitempty" jsonschema:"On exit, migrate back the VMs that were moved away."`
+	Confirm     bool   `json:"confirm" jsonschema:"Must be true: the user agreed to this change."`
+	WaitSeconds int    `json:"wait_seconds,omitempty" jsonschema:"Accepted for the C# schema; this version always waits for the end."`
+}
+
+// HostPower is the host_power tool (never a shutdown by default: the operation must be named).
+func (s *Server) HostPower(in hostPowerIn) (statusOut, error) {
+	if in.Operation != "reboot" && in.Operation != "shutdown" {
+		return statusOut{}, errors.New("operation must be reboot or shutdown")
+	}
+	return s.onObject(in.Confirm, in.Host, ops.HasHost, func(c *xapi.Connection) error { return ops.HostPower(c, in.Host, in.Operation == "reboot") })
+}
+
+// HostMaintenance is the host_maintenance tool.
+func (s *Server) HostMaintenance(in hostMaintenanceIn) (statusOut, error) {
+	return s.onObject(in.Confirm, in.Host, ops.HasHost, func(c *xapi.Connection) error {
+		if in.Enter {
+			return ops.EnterMaintenance(c, in.Host)
+		}
+		return ops.ExitMaintenance(c, in.Host, in.RestoreVMs)
+	})
+}
+
+// onObject runs a write tool on the connected server that has the object (confirm: true is required first).
+func (s *Server) onObject(confirm bool, uuid string, has func(*xapi.Connection, string) (bool, error), run func(*xapi.Connection) error) (statusOut, error) {
+	if !confirm {
+		return statusOut{}, errors.New(`this tool changes the pool: call it again with "confirm": true once the user agreed`)
 	}
 	s.mu.Lock()
 	keys := make([]string, 0, len(s.conns))
@@ -225,8 +280,8 @@ func (s *Server) VMPower(in vmPowerIn) (statusOut, error) {
 		s.mu.Unlock()
 		found, err := false, error(nil)
 		if c != nil {
-			if found, err = ops.HasVM(c, in.VM); found {
-				err = ops.VMPower(c, in.VM, rules.VMOp(in.Operation))
+			if found, err = has(c, uuid); found {
+				err = run(c)
 			}
 		}
 		lock.Unlock()
@@ -237,7 +292,148 @@ func (s *Server) VMPower(in vmPowerIn) (statusOut, error) {
 			return statusOut{Server: k, Status: "done"}, nil
 		}
 	}
-	return statusOut{}, errors.New("no connected server has this VM")
+	return statusOut{}, errors.New("no connected server has this object")
+}
+
+type listAlertsIn struct {
+	Server string `json:"server,omitempty" jsonschema:"Only this server (optional)."`
+	Offset int    `json:"offset,omitempty" jsonschema:"First alert to return (default 0)."`
+	Limit  int    `json:"limit,omitempty" jsonschema:"How many to return (1-500, default 100)."`
+}
+
+type alertRow struct {
+	app.Alert
+	Server string `json:"server"`
+}
+
+type listAlertsOut struct {
+	Total      int        `json:"total"`
+	Offset     int        `json:"offset"`
+	Items      []alertRow `json:"items"`
+	NextOffset *int       `json:"next_offset"`
+}
+
+// ListAlerts is the list_alerts tool: every connected server's alerts, newest first, a page at a time.
+func (s *Server) ListAlerts(in listAlertsIn) (listAlertsOut, error) {
+	limit := in.Limit
+	if limit <= 0 || limit > 500 {
+		limit = map[bool]int{true: 100, false: 500}[limit <= 0]
+	}
+	filter := ""
+	if in.Server != "" {
+		h, p, err := xapi.ParseAddress(in.Server)
+		if err != nil {
+			return listAlertsOut{}, err
+		}
+		filter = xapi.HostKey(h, p)
+	}
+	var all []alertRow
+	err := s.eachConnected(filter, func(k string, c *xapi.Connection) error {
+		alerts, err := app.ListAlerts(c)
+		for _, a := range alerts {
+			a.Title, a.Description, a.AppliesTo = s.redact(a.Title), s.redact(a.Description), s.redact(a.AppliesTo)
+			all = append(all, alertRow{Alert: a, Server: k})
+		}
+		return err
+	})
+	if err != nil {
+		return listAlertsOut{}, err
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		if !all[i].Time.Equal(all[j].Time) {
+			return all[i].Time.After(all[j].Time)
+		}
+		return all[i].UUID < all[j].UUID
+	})
+	out := listAlertsOut{Total: len(all), Offset: in.Offset, Items: []alertRow{}}
+	if in.Offset >= 0 && in.Offset < len(all) {
+		end := min(in.Offset+limit, len(all))
+		out.Items = all[in.Offset:end]
+		if end < len(all) {
+			out.NextOffset = &end
+		}
+	}
+	return out, nil
+}
+
+type dismissAlertsIn struct {
+	Alerts  []string `json:"alerts" jsonschema:"Alert uuids."`
+	Confirm bool     `json:"confirm" jsonschema:"Must be true: the user agreed to this change."`
+}
+
+type dismissAlertsOut struct {
+	Dismissed []string `json:"dismissed"`
+	NotFound  []string `json:"not_found"`
+}
+
+// DismissAlerts is the dismiss_alerts tool: each uuid is dismissed on the server that has it.
+func (s *Server) DismissAlerts(in dismissAlertsIn) (dismissAlertsOut, error) {
+	if !in.Confirm {
+		return dismissAlertsOut{}, errors.New(`this tool changes the pool: call it again with "confirm": true once the user agreed`)
+	}
+	if len(in.Alerts) == 0 {
+		return dismissAlertsOut{}, errors.New("'alerts' must list at least one uuid")
+	}
+	out := dismissAlertsOut{Dismissed: []string{}, NotFound: []string{}}
+	left := map[string]bool{}
+	for _, u := range in.Alerts {
+		left[strings.ToLower(u)] = true
+	}
+	err := s.eachConnected("", func(_ string, c *xapi.Connection) error {
+		alerts, err := app.ListAlerts(c)
+		if err != nil {
+			return err
+		}
+		var here []string
+		for _, a := range alerts {
+			if left[strings.ToLower(a.UUID)] {
+				here = append(here, a.UUID)
+				delete(left, strings.ToLower(a.UUID))
+			}
+		}
+		if len(here) == 0 {
+			return nil
+		}
+		out.Dismissed = append(out.Dismissed, here...)
+		return app.DismissAlerts(c, here)
+	})
+	for u := range left {
+		out.NotFound = append(out.NotFound, u)
+	}
+	sort.Strings(out.NotFound)
+	return out, err
+}
+
+// eachConnected runs fn on every connected server (or only filter), one at a time per server.
+func (s *Server) eachConnected(filter string, fn func(key string, c *xapi.Connection) error) error {
+	s.mu.Lock()
+	keys := make([]string, 0, len(s.conns))
+	for k := range s.conns {
+		if filter == "" || k == filter {
+			keys = append(keys, k)
+		}
+	}
+	s.mu.Unlock()
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		return errors.New("no connected server: call connect first")
+	}
+	for _, k := range keys {
+		lock := s.serverLock(k)
+		lock.Lock()
+		s.mu.Lock()
+		c := s.conns[k]
+		s.mu.Unlock()
+		var err error
+		if c != nil {
+			err = fn(k, c)
+		}
+		lock.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListObjects is the list_objects tool.

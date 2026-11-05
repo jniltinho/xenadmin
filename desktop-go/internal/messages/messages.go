@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:generate go run ../../tools/resx2go -o messages_gen.go -var texts -prefix ALERT_,CONFIRM_,HA_CONFIRM_,MAINWINDOW_TOOLBAR_,STRING_COLON_SPACE_STRING ../../../XenModel/Messages.resx
+//go:generate go run ../../tools/resx2go -o messages_gen.go -var texts -prefix ALERT_,CONFIRM_,HA_CONFIRM_,MAINWINDOW_TOOLBAR_,STRING_COLON_SPACE_STRING,SHUT_DOWN_POOL_COORDINATOR_SINGLE,HA_CANNOT_EVACUATE_COORDINATOR,EVACUATE_HOST_DIALOG_TITLE,ENTER_MAINTENANCE_MODE,EXIT_MAINTENANCE_MODE ../../../XenModel/Messages.resx
 //go:generate go run ../../tools/resx2go -o friendly_gen.go -var friendly -prefix Message.name-,Message.body- ../../../XenModel/FriendlyNames.resx
 
 // Get is a Messages.resx text ("" when the key is not generated).

@@ -15,8 +15,7 @@ const nullRef = "OpaqueRef:NULL"
 
 // VMPower is VmOperations.Create + the action: it refuses what is not a real VM or what the VM does not allow now,
 // and Start/Resume of an HA-protected VM that is not agile (never unprotected behind the user's back).
-// shortcut: synchronous calls (the caller runs it off the UI thread) without the task's progress or cancel; use the
-// Async* calls and task polling with internal/ops tasks (4.2).
+// The call runs as a task polled to its end (wait). shortcut: no progress or cancel shown yet (4.2).
 func VMPower(c *xapi.Connection, uuid string, op rules.VMOp) error {
 	if !rules.Known(op) {
 		return fmt.Errorf("unknown operation %q", op)
@@ -47,28 +46,39 @@ func VMPower(c *xapi.Connection, uuid string, op rules.VMOp) error {
 			return errors.New(why)
 		}
 	}
+	var task xenapi.TaskRef
 	switch op {
 	case rules.VMStart:
-		err = xenapi.VM.Start(s, ref, false, false)
+		task, err = xenapi.VM.AsyncStart(s, ref, false, false)
 	case rules.VMResume:
-		err = xenapi.VM.Resume(s, ref, false, false)
+		task, err = xenapi.VM.AsyncResume(s, ref, false, false)
 	case rules.VMShutdown:
-		err = xenapi.VM.CleanShutdown(s, ref)
+		task, err = xenapi.VM.AsyncCleanShutdown(s, ref)
 	case rules.VMReboot:
-		err = xenapi.VM.CleanReboot(s, ref)
+		task, err = xenapi.VM.AsyncCleanReboot(s, ref)
 	case rules.VMSuspend:
-		err = xenapi.VM.Suspend(s, ref)
+		task, err = xenapi.VM.AsyncSuspend(s, ref)
 	case rules.VMForceShutdown:
-		err = xenapi.VM.HardShutdown(s, ref)
+		task, err = xenapi.VM.AsyncHardShutdown(s, ref)
 	case rules.VMForceReboot:
-		err = xenapi.VM.HardReboot(s, ref)
+		task, err = xenapi.VM.AsyncHardReboot(s, ref)
 	}
-	return xapi.Sanitize(err)
+	return xapi.Sanitize(wait(s)(task, err))
 }
 
 // HasVM reports whether the connection's pool has a VM (or template) with this UUID.
 func HasVM(c *xapi.Connection, uuid string) (bool, error) {
 	_, err := xenapi.VM.GetByUUID(c.Session, uuid)
+	return found(err)
+}
+
+// HasHost reports whether the connection's pool has a server with this UUID.
+func HasHost(c *xapi.Connection, uuid string) (bool, error) {
+	_, err := xenapi.Host.GetByUUID(c.Session, uuid)
+	return found(err)
+}
+
+func found(err error) (bool, error) {
 	var api *xenapi.APIError
 	if errors.As(err, &api) && api.Message == "UUID_INVALID" { // JSON-RPC: the XAPI error code is the message
 		return false, nil

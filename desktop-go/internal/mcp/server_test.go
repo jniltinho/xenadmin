@@ -68,7 +68,34 @@ func TestWriteToolsNeedAllowWriteAndConfirm(t *testing.T) {
 		}
 	}
 	cs := sessionWith(t, true)
-	res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: "vm_power", Arguments: map[string]any{"vm": "u", "operation": "start"}})
+	all, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, tool := range all.Tools {
+		names[tool.Name] = true
+	}
+	for _, want := range []string{"list_alerts", "vm_power", "host_power", "host_maintenance", "dismiss_alerts"} {
+		if !names[want] {
+			t.Errorf("missing tool %s (XcpTools.cs)", want)
+		}
+	}
+	for _, call := range []*sdk.CallToolParams{
+		{Name: "host_power", Arguments: map[string]any{"host": "h", "operation": "shutdown"}},
+		{Name: "host_maintenance", Arguments: map[string]any{"host": "h", "enter": true}},
+		{Name: "dismiss_alerts", Arguments: map[string]any{"alerts": []string{"a"}}},
+	} {
+		res, err := cs.CallTool(ctx, call)
+		if text, _ := json.Marshal(res.Content); err != nil || !res.IsError || !strings.Contains(string(text), "confirm") {
+			t.Errorf("%s without confirm: %s %v", call.Name, text, err)
+		}
+	}
+	res, _ := cs.CallTool(ctx, &sdk.CallToolParams{Name: "host_power", Arguments: map[string]any{"host": "h", "operation": "halt", "confirm": true}})
+	if text, _ := json.Marshal(res.Content); !res.IsError || !strings.Contains(string(text), "reboot or shutdown") {
+		t.Errorf("host_power with an unknown operation: %s", text)
+	}
+	res, err = cs.CallTool(ctx, &sdk.CallToolParams{Name: "vm_power", Arguments: map[string]any{"vm": "u", "operation": "start"}})
 	if err != nil {
 		t.Fatal(err)
 	}

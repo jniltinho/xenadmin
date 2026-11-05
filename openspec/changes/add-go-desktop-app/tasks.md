@@ -34,13 +34,13 @@
 
 ## 4. Operações
 
-- [~] 4.1 (feito: `rules/vm.go` com teste de tabela, `tools/resx2go` e `internal/messages` gerado de Messages.resx e FriendlyNames.resx; falta `HostRules`, `PoolRules`) `internal/rules`: `VmOperations`, `VmRules`, `HostRules`, `PoolRules` com testes de tabela do C#; `internal/messages` gerado por `tools/resx2go`
-- [ ] 4.2 `internal/ops`: Async + task, progresso, erros XAPI traduzidos, cancelamento quando permitido, resultado incerto sem repetição
+- [~] 4.1 (feito: `rules/vm.go` e `rules/host.go` com testes de tabela, `tools/resx2go` e `internal/messages` gerado de Messages.resx e FriendlyNames.resx; falta `PoolRules`) `internal/rules`: `VmOperations`, `VmRules`, `HostRules`, `PoolRules` com testes de tabela do C#; `internal/messages` gerado por `tools/resx2go`
+- [~] 4.2 (feito: tasks assíncronas com polling até o fim (`ops.wait`) e erros XAPI tipados; falta progresso, cancelamento e o resultado incerto) `internal/ops`: Async + task, progresso, erros XAPI traduzidos, cancelamento quando permitido, resultado incerto sem repetição
 - [ ] 4.2b Orquestração portada das Actions (Create VM, SR create/reattach/introduce, Evacuate, Copy, Create Pool) com testes de falha em cada passo e reserva de LUN
 - [x] 4.3 VM: Start, Shut Down, Reboot, Suspend, Resume e forçados, com as confirmações do C#; menus e toolbar
-- [ ] 4.4 Host: Shut Down, Reboot, Enter/Exit Maintenance Mode com o diálogo de evacuação e a volta das VMs
+- [x] 4.4 Host: Shut Down, Reboot, Enter/Exit Maintenance Mode com o diálogo de evacuação e a volta das VMs
 - [~] 4.5 (feito: Alerts com os textos de `NotificationRules` (login falho, nomes amigáveis, prioridade), Dismiss, Dismiss Selected e Dismiss All com as confirmações do C#, painel Infrastructure/Notifications; faltam os filtros, o contador na barra e Events) Notifications: Alerts (filtros por severidade e servidor, Dismiss, Dismiss All/Selected, contador) e Events
-- [ ] 4.6 Lab KVM: ciclo de vida de VM, manutenção com VMs, alertas
+- [~] 4.6 (feito: pool lab-1 + lab-2 com SR NFS e VM Alpine: Enter Maintenance Mode migrou a VM, Exit com Restore a trouxe de volta, Reboot desligou a VM e reiniciou o host, MCP `host_maintenance`; faltam alertas no lab) Lab KVM: ciclo de vida de VM, manutenção com VMs, alertas
 
 ## 5. Console
 
@@ -67,7 +67,7 @@
 
 ## 8. MCP e CLI
 
-- [~] 8.1 (feito: servidor stdio com `list_servers`, `connect`, `disconnect`, `list_objects`, testado no .110, e `vm_power` com `--allow-write` e `confirm: true`; faltam as demais ferramentas de escrita e `operation_id`) `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
+- [~] 8.1 (feito: `list_servers`, `connect`, `disconnect`, `list_objects`, `list_alerts`; com `--allow-write` e `confirm: true`: `vm_power`, `host_power`, `host_maintenance`, `dismiss_alerts`, testados no .110 e no lab KVM; faltam `get_object`, snapshots, `vm_migrate`, `sr_create`, `get_performance` e `operation_id`) `internal/mcp` com `modelcontextprotocol/go-sdk`: mesmas ferramentas do MCP C#, somente leitura por padrão, `--allow-write` + `confirm: true`, `operation_id`, redação de senhas, textos do servidor como dados
 - [ ] 8.2 Teste de paridade de nomes e esquemas com o MCP C#; teste do processo real por stdio no lab
 - [ ] 8.3 CLI `vm`, `host` e `sr` com as operações e confirmações (`--yes` explícito para escrita)
 - [ ] 8.3b Flags globais (`--host`, `--user`, `--trust-fingerprint`, `--json`, `--config`), `mcp` sem display no Linux e pelo AppImage, `AttachConsole` no exe do Windows; testes de terminal e de stdin/stdout redirecionados

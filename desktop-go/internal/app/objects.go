@@ -25,6 +25,9 @@ type Object struct {
 	HostUUID    string   `json:"host_uuid,omitempty"` // the resident host of a VM (names may repeat)
 	Allowed     []string `json:"allowed,omitempty"`   // a VM's allowed_operations (what the menu and toolbar enable)
 	HAProtected bool     `json:"ha_protected,omitempty"`
+	Maintenance bool     `json:"maintenance,omitempty"` // a host that is disabled (HostRules.InMaintenance)
+	Coordinator bool     `json:"coordinator,omitempty"`
+	Live        bool     `json:"live,omitempty"`
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -46,8 +49,20 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 		if err != nil {
 			return nil, xapi.Sanitize(err)
 		}
-		for _, r := range recs {
-			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription})
+		pools, err := xenapi.Pool.GetAllRecords(s)
+		if err != nil {
+			return nil, xapi.Sanitize(err)
+		}
+		for ref, r := range recs {
+			live, err := xenapi.HostMetrics.GetLive(s, r.Metrics)
+			if err != nil {
+				live = false // no metrics yet: the server is starting
+			}
+			o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, Maintenance: !r.Enabled, Live: live}
+			for _, p := range pools {
+				o.Coordinator = o.Coordinator || p.Master == ref
+			}
+			out = append(out, o)
 		}
 	case "vms", "templates":
 		vms, err := xenapi.VM.GetAllRecords(s)
