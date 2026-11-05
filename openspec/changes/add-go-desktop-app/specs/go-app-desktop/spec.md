@@ -51,6 +51,24 @@ falhar se algum componente renderizado tiver `border-radius` diferente de `0`.
 - **WHEN** o sistema está em modo escuro e o usuário não escolheu tema
 - **THEN** a SPA abre no tema escuro com contraste AA nos textos
 
+### Requirement: Telas Full HD, QHD e 4K
+A interface SHALL ficar proporcional em Full HD (1920×1080), QHD (2560×1440) e 4K (3840×2160): o layout MUST usar
+unidades de CSS que seguem a escala do sistema, o usuário SHALL poder ajustar o zoom do app (80%, 90%, 100%, 110%, 125% e 150%), a primeira
+janela SHALL abrir em 80% da área de trabalho, e ícones MUST usar a variante de 32 px do app C# (ou um múltiplo inteiro
+do de 16 px) quando o `devicePixelRatio` for 1,5 ou mais.
+
+#### Scenario: 4K a 200%
+- **WHEN** o app abre num monitor 3840×2160 com escala 200%
+- **THEN** a janela e os textos têm o mesmo tamanho visual que num Full HD a 100%, e os ícones não ficam borrados
+
+#### Scenario: QHD a 100%
+- **WHEN** o app abre num monitor 2560×1440 sem escala
+- **THEN** a janela ocupa 80% da área de trabalho, a árvore e as tabelas usam a largura extra e nada fica cortado
+
+#### Scenario: Zoom do app
+- **WHEN** o usuário escolhe 125% em Settings ou pressiona Ctrl+=
+- **THEN** toda a interface aumenta, o valor fica salvo e é aplicado na próxima abertura
+
 ### Requirement: Segurança do webview
 A janela SHALL carregar só a SPA embutida com uma CSP restrita (`default-src 'self'`, sem `unsafe-eval`, `connect-src`
 limitado ao app e ao endpoint loopback do console), MUST bloquear navegação e janelas para fora do app (links externos

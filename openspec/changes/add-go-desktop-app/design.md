@@ -181,10 +181,31 @@ pacote).
 - Densidade de desktop (linhas de 24–28 px na árvore e nas grades), fonte do sistema (`system-ui`), cor de destaque
   única, superfícies planas com bordas de 1 px em vez de sombras grandes; ícones de 16 px do app C# (os PNG de 32 px
   onde o app C# os usa), renderizados sem suavização extra para não borrar.
+- Telas Full HD (1920×1080), QHD (2560×1440) e 4K (3840×2160), em D7b.
 - Claro e escuro pelo `prefers-color-scheme` com escolha manual em Settings; contraste WCAG AA.
 - Teste Playwright percorre as telas e diálogos e falha se algum `getComputedStyle(el).borderRadius` não for `0px`.
 - Os cantos da própria janela pertencem ao sistema (macOS e Windows 11 arredondam a moldura); janelas sem moldura não
   são usadas para não perder o comportamento nativo.
+
+### D7b. Full HD, QHD e 4K
+- **Escala do sistema**: o webview já aplica o fator de escala do sistema operacional (`devicePixelRatio` 1, 1,25,
+  1,5, 2...); todo o layout usa `rem` e px de CSS (nunca pixels físicos), então um 4K a 200% tem o mesmo tamanho
+  visual de um Full HD a 100%.
+- **Zoom do app**: Settings oferece 80%, 90%, 100%, 110%, 125% e 150%, aplicado com `Window.SetZoom` do Wails (o 3.1 aceita
+  valores abaixo de 1,0) e guardado em `settings.toml`; Ctrl+= / Ctrl+- / Ctrl+0 como nos navegadores. No modo web
+  vale o zoom do navegador.
+- **Janela**: na primeira abertura ocupa 80% da área de trabalho da tela onde abre (mínimo 1024×700, como o app C#
+  maximiza em telas menores que 1280×800) e centralizada; depois restaura tamanho, posição, tela e estado maximizado.
+- **Densidade proporcional**: as alturas de linha, fontes e espaçamentos são tokens em `rem`; em telas grandes o
+  conteúdo cresce em largura (árvore e painel redimensionáveis por splitter, larguras lembradas), não em espaçamento.
+- **Ícones nítidos**: os PNG do app C# são de 16 px; com `devicePixelRatio` ≥ 1,5 o app usa a variante `_32` (ou
+  `_24`) do mesmo ícone quando existe em `XenAdmin/Images` (`srcset` 1x/2x) e, sem ela, escala o de 16 px com
+  `image-rendering: pixelated` em múltiplos inteiros para não borrar.
+- **Console**: o noVNC escala a tela da VM para o painel (opção Scale do app C#) e usa o tamanho físico quando Scale
+  está desligado.
+- **Teste**: Playwright captura as telas principais em 1920×1080 a 100%, 2560×1440 a 100% e 125% e 3840×2160 a 200%,
+  e falha se houver rolagem horizontal na janela, texto cortado nos cabeçalhos ou ícone de 16 px escalado sem a regra
+  acima.
 
 ### D8. Console VNC
 `internal/console` abre uma conexão TLS própria (`tls.Dial` com o mesmo `tls.Config` e verificação de impressão

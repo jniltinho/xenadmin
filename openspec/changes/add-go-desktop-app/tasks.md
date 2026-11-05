@@ -23,6 +23,7 @@
 ## 3. Shell do desktop e tema
 
 - [ ] 3.1 Tema Tailwind (tokens, claro/escuro, densidade, `--radius-*: 0`, regra base) e teste Playwright de cantos
+- [ ] 3.1b Full HD, QHD e 4K: tokens em `rem`, zoom 80/90/100/110/125/150% (`Window.SetZoom`, Ctrl+=/-/0), janela inicial em 80% da área de trabalho com estado restaurado, ícones `_32`/`_24` em `devicePixelRatio` ≥ 1,5; capturas Playwright em 1920×1080@1x, 2560×1440@1x/1,25x e 3840×2160@2x
 - [ ] 3.2 Componentes base: Splitter, Tree, Tabs, DataGrid virtualizado, MenuBar, Toolbar, ContextMenu, Dialog, Wizard, StatusBar, Field, Button
 - [ ] 3.2b Ícones: cópia de `XenAdmin/Images` e `branding-xcp-ng/Images` no build e porta de `IconNames` (objeto, estado, toolbar, menus) com teste de tabela
 - [ ] 3.3 Janela principal: árvore (ícones do app C#), abas, menus e barra de ferramentas, Add Server e diálogo de certificado, barra de status
