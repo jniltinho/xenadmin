@@ -1,9 +1,16 @@
-# Changelog — XCP-ng Center desktop (Linux)
+# Changelog — XCP-ng Center desktop (Linux, macOS, Windows)
 
 All notable changes to the cross-platform desktop app (`XenAdmin.Desktop`). Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `CHANGELOG.md` at the repository root.
 
 ## [Unreleased]
+
+—
+
+## [0.2.0] — 2026-11-05
+
+**XCP-ng Center layout and tabs, wizards, storage (NFS, SMB, iSCSI, ISO libraries), migration, maintenance mode,
+Performance and Notifications; universal macOS and Windows x64 builds; an MCP server for AI agents.**
 
 ### Added
 - XCP-ng Center layout: menus, toolbar, navigation tree with the original icons and events (double-click connects or starts).
