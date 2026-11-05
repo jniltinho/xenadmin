@@ -613,6 +613,8 @@ namespace XenAdmin.Desktop
                     return Body(nt.Title, o is VM vmNetworking
                         ? new VmNetworkView(vmNetworking, RunTracked)
                         : new HostNetworkView(o, RunTracked, ShowProperties));
+                case "NICs":
+                    return Body("Network Interface Cards", new NicsView((Host)o, RunTracked));
                 case "Console":
                     return ConsoleView.For(o as VM);
                 case "Performance":

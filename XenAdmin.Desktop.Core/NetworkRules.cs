@@ -183,6 +183,27 @@ namespace XenAdmin.Desktop
             return (CanEditNetwork(owner, n), null);
         }
 
+        /// <summary>NICPage.updateList: the host's physical interfaces, by name.</summary>
+        public static List<PIF> HostNics(Host host) =>
+            host.Connection.ResolveAll(host.PIFs).Where(p => p.IsPhysical()).OrderBy(p => p.Name()).ToList();
+
+        /// <summary>
+        /// NICPage's SR-IOV Capable column. shortcut: an enabled SR-IOV NIC shows Yes instead of its remaining virtual
+        /// functions (network_sriov.get_remaining_capacity is a server call per row); upgrade when SR-IOV networks are ported.
+        /// </summary>
+        public static string SriovCapable(PIF pif)
+        {
+            if (!pif.SriovCapable())
+                return Messages.NO;
+            if (!pif.IsSriovPhysicalPIF())
+                return Messages.SRIOV_NETWORK_SHOULD_BE_CREATED;
+            var sriov = pif.Connection.Resolve(pif.sriov_physical_PIF_of[0]);
+            if (sriov == null || sriov.requires_reboot)
+                return Messages.HOST_NEEDS_REBOOT_ENABLE_SRIOV;
+            var logical = pif.Connection.Resolve(sriov.logical_PIF);
+            return logical == null || !logical.currently_attached ? Messages.SRIOV_LOGICAL_PIF_UNPLUGGED : Messages.YES;
+        }
+
         /// <summary>The host whose NICs the New Network wizard offers: the host, or the pool coordinator.</summary>
         public static Host WizardHost(IXenObject owner) => owner as Host ?? Helpers.GetCoordinator(owner.Connection);
 

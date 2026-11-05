@@ -85,6 +85,11 @@ namespace XenAdmin.Desktop.Tests
                     foreach (var tab in Details.Tabs(o).Where(t => !Details.NotPorted(o, t)))
                     {
                         if (tab == "Storage") Assert.IsNotNull(Details.Storage(o));
+                        if (tab == "NICs" && o is Host h)
+                        {
+                            var nics = Details.Nics(h);
+                            Assert.IsTrue(nics.Rows.Count > 0 && nics.Rows.All(r => r.Length == nics.Headers.Length), "every physical NIC is listed");
+                        }
                         if (tab == "Networking") Assert.IsNotNull(Details.Networking(o));
                         if (tab == "Memory") Details.Memory(o);
                     }

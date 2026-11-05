@@ -69,7 +69,7 @@ namespace XenAdmin.Desktop
         };
 
         public static bool NotPorted(IXenObject o, string tab) =>
-            tab is "NICs" or "GPU" or "USB" || tab == "Console" && !(o is VM) || tab == "Search" && o is SR;
+            tab is "GPU" or "USB" || tab == "Console" && !(o is VM) || tab == "Search" && o is SR;
 
         private static Section Common(IXenObject o)
         {
@@ -389,6 +389,29 @@ namespace XenAdmin.Desktop
                 }
             }
             return null;
+        }
+
+        /// <summary>NICPage (Network Interface Cards): the host's physical NICs.</summary>
+        public static Table Nics(Host host)
+        {
+            var sriov = Helpers.KolkataOrGreater(host);
+            var headers = new List<string> { "NIC", "MAC", "Link Status", "Speed", "Duplex", "Vendor", "Device", "PCI Bus Path", "FCoE Capable" };
+            if (sriov) headers.Add("SR-IOV Capable");
+            var t = new Table { Title = "Network Interface Cards", Fill = 6, Headers = headers.ToArray() };
+            foreach (var pif in NetworkRules.HostNics(host))
+            {
+                var m = pif.PIFMetrics();
+                var up = pif.Carrier();
+                var row = new List<string>
+                {
+                    pif.Name(), pif.MAC, up ? Messages.CONNECTED : Messages.DISCONNECTED, up ? pif.Speed() : Messages.HYPHEN,
+                    up ? pif.Duplex() : Messages.HYPHEN, m?.vendor_name ?? Messages.HYPHEN, m?.device_name ?? Messages.HYPHEN,
+                    m?.pci_bus_path ?? Messages.HYPHEN, pif.FCoECapable() ? Messages.YES : Messages.NO
+                };
+                if (sriov) row.Add(NetworkRules.SriovCapable(pif));
+                t.Rows.Add(row.ToArray());
+            }
+            return t;
         }
 
         public static Table Networking(IXenObject o)

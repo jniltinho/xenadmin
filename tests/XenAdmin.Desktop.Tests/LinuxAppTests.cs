@@ -114,6 +114,7 @@ namespace XenAdmin.Desktop.Tests
             Assert.IsTrue(Details.NotPorted(new SR(), "Search"));
             Assert.IsFalse(Details.NotPorted(new VM(), "Performance"));
             Assert.IsFalse(Details.NotPorted(new Host(), "Performance"));
+            Assert.IsFalse(Details.NotPorted(new Host(), "NICs"));
             CollectionAssert.AreEqual(new[] { "-", "-", "-", "-", "-", "-" }, OverviewColumns.Values(new Pool()).Select(v => v.Text).ToArray());
         }
 

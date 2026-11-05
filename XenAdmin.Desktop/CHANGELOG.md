@@ -15,6 +15,7 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Host and pool Networking tab: Add Network (New Network wizard: External network on a VLAN and Single-Server
   Private network; Bonded and SR-IOV listed, not yet available), Properties and Remove Network, with the Windows
   columns (NIC, VLAN, Auto, Link Status, MAC, MTU, SR-IOV).
+- Host NICs tab: the physical interfaces (link, speed, duplex, vendor, device, PCI bus path, FCoE and SR-IOV) and Rescan.
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).
