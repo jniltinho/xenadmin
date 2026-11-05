@@ -428,8 +428,56 @@ namespace XenAdmin.Desktop
             if (ServerAddress.IsPlainHttp(c.Port)) { SetStatus($"{c.Hostname}:{c.Port} is plain HTTP; connect over HTTPS (443)."); return; }
             SetStatus(string.Format(Messages.LABEL_ATTEMPT, c.Hostname));
             _connecting[c] = Dialogs.Connecting(this, c.Hostname, () => { _connecting.Remove(c); c.EndConnect(); RefreshTree(); });
-            c.BeginConnect(false, (_, _) => false);
+            c.BeginConnect(false, PromptForNewPassword);
             RefreshTree();
+        }
+
+        /// <summary>
+        /// XenConnectionUI.PromptForNewPassword: a login failed, so ask again (the "incorrect password" variant of the
+        /// connect dialog). Runs on the connection's worker thread and waits for the user. Cancel ends the attempt; the
+        /// connection then closes without a ConnectionResult, so the "Connecting to..." dialog is closed here.
+        /// </summary>
+        private bool PromptForNewPassword(IXenConnection connection, string oldPassword)
+        {
+            if (Dispatcher.UIThread.CheckAccess() || !(connection is XenConnection c))
+                return false; // never block the UI thread waiting for itself
+            var answer = new System.Threading.Tasks.TaskCompletionSource<Dialogs.ServerInput>();
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    // the user may have cancelled "Connecting to..." meanwhile: then there is nothing to ask for
+                    if (!_connecting.TryGetValue(c, out var owner))
+                    {
+                        answer.TrySetResult(null);
+                        return;
+                    }
+                    var input = await Dialogs.AddServer(owner, c.Port == 443 ? c.Hostname : $"{c.Hostname}:{c.Port}", c.Username ?? "root", true, true);
+                    answer.TrySetResult(_connecting.ContainsKey(c) ? input : null);
+                }
+                catch (Exception e)
+                {
+                    answer.TrySetException(e);
+                }
+            });
+            Dialogs.ServerInput input;
+            try { input = answer.Task.GetAwaiter().GetResult(); }
+            catch { input = null; }
+            if (input != null)
+            {
+                c.Username = input.User;
+                c.Password = input.Password;
+                return true;
+            }
+            Dispatcher.UIThread.Post(() =>
+            {
+                EndConnecting(c);
+                c.Password = null; // ask again next time
+                AddEvent($"Failed to connect to {c.Hostname}: {Messages.ADD_NEW_INCORRECT}");
+                SetStatus(string.Format(Messages.CONNECTION_FAILED_TITLE, c.HostnameWithPort));
+                RefreshTree();
+            });
+            return false;
         }
 
         private void EndConnecting(XenConnection c)

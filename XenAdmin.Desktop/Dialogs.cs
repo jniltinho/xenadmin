@@ -89,7 +89,8 @@ namespace XenAdmin.Desktop
         public static string M(string text) => (text ?? "").Replace("&", "_");
 
         /// <summary>AddServerDialog: "Add New Server", or "Connect to Server" for a known, disconnected server.</summary>
-        public static async Task<ServerInput> AddServer(Window owner, string host = "", string user = "root", bool connectMode = false)
+        /// <param name="incorrect">AddServerDialog after a failed login: the "incorrect user name or password" variant.</param>
+        public static async Task<ServerInput> AddServer(Window owner, string host = "", string user = "root", bool connectMode = false, bool incorrect = false)
         {
             // Server: an editable field when adding; a disabled combo-like box for a known server (as in WinForms)
             var hostBox = new TextBox { Text = host };
@@ -123,7 +124,8 @@ namespace XenAdmin.Desktop
             var panel = new StackPanel { Spacing = 12 };
             panel.Children.Add(new TextBlock
             {
-                Text = connectMode ? Messages.CONNECT_TO_SERVER_BLURB
+                Text = incorrect ? string.Format(Messages.ERROR_CONNECTING_BLURB, XenAdmin.Core.BrandManager.BrandConsole)
+                    : connectMode ? Messages.CONNECT_TO_SERVER_BLURB
                     : "Enter the host name or IP address of the server you want to add and your user login credentials for that server.",
                 TextWrapping = Avalonia.Media.TextWrapping.Wrap
             });
@@ -131,6 +133,8 @@ namespace XenAdmin.Desktop
             panel.Children.Add(group);
             panel.Children.Add(error);
             panel.Children.Add(Buttons(ok, cancel));
+            if (incorrect)
+                error.Text = Messages.ADD_NEW_INCORRECT;
             var w = Frame(connectMode ? Messages.CONNECT_TO_SERVER : "Add New Server", panel, 400);
             ServerInput result = null;
             ok.Click += (_, _) =>

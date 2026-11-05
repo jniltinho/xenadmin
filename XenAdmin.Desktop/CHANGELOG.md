@@ -61,6 +61,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   when it cannot be used). New VMs get an auto-add SR-IOV network when their template recommends SR-IOV.
 
 ### Fixed
+- A wrong password no longer leaves "Connecting to..." open forever: the server's login dialog comes back with
+  "Incorrect user name and/or password" (as in Windows); Cancel ends the attempt.
 - VM consoles go through the configured proxy and negotiate the system's TLS versions (TLS 1.3 included).
 - Exporting a VM no longer fails outside Windows (the export flushed the file with a Windows-only call).
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).
