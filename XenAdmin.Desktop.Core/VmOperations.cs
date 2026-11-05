@@ -36,11 +36,14 @@ namespace XenAdmin.Desktop
             if (vm == null || vm.Connection == null)
                 return null;
             var pool = Helpers.GetPoolOfOne(vm.Connection);
-            var disksShared = vm.Connection.ResolveAll(vm.VBDs).Where(b => b.type == vbd_type.Disk)
-                .Select(b => vm.Connection.Resolve(b.VDI)).Where(v => v != null)
-                .Select(v => vm.Connection.Resolve(v.SR)?.shared ?? true);
-            return HaStartBlocker(pool != null && pool.ha_enabled, vm.HaPriorityIsRestart(), disksShared, vm.Name());
+            return HaStartBlocker(pool != null && pool.ha_enabled, vm.HaPriorityIsRestart(), DisksShared(vm), vm.Name());
         }
+
+        /// <summary>For each disk of the VM: whether its SR is shared (a disk on local storage makes the VM not agile).</summary>
+        public static IEnumerable<bool> DisksShared(VM vm) =>
+            vm.Connection.ResolveAll(vm.VBDs).Where(b => b.type == vbd_type.Disk)
+                .Select(b => vm.Connection.Resolve(b.VDI)).Where(v => v != null)
+                .Select(v => vm.Connection.Resolve(v.SR)?.shared ?? true).ToList();
 
         public static string HaStartBlocker(bool haEnabled, bool protectedByHa, IEnumerable<bool> diskSrShared, string vmName) =>
             haEnabled && protectedByHa && diskSrShared.Any(shared => !shared)

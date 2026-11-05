@@ -654,6 +654,72 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Properties pages Start Options, Advanced and Custom Fields on a throwaway VM (their save actions).</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void StartOptionsAdvancedAndCustomFieldsOnThrowawayVm()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            // as the app's Program: events reach the watcher that keeps the custom field definitions current
+            XenAdmin.InvokeHelper.Initialize(new ImmediateSynchronizer());
+            XenAdmin.OtherConfigAndTagsWatcher.RegisterEventHandlers();
+            XenAdmin.CustomFields.CustomFieldsManager.GetCustomFields();
+            var c = ConnectionIntegrationTests.Connect(host);
+            var registered = !XenAdmin.ConnectionsManager.XenConnections.Contains(c);
+            if (registered) XenAdmin.ConnectionsManager.XenConnections.Add(c);
+            var session = c.DuplicateSession();
+            var field = new XenAdmin.CustomFields.CustomFieldDefinition(VmName + "-field", XenAdmin.CustomFields.CustomFieldDefinition.Types.String);
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-props");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template);
+
+                // Start Options (HA off): SetVMStartupOptionsAction
+                Run(new SetVMStartupOptionsAction(c, new System.Collections.Generic.Dictionary<VM, VMStartupOptions> { [vm] = new VMStartupOptions(5, 30, vm.HARestartPriority()) }, true));
+                WaitFor(c, vmRef, v => v.order == 5 && v.start_delay == 30);
+
+                // Advanced, halted VM: the clone's multiplier goes through SaveChangesAction
+                var clone = (VM)vm.Clone();
+                clone.HVM_shadow_multiplier = 4.0;
+                vm.Locked = true;
+                Run(new SaveChangesAction(clone, true, vm));
+                WaitFor(c, vmRef, v => Math.Abs(v.HVM_shadow_multiplier - 4.0) < 0.001);
+
+                // Custom Fields: a field for the pool (stored in its gui_config), a value on the VM, then the field is removed
+                Run(new AddCustomFieldAction(c, field));
+                bool Defined() => XenAdmin.Core.Helpers.GetPoolOfOne(c).gui_config.TryGetValue(XenAdmin.CustomFields.CustomFieldsManager.CUSTOM_FIELD_BASE_KEY, out var xml) && xml.Contains(field.Name);
+                var deadline = DateTime.Now.AddSeconds(30);
+                while (!Defined() && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsTrue(Defined(), "the field is defined on the pool");
+                var def = field;
+                Run(new SaveCustomFieldsAction(c.Resolve(new XenRef<VM>(vmRef)), new System.Collections.Generic.List<XenAdmin.CustomFields.CustomField> { new XenAdmin.CustomFields.CustomField(def, "owner: test") }, true));
+                deadline = DateTime.Now.AddSeconds(30);
+                while (!"owner: test".Equals(XenAdmin.CustomFields.CustomFieldsManager.GetCustomFieldValue(c.Resolve(new XenRef<VM>(vmRef)), def)) && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.AreEqual("owner: test", XenAdmin.CustomFields.CustomFieldsManager.GetCustomFieldValue(c.Resolve(new XenRef<VM>(vmRef)), def));
+                deadline = DateTime.Now.AddSeconds(30);
+                while (XenAdmin.CustomFields.CustomFieldsManager.GetCustomFields(c).All(d => d.Name != field.Name) && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsTrue(XenAdmin.CustomFields.CustomFieldsManager.GetCustomFields(c).Any(d => d.Name == field.Name), "the Custom Fields page lists the new field");
+                Run(new RemoveCustomFieldAction(c, def));
+                deadline = DateTime.Now.AddSeconds(30);
+                while (Defined() && DateTime.Now < deadline)
+                    Thread.Sleep(250);
+                Assert.IsFalse(Defined(), "the field is removed from the pool");
+            }
+            finally
+            {
+                try { new RemoveCustomFieldAction(c, field).RunSync(session); } catch { }
+                if (vmRef != null)
+                    try { VM.destroy(session, vmRef); } catch { }
+                if (registered) XenAdmin.ConnectionsManager.XenConnections.Remove(c);
+                c.EndConnect();
+            }
+        }
+
         /// <summary>Host Networking tab: create a single-server private network (New Network wizard) and remove it.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void HostNetworkPrivateCreateRemove()
@@ -915,6 +981,15 @@ namespace XenAdmin.Desktop.Tests
                 CleanupNamed(c, session, VmName + "-newvm");
                 c.EndConnect();
             }
+        }
+
+        /// <summary>Runs InvokeHelper callbacks on the calling thread (the app uses its UI dispatcher).</summary>
+        private sealed class ImmediateSynchronizer : System.ComponentModel.ISynchronizeInvoke
+        {
+            public bool InvokeRequired => false;
+            public IAsyncResult BeginInvoke(Delegate method, object[] args) { method.DynamicInvoke(args); return System.Threading.Tasks.Task.CompletedTask; }
+            public object EndInvoke(IAsyncResult result) => null;
+            public object Invoke(Delegate method, object[] args) => method.DynamicInvoke(args);
         }
 
         private static VM WaitForVm(XenAdmin.Network.XenConnection c, string name)

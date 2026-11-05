@@ -6,6 +6,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 ## [Unreleased]
 
 ### Added
+- VM Properties: Start Options (start order, delay and, with HA on, the restart priority a VM can have), Advanced
+  (shadow memory multiplier) and Custom Fields (values, dates with their time, and Edit Custom Fields).
 - Start and Resume are disabled, with the reason, for an HA-protected VM that cannot be agile (a disk on local
   storage), instead of failing on the server.
 

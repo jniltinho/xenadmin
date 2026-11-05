@@ -567,18 +567,20 @@ namespace XenAdmin.Desktop
 
         public static List<EditPage> PagesFor(IXenObject orig, IXenObject copy)
         {
-            var pages = new List<EditPage> { new GeneralPage(orig, copy), new NotPortedPage(Messages.CUSTOM_FIELDS, "000_Fields_h32bit_16") };
+            var pages = new List<EditPage> { new GeneralPage(orig, copy) };
+            if (!(copy is VM_appliance))
+                pages.Add(new CustomFieldsPage(copy));
             switch (copy)
             {
                 case VM vm when !vm.is_a_snapshot:
                     pages.Add(new CpuPage(vm));
                     pages.Add(new BootPage(vm));
-                    pages.Add(new NotPortedPage(Messages.START_UP_OPTIONS, "000_RebootVM_h32bit_16"));
+                    pages.Add(new StartOptionsPage(vm));
                     pages.Add(new NotPortedPage(Messages.ALERTS, "000_Alert2_h32bit_16"));
                     if (!Helpers.WlbEnabledAndConfigured(vm.Connection)) // WLB places the VMs itself
                         pages.Add(new HomeServerPage(vm));
                     pages.Add(new NotPortedPage("USB", "usb_16"));
-                    pages.Add(new NotPortedPage(Messages.ADVANCED_OPTIONS, "002_Configure_h32bit_16"));
+                    pages.Add(new AdvancedPage(vm));
                     break;
                 case Host _:
                     pages.Add(new NotPortedPage(Messages.ALERTS, "000_Alert2_h32bit_16"));
