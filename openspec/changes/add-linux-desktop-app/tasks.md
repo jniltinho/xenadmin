@@ -30,10 +30,10 @@
 
 - [x] 4.1 Comandos start/shutdown/reboot/suspend/resume/force-* habilitados por `allowed_operations`, reusando as Actions do XenModel com callbacks Linux não nulos
 - [x] 4.1b Veto de HA na `VMStartAbstractAction` via propriedade `AllowHaUnprotect` (padrão `true` = Windows inalterado; Linux usa `false` e a Action falha sem `HAUnprotectVMAction`); callbacks nulos tolerados; teste unitário
-- [ ] 4.1c Pré-check de HA na UI Linux apenas para desabilitar o comando cedo
+- [x] 4.1c Pré-check de HA na UI Linux apenas para desabilitar o comando cedo (VmOperations.HaStartBlocker: VM protegida com disco em storage local)
 - [x] 4.2 Confirmação para operações forçadas; painel de tarefas com progresso e erros (`Failure` legível)
 - [~] 4.3 Matriz de integração (gate de release, `XCP_ALLOW_WRITE=1`): feito com VM descartável sem disco — start, force reboot, force shutdown (sucesso) e suspend sem guest tools (falha esperada). Pendente: clean shutdown/reboot e suspend/resume com uma VM com guest tools
-- [ ] 4.4 Testes unitários: regras de habilitação por `allowed_operations`, confirmação de operações forçadas, e exibição de `RBAC_PERMISSION_DENIED`/`HOST_NOT_ENOUGH_FREE_MEMORY` com `Failure` simulada
+- [x] 4.4 Testes unitários: regras de habilitação por `allowed_operations`, confirmação de operações forçadas, e exibição de `RBAC_PERMISSION_DENIED`/`HOST_NOT_ENOUGH_FREE_MEMORY` com `Failure` simulada
 
 ## 5. Console VNC (marco 2)
 

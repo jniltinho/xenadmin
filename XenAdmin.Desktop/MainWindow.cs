@@ -637,6 +637,16 @@ namespace XenAdmin.Desktop
             _power[VmOp.Suspend].IsVisible = !_power[VmOp.Resume].IsVisible;
             foreach (var (op, b) in _power)
                 b.IsEnabled = Allowed(op);
+            // menus and buttons disabled with a reason show it (Avalonia hides tooltips of disabled controls by default)
+            foreach (var reasoned in new Control[] { _power[VmOp.Start], _power[VmOp.Resume], _vmMenu[VmOp.Start], _vmMenu[VmOp.Resume], _exportVmMenu, _vtpmMenu })
+                ToolTip.SetShowOnDisabled(reasoned, true);
+            // 4.1c: Start/Resume of an HA-protected VM that cannot be agile is disabled early, with the reason
+            var haBlocker = VmOperations.HaStartBlocker(vm);
+            foreach (var op in new[] { VmOp.Start, VmOp.Resume })
+            {
+                if (haBlocker != null) _power[op].IsEnabled = false;
+                ToolTip.SetTip(_power[op], haBlocker);
+            }
             // a selected server: the toolbar's Shut Down and Reboot are the server commands
             if (o is Host selectedHost)
             {
@@ -653,7 +663,9 @@ namespace XenAdmin.Desktop
             _removeFromPool.IsEnabled = HostRules.CanRemoveFromPool(serverHost) && !Busy(serverHost);
             _hostMaintenance.Header = Dialogs.M(serverHost != null ? HostRules.MaintenanceText(serverHost) : Messages.ENTER_MAINTENANCE_MODE_CONTEXT_MENU);
             foreach (var (op, m) in _vmMenu)
-                m.IsEnabled = Allowed(op);
+                m.IsEnabled = Allowed(op) && !(haBlocker != null && (op == VmOp.Start || op == VmOp.Resume));
+            ToolTip.SetTip(_vmMenu[VmOp.Start], haBlocker);
+            ToolTip.SetTip(_vmMenu[VmOp.Resume], haBlocker);
             var c = node?.Connection;
             _connectMenu.IsEnabled = c != null && !c.IsConnected && !c.InProgress;
             _disconnectMenu.IsEnabled = c != null && (c.IsConnected || c.InProgress);

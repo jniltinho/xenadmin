@@ -287,6 +287,28 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void HaBlocksStartOfANonAgileProtectedVm()
+        {
+            Assert.IsNotNull(VmOperations.HaStartBlocker(true, true, new[] { true, false }, "vm"), "a disk on local storage");
+            Assert.IsNull(VmOperations.HaStartBlocker(true, true, new[] { true }, "vm"), "all disks shared: the server decides");
+            Assert.IsNull(VmOperations.HaStartBlocker(false, true, new[] { false }, "vm"), "HA off");
+            Assert.IsNull(VmOperations.HaStartBlocker(true, false, new[] { false }, "vm"), "best effort / do not restart");
+            Assert.IsNull(VmOperations.HaStartBlocker(null), "nothing selected");
+        }
+
+        [TestMethod]
+        public void FailuresShowReadableMessages()
+        {
+            // the tracked actions report Exception.Message: XAPI codes become the Windows app's texts
+            var noMemory = new Failure(Failure.HOST_NOT_ENOUGH_FREE_MEMORY, "1073741824", "536870912");
+            Assert.IsFalse(noMemory.Message.Contains(Failure.HOST_NOT_ENOUGH_FREE_MEMORY), noMemory.Message);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(noMemory.Message));
+            var rbac = new Failure(Failure.RBAC_PERMISSION_DENIED, "VM.start", "No permission");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(rbac.Message));
+            Assert.IsFalse(rbac.Message.StartsWith(Failure.RBAC_PERMISSION_DENIED), rbac.Message);
+        }
+
+        [TestMethod]
         public void StartActionsNeverUnprotectHa()
         {
             XenAdmin.XenAdminConfigManager.Provider ??= new DesktopConfigProvider();

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using XenAdmin.Actions;
 using XenAdmin.Actions.VMActions;
 using XenAdmin.Core;
@@ -24,6 +25,27 @@ namespace XenAdmin.Desktop
 
         public static bool IsAllowed(VM vm, VmOp op) =>
             vm != null && vm.allowed_operations != null && vm.allowed_operations.Contains(Required[op]);
+
+        /// <summary>
+        /// Early HA check for Start/Resume: with HA on, a VM whose restart priority protects it must be agile, or
+        /// VMStartAction fails (this app never unprotects it silently, AllowHaUnprotect = false). A disk on storage that
+        /// is not shared makes the VM non-agile for sure; the server's VM.assert_agile still checks the rest.
+        /// </summary>
+        public static string HaStartBlocker(VM vm)
+        {
+            if (vm == null || vm.Connection == null)
+                return null;
+            var pool = Helpers.GetPoolOfOne(vm.Connection);
+            var disksShared = vm.Connection.ResolveAll(vm.VBDs).Where(b => b.type == vbd_type.Disk)
+                .Select(b => vm.Connection.Resolve(b.VDI)).Where(v => v != null)
+                .Select(v => vm.Connection.Resolve(v.SR)?.shared ?? true);
+            return HaStartBlocker(pool != null && pool.ha_enabled, vm.HaPriorityIsRestart(), disksShared, vm.Name());
+        }
+
+        public static string HaStartBlocker(bool haEnabled, bool protectedByHa, IEnumerable<bool> diskSrShared, string vmName) =>
+            haEnabled && protectedByHa && diskSrShared.Any(shared => !shared)
+                ? string.Format("'{0}' is protected by HA but has disks on local storage, so it is not agile. Set its HA restart priority to \"Restart if possible\" or \"Do not restart\" (Pool > High Availability) before starting it.", vmName)
+                : null;
 
         /// <summary>ShutDownVMCommand, RebootVMCommand, SuspendVMCommand and the forced ones always confirm; Start and Resume do not.</summary>
         public static bool NeedsConfirmation(VmOp op) => op != VmOp.Start && op != VmOp.Resume;

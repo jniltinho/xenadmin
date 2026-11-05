@@ -5,7 +5,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 
 ## [Unreleased]
 
-—
+### Added
+- Start and Resume are disabled, with the reason, for an HA-protected VM that cannot be agile (a disk on local
+  storage), instead of failing on the server.
 
 ## [0.3.0] — 2026-11-05
 
