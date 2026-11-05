@@ -44,6 +44,24 @@ namespace XenAdmin.Desktop
             return await w.ShowDialog<bool>(owner);
         }
 
+        /// <summary>Three answers (ExitMaintenanceModeDialog: Restore VMs / Skip / Cancel): true, false, or null when cancelled.</summary>
+        public static async Task<bool?> Choose(Window owner, string title, string message, string yesText, string noText)
+        {
+            var yes = new Button { Content = M(yesText), IsDefault = true, MinWidth = 75 };
+            var no = new Button { Content = M(noText), MinWidth = 75 };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true, MinWidth = 75 };
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(Buttons(yes, no, cancel));
+            var w = Frame(title, panel);
+            bool? result = null;
+            yes.Click += (_, _) => { result = true; w.Close(); };
+            no.Click += (_, _) => { result = false; w.Close(); };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         public static Task Info(Window owner, string title, string message)
         {
             var ok = new Button { Content = "OK", IsDefault = true, IsCancel = true };

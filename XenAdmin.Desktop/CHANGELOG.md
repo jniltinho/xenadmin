@@ -14,6 +14,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Create New Pool dialog (coordinator, members with the join rules of the Windows app).
 - New Storage Repository wizard for NFS and SMB (Scan, create, reattach or introduce an existing SR).
 - VM > Migrate to Server inside a pool, with the reason each server cannot take the VM.
+- Server commands: Shut Down, Reboot and Enter/Exit Maintenance Mode (evacuates the VMs and offers to bring them
+  back), from the toolbar, the Server menu and the tree's context menu.
 - Performance tab: the default graphs of hosts and VMs (CPU, used memory, network, disk) from the RRD archives,
   zoom from 10 minutes to 1 year, and the VM lifecycle events.
 - Console: Launch SSH Console (the desktop's terminal with OpenSSH) and Turn on / Switch to Remote Desktop (the

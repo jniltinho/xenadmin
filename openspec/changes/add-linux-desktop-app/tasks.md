@@ -68,7 +68,8 @@
 - [x] 7.6b Aba Performance: gráficos padrão de host e VM (CPU, memória usada, rede, disco) sobre os arquivos RRD (`rrd_updates`), Zoom de 10 minutos a 1 ano, eventos de ciclo de vida; teste somente leitura no pool .236
 - [ ] 7.6 Performance: designer de gráficos (New/Edit/Delete, Move Up/Down) e navegador de período; abas NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável
 - [x] 7.7a Aba Storage da VM: criar drive de DVD, trocar/ejetar ISO, Add (New Disk), Attach Disk, Activate/Deactivate, Detach, Delete, Properties do disco, com as regras de habilitação dos comandos originais; teste de escrita no 110
-- [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e Move de disco
+- [x] 7.7a Ações de host: Shut Down, Reboot (confirmações com coordenador e HCI), Enter/Exit Maintenance Mode (salva e restaura as VMs evacuadas, não reduz a tolerância de HA sem consentimento); teste no lab KVM com evacuação, restauração e reboot
+- [ ] 7.7 Diálogo de evacuação (destinos por VM), Move de disco
 - [x] 7.8a Wizard New VM (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish → `CreateVMAction`), Copy VM (fast clone / full copy) e Delete VM (discos e snapshots); teste no 110: criar (Debian 11, 512 MB, disco 64 MB) → iniciar → reboot → desligar → clone → copy → apagar tudo
 - [x] 7.8b Create New Pool (coordenador, membros com as razões de `PoolJoinRules`, avisos de CPU/licença/AD, `CreatePoolAction`); teste no lab: forma o pool, confere e ejeta o membro
 - [x] 7.8c Lab de 2 hosts XCP-ng 8.3 aninhados no VirtualBox (`tools/vagrant/xcp-ng-lab`), instalação automática por answerfile

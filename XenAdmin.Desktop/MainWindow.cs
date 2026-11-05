@@ -44,7 +44,7 @@ namespace XenAdmin.Desktop
         private readonly Button _back, _forward, _addServer, _newPool, _newStorage, _newVm, _pause;
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
-        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu;
+        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -65,9 +65,9 @@ namespace XenAdmin.Desktop
             _newStorage = Tool("000_NewStorage_h32bit_24", "New Storage", () => ShowNewSr());
             _newVm = Tool("000_CreateVM_h32bit_24", "New VM", () => ShowNewVm());
             _power[VmOp.Start] = Tool("001_PowerOn_h32bit_24", "Start", () => RunVmOp(VmOp.Start));
-            _power[VmOp.Shutdown] = Tool("001_ShutDown_h32bit_24", "Shut Down", () => RunVmOp(VmOp.Shutdown));
+            _power[VmOp.Shutdown] = Tool("001_ShutDown_h32bit_24", "Shut Down", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, false); else RunVmOp(VmOp.Shutdown); });
             _power[VmOp.ForceShutdown] = Tool("001_ForceShutDown_h32bit_24", "Force Shutdown", () => RunVmOp(VmOp.ForceShutdown));
-            _power[VmOp.Reboot] = Tool("001_Reboot_h32bit_24", "Reboot", () => RunVmOp(VmOp.Reboot));
+            _power[VmOp.Reboot] = Tool("001_Reboot_h32bit_24", "Reboot", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, true); else RunVmOp(VmOp.Reboot); });
             _power[VmOp.ForceReboot] = Tool("001_ForceReboot_h32bit_24", "Force Reboot", () => RunVmOp(VmOp.ForceReboot));
             _power[VmOp.Suspend] = Tool("000_Paused_h32bit_24", "Suspend", () => RunVmOp(VmOp.Suspend));
             _power[VmOp.Resume] = Tool("000_Resumed_h32bit_24", "Resume", () => RunVmOp(VmOp.Resume));
@@ -264,6 +264,9 @@ namespace XenAdmin.Desktop
                         Item("_Notifications", () => { _showEvents = true; UpdateContent(); })),
                     Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool(), icon: "000_PoolNew_h32bit_16"), "-", _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
                     Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
+                        _hostReboot = Item("_Reboot", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, true); }, icon: "001_Reboot_h32bit_16"),
+                        _hostShutdown = Item("S_hut Down", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, false); }, icon: "001_ShutDown_h32bit_16"),
+                        _hostMaintenance = Item(Dialogs.M(Messages.ENTER_MAINTENANCE_MODE_CONTEXT_MENU), () => { if (SelectedNode()?.XenObject is Host h) ToggleMaintenance(h); }, icon: "000_ServerMaintenance_h32bit_16"), "-",
                         _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host), icon: "edit_16")),
                     Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
                         _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
@@ -451,6 +454,19 @@ namespace XenAdmin.Desktop
             _power[VmOp.Suspend].IsVisible = !_power[VmOp.Resume].IsVisible;
             foreach (var (op, b) in _power)
                 b.IsEnabled = Allowed(op);
+            // a selected server: the toolbar's Shut Down and Reboot are the server commands
+            if (o is Host selectedHost)
+            {
+                _power[VmOp.Shutdown].IsVisible = _power[VmOp.Reboot].IsVisible = true;
+                _power[VmOp.ForceShutdown].IsVisible = _power[VmOp.ForceReboot].IsVisible = false;
+                _power[VmOp.Shutdown].IsEnabled = HostRules.CanShutDown(selectedHost, Busy(selectedHost));
+                _power[VmOp.Reboot].IsEnabled = HostRules.CanReboot(selectedHost, Busy(selectedHost));
+            }
+            var serverHost = o as Host;
+            _hostReboot.IsEnabled = HostRules.CanReboot(serverHost, Busy(serverHost));
+            _hostShutdown.IsEnabled = HostRules.CanShutDown(serverHost, Busy(serverHost));
+            _hostMaintenance.IsEnabled = HostRules.CanToggleMaintenance(serverHost, Busy(serverHost));
+            _hostMaintenance.Header = Dialogs.M(serverHost != null ? HostRules.MaintenanceText(serverHost) : Messages.ENTER_MAINTENANCE_MODE_CONTEXT_MENU);
             foreach (var (op, m) in _vmMenu)
                 m.IsEnabled = Allowed(op);
             var c = node?.Connection;
@@ -605,6 +621,17 @@ namespace XenAdmin.Desktop
                 return m;
             }
             var c = n.Connection as XenConnection;
+            // the server's part of ContextMenuBuilder: maintenance mode, reboot, shut down
+            void AddHostCommands(Host host)
+            {
+                if (HostRules.CanToggleMaintenance(host, Busy(host)))
+                    items.Add(Item(HostRules.MaintenanceText(host), () => ToggleMaintenance(host), icon: "000_ServerMaintenance_h32bit_16"));
+                if (HostRules.CanReboot(host, Busy(host)))
+                    items.Add(Item(Messages.MAINWINDOW_REBOOT, () => HostPower(host, true), icon: "001_Reboot_h32bit_16"));
+                if (HostRules.CanShutDown(host, Busy(host)))
+                    items.Add(Item(Messages.MAINWINDOW_SHUTDOWN, () => HostPower(host, false), icon: "001_ShutDown_h32bit_16"));
+                items.Add(new Separator());
+            }
             if (n.XenObject is VM vm)
             {
                 // the WinForms commands' MenuImage
@@ -650,7 +677,14 @@ namespace XenAdmin.Desktop
             {
                 items.Add(Item("&New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"));
                 items.Add(new Separator());
+                if (n.XenObject is Host standalone) AddHostCommands(standalone);
                 items.Add(Item(n.XenObject is Pool ? Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU_POOL : Messages.MAINWINDOW_DISCONNECT_CONTEXT_MENU, () => Disconnect(c)));
+            }
+            if (n.XenObject is Host member && Helpers.GetPool(member.Connection) != null && member.Connection.IsConnected)
+            {
+                items.Add(Item("&New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"));
+                items.Add(new Separator());
+                AddHostCommands(member);
             }
             if (VmRules.CanEditProperties(n.XenObject))
             {
@@ -710,6 +744,49 @@ namespace XenAdmin.Desktop
                 });
             };
             return menu;
+        }
+
+        /// <summary>ShutDownHostCommand / RebootHostCommand: always confirmed, with the coordinator warning.</summary>
+        private async void HostPower(Host host, bool reboot)
+        {
+            if (!(reboot ? HostRules.CanReboot(host, Busy(host)) : HostRules.CanShutDown(host, Busy(host)))) return;
+            var (title, text) = HostRules.Confirm(host, reboot);
+            if (await Dialogs.Confirm(this, title, text, reboot ? Messages.CONFIRM_REBOOT_SERVER_YES_BUTTON_LABEL : Messages.CONFIRM_SHUTDOWN_SERVER_YES_BUTTON_LABEL, Messages.CANCEL, cancelIsDefault: true))
+                RunHostAction(host, reboot ? HostRules.Reboot(host) : HostRules.ShutDown(host));
+        }
+
+        /// <summary>HostMaintenanceModeCommand: enter (evacuate) or exit (enable, optionally restoring the VMs).</summary>
+        private async void ToggleMaintenance(Host host)
+        {
+            if (!HostRules.CanToggleMaintenance(host, Busy(host))) return;
+            if (!HostRules.InMaintenance(host))
+            {
+                if (HostRules.CannotEnterMaintenance(host) is string why)
+                {
+                    await Dialogs.Info(this, "XCP-ng Center", why);
+                    return;
+                }
+                RunHostAction(host, HostRules.EnterMaintenance(host));
+                return;
+            }
+            var restore = HostRules.VmsToRestore(host);
+            var answer = restore.Count == 0 ? false : await Dialogs.Choose(this, "Exit Maintenance Mode",
+                $"Would you like to restore your VMs to their previous location on '{host.Name()}'?\n\nVMs to restore:\n" + string.Join("\n", restore.Select(v => v.Name())),
+                "&Restore VMs", "&Skip");
+            if (answer is bool restoreVms) // Cancel leaves the server in maintenance mode
+                RunHostAction(host, HostRules.ExitMaintenance(host, restoreVms));
+        }
+
+        // HelpersGUI.HasActiveHostAction: one server action at a time per host
+        private readonly HashSet<string> _busyHosts = new HashSet<string>();
+        private bool Busy(Host host) => host != null && _busyHosts.Contains(host.opaque_ref);
+
+        private void RunHostAction(Host host, AsyncAction action)
+        {
+            _busyHosts.Add(host.opaque_ref);
+            action.Completed += _ => Dispatcher.UIThread.Post(() => { _busyHosts.Remove(host.opaque_ref); UpdateContent(); });
+            RunTracked(action);
+            UpdateContent();
         }
 
         /// <summary>NewSRCommand: the wizard for the selected (or first connected) pool or server.</summary>
