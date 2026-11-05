@@ -56,6 +56,9 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - GPU tab of servers and pools (placement policy, the GPUs with their running vGPUs and allowed vGPU types, Edit) and
   USB tab of servers (USB devices, Enable/Disable pass-through), shown only where they apply, as in Windows.
 - VM > Manage vTPMs (UEFI VMs): add and remove vTPMs and see whether each is protected and unique.
+- Pool > Disaster Recovery: Configure (the SRs that store the pool's VM metadata) and the Disaster Recovery wizard
+  (failover, failback, test failover: storage, the pools' VMs and vApps from the metadata, prechecks, recovery, start
+  options, and removing what a test recovered).
 - Navigation pane: Objects (by type), Organization Views (Tags, Folders, Custom Fields, vApps) and Saved Searches (the
   default searches and those saved in the pools), built with the Windows app's searches; a group shows its objects in
   the Search tab.

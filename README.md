@@ -38,9 +38,11 @@ Linux, macOS and Windows (preview)
 
 [`XenAdmin.Desktop`](XenAdmin.Desktop/README.md) is a cross-platform port of XCP-ng Center (Avalonia, .NET 10) that
 reuses the same XenModel/XenAPI core and the original icons and texts. It runs on Linux (AppImage or tarball),
-macOS (one universal app for Apple Silicon and Intel) and Windows x64 (one `.exe`): servers and pools, the VM console with SSH and Remote Desktop,
-VM life cycle and storage, New Pool, NFS/SMB storage, live migration, server commands and maintenance mode,
-Performance graphs and Notifications. Downloads are the `linux-v*` releases; build with `make appimage` / `make macos` / `make windows`
+macOS (one universal app for Apple Silicon and Intel) and Windows x64 (one `.exe`) with the menus, tabs and wizards of
+the Windows app: servers and pools, HA and Disaster Recovery, the VM console with SSH and Remote Desktop, VM life cycle,
+snapshots, vTPMs, XVA and OVF/OVA import/export, vApps, New Network (VLAN, bond, SR-IOV), NFS/SMB/iSCSI storage, live
+migration, the GPU/USB/NICs tabs, Objects/Organization Views/Saved Searches, Performance graphs, Notifications and
+Tools > Options. It also has an MCP server for AI agents (`xcp-ng-center mcp`). Downloads are the `linux-v*` releases; build with `make appimage` / `make macos` / `make windows`
 (only Docker and make needed).
 
 Contributions

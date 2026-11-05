@@ -63,7 +63,7 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
             _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
-            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu, _vappsMenu, _assignVappMenu, _vtpmMenu;
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword, _poolAddServer, _poolRemoveServer, _makeStandalone, _haConfigure, _haDisable, _exportVmMenu, _vappsMenu, _assignVappMenu, _vtpmMenu, _drMenu;
         // connections with an Enable/Disable HA action of ours running (HelpersGUI.FindActiveHaAction)
         private readonly HashSet<IXenConnection> _haBusy = new HashSet<IXenConnection>();
 
@@ -357,6 +357,9 @@ namespace XenAdmin.Desktop
                         Top(Dialogs.M(Messages.MAINWINDOW_HIGH_AVAILABILITY),
                             _haConfigure = Item("_Configure...", () => ConfigureHa(SelectedNode()?.Connection), icon: "ha_16"),
                             _haDisable = Item("_Disable", () => DisableHa(SelectedNode()?.Connection))), "-",
+                        _drMenu = Top(Dialogs.M(Messages.DISASTER_RECOVERY_AMP),
+                            Item("_Configure...", () => ConfigureDr(SelectedNode()?.Connection)),
+                            Item("_Disaster Recovery Wizard...", () => { if (SelectedNode()?.Connection is IXenConnection drc && DrRules.CanRun(drc)) new DrWizard(drc, RunTracked).Show(this); })),
                         _vappsMenu = Item(Dialogs.M(Messages.VM_APPLIANCES_MENU), () => ManageVapps(SelectedNode()?.Connection), icon: "000_VirtualAppliance_h32bit_16"), "-",
                         _makeStandalone = Item(Dialogs.M(Messages.MAINWINDOW_DELETE_POOL), () => MakeStandalone(SelectedNode()?.Connection)), "-",
                         _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
@@ -680,6 +683,7 @@ namespace XenAdmin.Desktop
             _toTemplateMenu.IsEnabled = VmRules.CanConvertToTemplate(vm);
             _exportVmMenu.IsEnabled = XvaRules.CanExport(vm);
             _vappsMenu.IsEnabled = VappRules.CanManage(c);
+            _drMenu.IsEnabled = DrRules.CanRun(c);
             _assignVappMenu.IsEnabled = VappRules.CanAssign(vm);
             _vtpmMenu.IsEnabled = VtpmRules.CanManage(vm);
             ToolTip.SetTip(_vtpmMenu, VtpmRules.Blocker(vm));
@@ -1038,6 +1042,13 @@ namespace XenAdmin.Desktop
         /// Pool > Add Server (the other connected standalone servers, each with the reason it cannot join) and Remove
         /// Server (the members; RemoveHostFromPoolCommand), filled when the submenu opens.
         /// </summary>
+        /// <summary>DRConfigureCommand: the SRs holding the pool's VM metadata.</summary>
+        private async void ConfigureDr(IXenConnection c)
+        {
+            if (!DrRules.CanRun(c) || !(XenAdmin.Core.Helpers.GetPoolOfOne(c) is Pool pool)) return;
+            if (await DrConfigureDialog.Show(this, pool) is AsyncAction a) RunTracked(a);
+        }
+
         /// <summary>VMGroupCommand&lt;VM_appliance&gt;: Manage vApps for the selected pool or server.</summary>
         private void ManageVapps(IXenConnection c)
         {

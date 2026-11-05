@@ -1,4 +1,6 @@
 using System;
+using XenAdmin.Actions.DR;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -237,6 +239,162 @@ namespace XenAdmin.Desktop.Tests
             {
                 c.EndConnect();
             }
+        }
+
+        /// <summary>
+        /// Disaster Recovery on the lab: the pool stores its metadata on an iSCSI SR holding a throwaway VM's disk (DR
+        /// Configure); the SR leaves the pool, the member leaves too and attaches the SR as a standalone server, where the
+        /// DR wizard's rules find the pool's metadata, run the prechecks, recover the VM (a test failover) and remove it.
+        /// Everything is put back: the member rejoins and the SR and VM are destroyed. Needs XCP_LAB_HOSTS=coordinator,member.
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void DisasterRecoveryTestFailoverOnLab()
+        {
+            var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (lab == null || lab.Length != 2 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_LAB_HOSTS=coordinator,member and XCP_ALLOW_WRITE=1 required");
+            var c = LabPool();
+            XenConnection member = null;
+            const string name = "xcpng-center-test-dr";
+            const string vmName = "xcpng-center-linux-test-dr";
+            string uuid = null;
+            Dictionary<string, string> dconf = null;
+            try
+            {
+                foreach (var stale in c.Cache.SRs.Where(sr => sr.name_label == name).ToList())
+                    DestroyDrSr(c, stale);
+                var pool = Helpers.GetPool(c);
+                var scan = SrRules.ScanIqns(c, IscsiHost(), SrRules.DefaultIscsiPort, null, null);
+                Run(scan);
+                var iqn = scan.IQNs.Single(i => i.TargetIQN == "iqn.2026-11.org.xcp-ng.lab:sr");
+                var luns = SrRules.ScanLuns(c, iqn, null, null);
+                Run(luns);
+                dconf = SrRules.IscsiDeviceConfig(iqn, luns.LUNs.Single(), null, null);
+                var probe = SrRules.Probe(c, SrRules.Kind.Iscsi, dconf);
+                Run(probe);
+                Run(SrRules.Finish(c, SrRules.Kind.Iscsi, name, "DR test", dconf, probe.SRs.Count > 0 ? probe.SRs[0].UUID : null));
+                var sr = Until(() => c.Cache.SRs.FirstOrDefault(x => x.name_label == name && x.HasPBDs()), x => x != null, "SR in the cache");
+                uuid = sr.uuid;
+
+                // a throwaway VM with a 64 MB disk on that SR
+                var session = c.DuplicateSession();
+                var template = c.Cache.VMs.First(v => v.is_a_template && v.name_label == "Other install media");
+                var vmRef = VM.clone(session, template.opaque_ref, vmName).opaque_ref;
+                VM.set_is_a_template(session, vmRef, false);
+                var vdiRef = VDI.create(session, new VDI { name_label = vmName + "-disk", SR = new XenRef<SR>(sr.opaque_ref), virtual_size = 64L << 20, type = vdi_type.user, sharable = false, read_only = false, other_config = new Dictionary<string, string>(), sm_config = new Dictionary<string, string>(), xenstore_data = new Dictionary<string, string>(), tags = new string[0] });
+                VBD.create(session, new VBD { VM = new XenRef<VM>(vmRef), VDI = vdiRef, userdevice = "0", bootable = true, mode = vbd_mode.RW, type = vbd_type.Disk, empty = false, other_config = new Dictionary<string, string>(), qos_algorithm_params = new Dictionary<string, string>(), qos_algorithm_type = "", device = "", unpluggable = true });
+                var vmUuid = VM.get_uuid(session, vmRef);
+
+                // DR Configure: the pool's metadata on that SR
+                Assert.IsTrue(DrRules.ReplicationSrs(c).Any(x => x.uuid == uuid), "iSCSI supports database replication");
+                if (DrRules.IsDrEnabled(sr, pool))
+                {
+                    // a reattached SR from an earlier run still holds the pool's metadata: DR Configure turns it off
+                    Assert.IsNotNull(DrRules.ConfigureWarning(true, 0).Text, "the disable warning");
+                    Run(DrRules.ConfigureAction(pool, new SR[0], new[] { sr }));
+                    Until(() => c.Cache.SRs.First(x => x.uuid == uuid), x => !DrRules.IsDrEnabled(x, pool), "DR disabled");
+                }
+                Assert.IsNotNull(DrRules.ConfigureWarning(false, 1).Text, "the enable warning");
+                Run(DrRules.ConfigureAction(pool, new[] { sr }, new SR[0]));
+                Until(() => c.Cache.SRs.First(x => x.uuid == uuid), x => DrRules.IsDrEnabled(x, pool), "DR enabled");
+                Thread.Sleep(10000); // XAPI writes the database to the metadata VDI
+
+                // the primary site goes away: the SR leaves the pool, then the member leaves the pool
+                Run(new DetachSrAction(c.Cache.SRs.First(x => x.uuid == uuid), true));
+                var coordinator = Helpers.GetCoordinator(c);
+                var joined = c.Cache.Hosts.Single(h => h.opaque_ref != coordinator.opaque_ref);
+                RunLong(new EjectHostFromPoolAction(pool, joined), 10);
+                var deadline = DateTime.Now.AddMinutes(10);
+                while (member == null && DateTime.Now < deadline)
+                {
+                    try { member = ConnectionIntegrationTests.Connect(lab[1]); }
+                    catch (AssertFailedException) { Thread.Sleep(15000); }
+                }
+                Assert.IsNotNull(member, "the ejected server came back");
+
+                // the DR site attaches the mirrored SR
+                Run(SrRules.Finish(member, SrRules.Kind.Iscsi, name, "", dconf, uuid));
+                var drSr = Until(() => member.Cache.SRs.FirstOrDefault(x => x.uuid == uuid), x => x != null && x.HasPBDs(), "SR attached on the DR site");
+
+                // DR wizard: storage, metadata, prechecks, recovery (test failover), clean-up
+                var choice = DrRules.StorageChoices(member).Single(x => x.Sr.uuid == uuid);
+                Assert.IsTrue(choice.HasMetadata, "metadata detected");
+                var metadata = DrRules.LoadMetadata(member, new[] { drSr });
+                var md = metadata.Single(m => m.Pool.uuid == pool.uuid);
+                Assert.IsFalse(DrRules.IsCurrentPool(md, member));
+                var vm = DrRules.LooseVms(md).Single(v => v.uuid == vmUuid);
+                var chosen = new List<(PoolMetadata, List<VM_appliance>, List<VM>)> { (md, new List<VM_appliance>(), new List<VM> { vm }) };
+                var checks = DrRules.Prechecks(member, DrType.Test, chosen);
+                Assert.IsFalse(checks.Any(x => x.Error), string.Join("; ", checks.Select(x => x.Text)));
+                var recover = new DrRules.RecoverAction(member, chosen, DrRules.StartMode.None);
+                RunLong(recover, 5);
+                CollectionAssert.Contains(recover.RecoveredVmUuids, vmUuid);
+                RunLong(DrRules.TestCleanupAction(member, recover), 5); // it waits for the recovered VM itself
+                Until(() => member.Cache.VMs.Any(v => v.uuid == vmUuid), any => !any, "test failover cleaned up");
+            }
+            finally
+            {
+                // put the lab back: the member forgets the SR and rejoins; the pool destroys the VM and the SR
+                if (member != null)
+                {
+                    try
+                    {
+                        if (member.Cache.SRs.FirstOrDefault(x => x.uuid == uuid) is SR drSr)
+                            Forget(member, drSr);
+                        RunLong(PoolRules.AddToPool(Helpers.GetCoordinator(member), Helpers.GetPool(c)), 10);
+                        Until(() => c.Cache.Hosts.Length == 2 && c.Cache.Hosts.All(h => h.IsLive()), x => x, "pool of two again", 300);
+                    }
+                    catch (Exception e) { System.Console.WriteLine("DR test clean-up (member): " + e.Message); }
+                }
+                try
+                {
+                    var session = c.DuplicateSession();
+                    foreach (var leftover in c.Cache.VMs.Where(v => v.name_label == vmName).ToList())
+                        VM.destroy(session, leftover.opaque_ref);
+                    if (uuid != null && c.Cache.SRs.FirstOrDefault(x => x.uuid == uuid) is SR sr)
+                    {
+                        if (!sr.HasPBDs() && dconf != null)
+                            Run(SrRules.Finish(c, SrRules.Kind.Iscsi, name, "", dconf, uuid));
+                        DestroyDrSr(c, Until(() => c.Cache.SRs.First(x => x.uuid == uuid), x => x.HasPBDs(), "SR reattached"));
+                    }
+                }
+                catch (Exception e) { System.Console.WriteLine("DR test clean-up (pool): " + e.Message); }
+                lock (ConnectionsManager.ConnectionsLock)
+                {
+                    ConnectionsManager.XenConnections.Remove(c);
+                    if (member != null) ConnectionsManager.XenConnections.Remove(member);
+                }
+                c.EndConnect();
+                member?.EndConnect();
+            }
+        }
+
+        /// <summary>The DR test's SR: stop the replication, remove its disks (the VM's and the metadata), then destroy it.</summary>
+        private static void DestroyDrSr(XenConnection c, SR sr)
+        {
+            var session = c.DuplicateSession();
+            foreach (var pbd in c.ResolveAll(sr.PBDs).Where(p => !p.currently_attached))
+                try { PBD.plug(session, pbd.opaque_ref); } catch { }
+            try { SR.disable_database_replication(session, sr.opaque_ref); } catch { }
+            foreach (var vdi in SR.get_VDIs(session, sr.opaque_ref))
+                try { VDI.destroy(session, vdi.opaque_ref); } catch { }
+            // straight to the server: the cache may not have seen the PBDs plugged above yet
+            foreach (var pbd in SR.get_PBDs(session, sr.opaque_ref))
+            {
+                if (PBD.get_currently_attached(session, pbd.opaque_ref))
+                    PBD.unplug(session, pbd.opaque_ref);
+                PBD.destroy(session, pbd.opaque_ref);
+            }
+            SR.forget(session, sr.opaque_ref); // no PBD left to destroy it with; its disks are gone already
+        }
+
+        private static void RunLong(AsyncAction action, int minutes)
+        {
+            var done = new ManualResetEventSlim();
+            action.Completed += _ => done.Set();
+            action.RunAsync();
+            Assert.IsTrue(done.Wait(TimeSpan.FromMinutes(minutes)), action.Title + " timed out");
+            Assert.IsTrue(action.Succeeded, action.Exception?.ToString());
         }
 
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]

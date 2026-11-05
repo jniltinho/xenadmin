@@ -5,28 +5,41 @@ Design and scope: [`openspec/changes/add-linux-desktop-app`](../openspec/changes
 
 ## What works
 
-- Add/connect/disconnect servers and pools (redirects to the pool coordinator); double-click connects.
-- Trust-on-first-use TLS: SHA-256 fingerprint confirmation, alert if it changes.
-- Live tree of pools, hosts, VMs and storage; General, Storage, Snapshots, Search and Console tabs.
-- VM power operations, New VM wizard, Copy and Delete VM, snapshots, disks and DVD, Properties
-  (General, CPU, Boot Options).
-- Pools and storage: New Pool, New Storage Repository for NFS, SMB and iSCSI (create, reattach, introduce) and NFS/SMB
-  ISO libraries, live migration
-  between the servers of a pool (VM > Migrate to Server, with the reason a server cannot take the VM).
-- Servers: Shut Down, Reboot and Enter/Exit Maintenance Mode (evacuates the VMs and offers to bring them back).
-- Performance tab: the default graphs of hosts and VMs (CPU, memory, network, disk), zoom from 10 minutes to 1 year,
-  VM lifecycle events.
-- Notifications: the servers' alerts (severity, text, server/pool, date) with severity and server filters, Dismiss and
-  Dismiss All, and the alert count on the Notifications button and the status bar; the Events list of this session.
-- Server list and fingerprints in the platform settings directory (below). Passwords are never stored.
+The menus, tabs, wizards and dialogs follow the Windows app, with its icons and texts.
+
+- **Connections:** add, connect, disconnect and remove servers and pools (redirects to the pool coordinator), Reconnect
+  As, a new prompt after a wrong password, trust-on-first-use TLS (SHA-256 fingerprint, alert when it changes).
+- **Navigation:** Infrastructure, Objects (by type), Organization Views (Tags, Folders, Custom Fields, vApps) and Saved
+  Searches; Back/Forward; the Search tab with New/Edit Search (types, text filter, grouping), saving to a pool, Saved
+  Searches, Export/Import of `.xensearch` files and Show Columns.
+- **VMs:** power operations, New VM wizard (OS icons), Copy, Delete, Convert to Template, snapshots (Tree View),
+  live migration with the reasons a server cannot take the VM, Properties (General, CPU, Boot Options, Home Server),
+  Memory tab with Memory Settings, Storage tab (add/attach/move disks, DVD), Networking tab (interfaces, QoS),
+  Console (VNC, undock, fullscreen, SSH and Remote Desktop), Manage vTPMs, Export to XVA.
+- **Import:** File > Import of XVA files and OVF/OVA appliances (EULA, target, SR, network, manifest check).
+- **Templates and vApps:** Templates menu (create VM, copy, delete); Manage vApps, New vApp wizard, vApp Properties
+  (VMs, start order) and Assign to vApp.
+- **Pools:** New Pool, Add/Remove Server, Make into standalone server, Change Server Password, Rotate Pool Secret, High
+  Availability (Configure HA wizard, restart priorities, Disable), Disaster Recovery (Configure the metadata SRs; the
+  wizard for failover, failback and test failover).
+- **Servers:** Shut Down, Reboot, Restart Toolstack, Enter/Exit Maintenance Mode, Remove From Pool; the NICs tab
+  (bonds), GPU tab (placement policy, allowed vGPU types) and USB tab (pass-through) where they apply; the server's
+  console (control domain).
+- **Networking and storage:** New Network (external/VLAN, single-server private, bonded, SR-IOV), New Storage for NFS,
+  SMB and iSCSI (create, reattach, introduce) and NFS/SMB ISO libraries; SR Storage tab (rescan, add, delete disks).
+- **Performance and notifications:** the default graphs of hosts and VMs (area or line, 10 minutes to 1 year); the
+  servers' alerts with severity, server and date filters, Dismiss and Export to CSV; the Events list.
+- **Tools > Options:** certificate warnings, rotate-secret reminder, proxy (system or given) and connection timeout,
+  dismiss confirmations, graph type and tab memory, saved in the settings directory (below). Passwords are never stored.
 
 The console's SSH and Remote Desktop buttons start the desktop's own clients: a terminal emulator (`$TERMINAL`,
 `x-terminal-emulator`, GNOME Terminal, Konsole, xterm...) running OpenSSH, and FreeRDP (in a terminal, so its
 certificate question can be answered) or Remmina. As in XenCenter, SSH is offered once the guest agent reports an
 address, and only for guests it does not take for Windows.
 
-Not yet: the graph designer of the Performance tab, Objects/Organization Views/Saved Searches, the date filter and
-Export of alerts, HA/WLB, updates, import/export, the other SR types and wizards, NICs/GPU/USB tabs, OS keychain.
+Not yet: the graph designer of the Performance tab, WLB, updates and the health check, the OVF export of vApps,
+HBA/FCoE storage, the per-item choices of the OVF import (one target, SR and network for all), the device probing of the
+DR wizard (attach the mirrored SR with New Storage first) and the OS keychain.
 
 ## MCP server (for AI agents)
 
