@@ -5,6 +5,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 import ConsoleView from "./ConsoleView.vue";
 import SnapshotsView from "./SnapshotsView.vue";
+import VmTab from "./VmTab.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[] }
 
@@ -125,7 +126,7 @@ const hostCanRun = (c: HostCommand, n: Node | null) =>
 const serverMenuOpen = ref(false);
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
-type Tab = "general" | "console" | "snapshots";
+type Tab = "general" | "memory" | "storage" | "networking" | "console" | "snapshots";
 const tab = ref<Tab>("general");
 const consoleVm = computed(() => {
   const o = selected.value?.object;
@@ -135,12 +136,17 @@ const consoleVm = computed(() => {
 });
 const tabInfo = {
   general: { label: "General", icon: "000_Info3_h32bit_16" },
+  memory: { label: "Memory", icon: "000_GetMemoryInfo_h32bit_16" },
+  storage: { label: "Storage", icon: "000_VirtualStorage_h32bit_16" },
+  networking: { label: "Networking", icon: "000_Network_h32bit_16" },
   console: { label: "Console", icon: "console_16" },
   snapshots: { label: "Snapshots", icon: "000_VMSnapShotDiskOnly_h32bit_16" },
 } as const;
 // VMTabs: General, Console, Snapshots for a VM; General, Console for a server
 const tabs = computed<Tab[]>(() => {
+  // the C# order: General, Memory, Storage, Networking, Console, Snapshots
   const t: Tab[] = ["general"];
+  if (selected.value?.object?.kind === "vms") t.push("memory", "storage", "networking");
   if (consoleVm.value) t.push("console");
   if (selected.value?.object?.kind === "vms") t.push("snapshots");
   return t;
@@ -357,6 +363,9 @@ onMounted(async () => { await refreshServers(); });
           </button>
         </div>
         <ConsoleView v-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
+        <VmTab v-else-if="(tab === 'memory' || tab === 'storage' || tab === 'networking') && selected?.object && selected.server"
+               :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :vm="selected.object.uuid" :kind="tab"
+               @status="onTabStatus" />
         <!-- keyed: another VM gets a new tab, never the previous VM's rows or selection -->
         <SnapshotsView v-else-if="tab === 'snapshots' && selected?.object && selected.server" :key="selected.server + '/' + selected.object.uuid"
                        :server="selected.server" :vm="selected.object.uuid"

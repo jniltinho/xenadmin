@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Memory, Storage and Networking tabs of a VM (the C# Details tables): Activate/Deactivate a disk, create a DVD drive
+  (with the C# notice when it needs a restart), choose or eject its ISO; lab tests in `internal/app/lab_test.go`.
 - Snapshots tab: Take Snapshot (disks, or disks and memory, with the reason when not available), Revert To (optionally
   taking a snapshot first; the VM is started or resumed again when it was running), Delete (snapshots only, with the
   disks they own); MCP `list_snapshots`, `vm_snapshot`, `snapshot_revert`, `snapshot_delete`.

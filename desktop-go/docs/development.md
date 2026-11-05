@@ -7,6 +7,9 @@
   Frontend alone: `cd frontend && npm install && npm run build`.
 - Running the window under Xvfb in a container needs WebKit's sandbox (bubblewrap user namespaces); try it on a host
   with GTK 4 and WebKitGTK 6.0 instead, with its own `HOME` so your settings are untouched.
+- Lab tests (`internal/app/lab_test.go`) run only with `XCP_LAB_HOST`, `XCP_PASS` and `XCP_TRUST_FINGERPRINT` (the lab
+  certificate's SHA-256); the ones that write also need `XCP_ALLOW_WRITE=1` and touch only the VM named in `XCP_LAB_VM`:
+  `XCP_LAB_HOST=10.77.58.11 XCP_TRUST_FINGERPRINT=... XCP_PASS=... XCP_LAB_VM=... XCP_ALLOW_WRITE=1 go test -tags nogui -run TestLab ./internal/app/`.
 - Tests use a fake JSON-RPC server over TLS (`internal/xapi/client_test.go`) and an in-memory MCP client
   (`internal/mcp/server_test.go`); none needs a real server.
 - Against a server: `XCP_HOST`, `XCP_USER`, `XCP_PASS` in the environment (never in files); the lab servers and rules

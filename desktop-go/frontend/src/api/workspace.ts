@@ -10,6 +10,9 @@ export interface XenObject { kind: string; uuid: string; name: string; descripti
   maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string }
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
+export interface Table { title: string; headers: string[]; rows: string[][]; keys: string[] }
+export interface VMStorage { table: Table; disks: { vbd: string; attached: boolean; can_activate: boolean; can_deactivate: boolean }[];
+  dvd?: string; dvd_name?: string; can_add_dvd: boolean; iso: string; isos: { vdi: string; text: string }[] }
 export interface Snapshot { uuid: string; name: string; description?: string; time: string; type: string; size: number }
 export interface VMSnapshots { snapshots: Snapshot[]; modes: { disk: boolean; memory: boolean; memory_info: string }; snapshot_allowed: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
@@ -25,6 +28,12 @@ export const api = {
   dismissConfirmation: (count: number, all: boolean) => call<Confirm>("DismissConfirmation", count, all),
   hostQuestion: (key: string, uuid: string, op: string) => call<HostQuestion>("HostQuestion", key, uuid, op),
   hostCommand: (key: string, uuid: string, op: string, restore: boolean) => call<void>("HostCommand", key, uuid, op, restore),
+  storage: (key: string, vm: string) => call<VMStorage>("Storage", key, vm),
+  networking: (key: string, vm: string) => call<Table>("Networking", key, vm),
+  memory: (key: string, vm: string) => call<Table>("Memory", key, vm),
+  setDiskActive: (key: string, vbd: string, active: boolean) => call<void>("SetDiskActive", key, vbd, active),
+  createDvdDrive: (key: string, vm: string) => call<string>("CreateDVDDrive", key, vm),
+  changeIso: (key: string, dvd: string, iso: string) => call<void>("ChangeISO", key, dvd, iso),
   snapshots: (key: string, vm: string) => call<VMSnapshots>("Snapshots", key, vm),
   snapshotQuestion: (op: string, name: string, snapshotAllowed: boolean) => call<HostQuestion>("SnapshotQuestion", op, name, snapshotAllowed),
   takeSnapshot: (key: string, vm: string, name: string, description: string, memory: boolean) => call<void>("TakeSnapshot", key, vm, name, description, memory),

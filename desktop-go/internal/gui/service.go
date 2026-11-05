@@ -289,6 +289,40 @@ func (w *Workspace) DeleteSnapshot(key, snapshotUUID string) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.DeleteSnapshot(c, snapshotUUID) })
 }
 
+// Storage is the Storage tab of a VM.
+func (w *Workspace) Storage(key, vmUUID string) (out app.VMStorage, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListVMStorage(c, vmUUID); return err })
+	return out, err
+}
+
+// Networking is the Networking tab of a VM.
+func (w *Workspace) Networking(key, vmUUID string) (out app.Table, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListVMNetworking(c, vmUUID); return err })
+	return out, err
+}
+
+// Memory is the Memory tab of a VM.
+func (w *Workspace) Memory(key, vmUUID string) (out app.Table, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListVMMemory(c, vmUUID); return err })
+	return out, err
+}
+
+// SetDiskActive activates or deactivates a VM's disk.
+func (w *Workspace) SetDiskActive(key, vbdUUID string, active bool) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SetDiskActive(c, vbdUUID, active) })
+}
+
+// CreateDVDDrive adds a DVD drive to a VM that has none; the notice says when it comes only after a reboot.
+func (w *Workspace) CreateDVDDrive(key, vmUUID string) (notice string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { notice, err = ops.CreateDVDDrive(c, vmUUID); return err })
+	return notice, err
+}
+
+// ChangeISO puts an ISO in the DVD drive ("" ejects it).
+func (w *Workspace) ChangeISO(key, dvdUUID, isoUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.ChangeISO(c, dvdUUID, isoUUID) })
+}
+
 // OpenConsole returns a one-time ws:// URL for the VM's graphical console (noVNC connects to it within 30 s); it is
 // revoked, and an open console closed, when the server is disconnected.
 func (w *Workspace) OpenConsole(key, vmUUID string) (ticket string, err error) {
