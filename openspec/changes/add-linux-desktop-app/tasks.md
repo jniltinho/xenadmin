@@ -65,7 +65,8 @@
 - [x] 7.5c Controles com o visual do WinForms: botões 75×23 (borda azul no padrão), TextBox/ComboBox 23 px, checkbox/radio de 13 px; "Connect to Server" com grupo "User login credentials"
 - [x] 7.5d `Folders.InitFolders()` na inicialização (mantém `IXenObject.Path`; sem isso pastas apareciam como <None>)
 - [x] 7.6a Aba Snapshots (lista, Take Snapshot/Revert/Delete/Properties, detalhes) e aba Search (overview pool→hosts→VMs→templates com métricas ao vivo do `MetricUpdater`); testes: snapshot→revert→delete no 110 e métricas RRD no pool .236
-- [ ] 7.6 Abas Performance (gráficos RRD), NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável (New/Edit/Saved Searches, colunas)
+- [x] 7.6b Aba Performance: gráficos padrão de host e VM (CPU, memória usada, rede, disco) sobre os arquivos RRD (`rrd_updates`), Zoom de 10 minutos a 1 ano, eventos de ciclo de vida; teste somente leitura no pool .236
+- [ ] 7.6 Performance: designer de gráficos (New/Edit/Delete, Move Up/Down) e navegador de período; abas NICs, GPU, USB, console do host; Snapshots em árvore e com screenshot; Search editável
 - [x] 7.7a Aba Storage da VM: criar drive de DVD, trocar/ejetar ISO, Add (New Disk), Attach Disk, Activate/Deactivate, Detach, Delete, Properties do disco, com as regras de habilitação dos comandos originais; teste de escrita no 110
 - [ ] 7.7 Ações de host (Shut Down/Reboot/Maintenance) e Move de disco
 - [x] 7.8a Wizard New VM (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish → `CreateVMAction`), Copy VM (fast clone / full copy) e Delete VM (discos e snapshots); teste no 110: criar (Debian 11, 512 MB, disco 64 MB) → iniciar → reboot → desligar → clone → copy → apagar tudo

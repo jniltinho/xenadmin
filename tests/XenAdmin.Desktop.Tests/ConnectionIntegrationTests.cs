@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
@@ -128,6 +129,42 @@ namespace XenAdmin.Desktop.Tests
         public void PoolReadOnly() => ReadOnlyChecks("XCP_RO_HOST");
 
         /// <summary>Search tab metrics: MetricUpdater downloads RRD updates and the XenModel formatters use them.</summary>
+        /// <summary>Performance tab: the RRD download for a host and a running VM fills the default graphs (read-only).</summary>
+        [TestMethod, TestCategory("Integration")]
+        public void PerformanceDataReadOnly()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_RO_HOST") ?? Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host))
+                Assert.Inconclusive("XCP_RO_HOST or XCP_HOST not set");
+            var c = Connect(host);
+            try
+            {
+                var session = c.DuplicateSession(); // shares the connection's session: never log it out
+                var objects = new List<IXenObject> { XenAdmin.Core.Helpers.GetCoordinator(c) };
+                // a VM up for more than 10 minutes with its agent, so the 5 s archive and the internal memory are complete
+                var vm = c.Cache.VMs.FirstOrDefault(v => v.IsRealVm() && v.power_state == vm_power_state.Running
+                    && v.RunningTime() is { } up && up.CompareTo(new XenAdmin.Core.PrettyTimeSpan(TimeSpan.FromMinutes(11))) > 0 && c.Resolve(v.guest_metrics)?.PV_drivers_detected == true);
+                if (vm != null) objects.Add(vm);
+                foreach (var o in objects)
+                {
+                    var units = PerformanceRules.Units(o, session);
+                    var data = PerformanceRules.Fetch(o, PerformanceRules.Zoom.TenMinutes, units);
+                    var cpu = PerformanceRules.DefaultGraphs(o)[0];
+                    Assert.AreEqual(Messages.GRAPHS_DEFAULT_NAME_CPU, cpu.Title);
+                    var points = data[cpu.Series[0].Id];
+                    Assert.IsTrue(points.Count > 50, $"{o.Name()}: {points.Count} points of 5 s in 10 minutes");
+                    Assert.IsTrue(points.All(p => double.IsNaN(p.Value) || p.Value >= 0 && p.Value <= 100), "CPU as a percentage");
+                    var memory = PerformanceRules.DefaultGraphs(o)[1].Series.Single(s => !s.Hidden);
+                    Assert.IsTrue(data[memory.Id].Any(p => p.Value > 0), "used memory derived");
+                    System.Console.WriteLine($"{o.Name()}: {data.Count} series, cpu points {points.Count}, last cpu {points.Last().Value:0.0}%");
+                }
+            }
+            finally
+            {
+                c.EndConnect();
+            }
+        }
+
         [TestMethod, TestCategory("Integration")]
         public void SearchOverviewMetricsReadOnly()
         {

@@ -69,7 +69,7 @@ namespace XenAdmin.Desktop
         };
 
         public static bool NotPorted(IXenObject o, string tab) =>
-            tab is "Performance" or "NICs" or "GPU" or "USB" || tab == "Console" && !(o is VM) || tab == "Search" && o is SR;
+            tab is "NICs" or "GPU" or "USB" || tab == "Console" && !(o is VM) || tab == "Search" && o is SR;
 
         private static Section Common(IXenObject o)
         {

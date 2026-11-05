@@ -50,6 +50,10 @@ namespace XenAdmin.Desktop
 
             // top: teal band with the DVD link and "Launch SSH Console", as in VNCTabView
             var top = new DockPanel { Height = 36, Background = Views.Gradient("#396D8C", "#3F8B89", true) };
+            // VNCTabView: the console switch (Remote Desktop) at the far right, Launch SSH Console to its left
+            _rdp.Click += async (_, _) => await SwitchToRdp();
+            DockPanel.SetDock(_rdp, Dock.Right);
+            top.Children.Add(_rdp);
             _ssh.Click += (_, _) => LaunchSsh();
             DockPanel.SetDock(_ssh, Dock.Right);
             top.Children.Add(_ssh);
@@ -67,9 +71,6 @@ namespace XenAdmin.Desktop
             cad.Click += (_, _) => SendCtrlAltDel();
             DockPanel.SetDock(cad, Dock.Left);
             bottom.Children.Add(cad);
-            _rdp.Click += async (_, _) => await SwitchToRdp();
-            DockPanel.SetDock(_rdp, Dock.Left);
-            bottom.Children.Add(_rdp);
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 6, Margin = new Thickness(4) };
             right.Children.Add(_scale);
             var undock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
@@ -95,7 +96,7 @@ namespace XenAdmin.Desktop
         }
 
         private readonly Button _ssh = new Button { Content = "Launch SSH Console", Margin = new Thickness(6, 4), Background = Brushes.White };
-        private readonly Button _rdp = new Button { Margin = new Thickness(4) };
+        private readonly Button _rdp = new Button { Margin = new Thickness(6, 4, 0, 4), Background = Brushes.White };
         private volatile int _generation;
         private bool _rdpBusy; // the 3389 probe runs; WinForms keeps the button disabled meanwhile
         private readonly Avalonia.Threading.DispatcherTimer _buttonsTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };

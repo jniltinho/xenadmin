@@ -563,6 +563,8 @@ namespace XenAdmin.Desktop
                         : Views.GridPage(nt, null, "Add Network...", "Properties", "Remove Network"));
                 case "Console":
                     return ConsoleView.For(o as VM);
+                case "Performance":
+                    return Body("Performance Graphs", new PerformanceView(o));
                 case "Snapshots":
                     return Body("Virtual Machine Snapshots", new SnapshotsView((VM)o, RunTracked, ShowProperties));
                 case "Search":

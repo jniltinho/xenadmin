@@ -17,7 +17,7 @@ The console's SSH and Remote Desktop buttons start the desktop's own clients: a 
 certificate question can be answered) or Remmina. As in XenCenter, SSH is offered once the guest agent reports an
 address, and only for guests it does not take for Windows.
 
-Not yet: Performance tab, Notifications, HA/WLB, updates, host actions, the other wizards, OS keychain.
+Not yet: the graph designer of the Performance tab, Notifications, HA/WLB, updates, host actions, the other wizards, OS keychain.
 
 ## Layout (ready for macOS, FreeBSD and Windows without WinForms)
 
