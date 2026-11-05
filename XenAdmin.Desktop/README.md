@@ -1,4 +1,4 @@
-# XCP-ng Center desktop (preview: Linux and macOS)
+# XCP-ng Center desktop (preview: Linux, macOS and Windows)
 
 Avalonia (.NET 10) desktop app that reuses the XenModel/XenAPI core of XCP-ng Center.
 Design and scope: [`openspec/changes/add-linux-desktop-app`](../openspec/changes/add-linux-desktop-app/proposal.md).
@@ -38,7 +38,7 @@ Export of alerts, HA/WLB, updates, import/export, the other SR types and wizards
 | `XenAdmin.Desktop/packaging` | Per-OS packaging: AppImage and `.desktop` (Linux), `macos/` (Info.plist, icon, universal launcher). |
 
 Settings directory: `$XDG_CONFIG_HOME/xcp-ng-center` (Linux, FreeBSD), `~/Library/Application Support/xcp-ng-center`
-(macOS), `%APPDATA%\xcp-ng-center` (Windows). Other ports add a `-r <rid>` publish (`win-x64`, `freebsd-x64`) and
+(macOS), `%APPDATA%\xcp-ng-center` (Windows). Other ports add a `-r <rid>` publish (`freebsd-x64`, `linux-arm64`) and
 their package; the code stays.
 FreeBSD also needs the runtime from the community port and FreeBSD builds of the SkiaSharp/HarfBuzz natives
 that Avalonia loads, since the NuGet packages ship none.
@@ -52,11 +52,18 @@ make smoke       # runs the AppImage under Xvfb in Ubuntu 22.04
 make test        # unit tests; integration tests too when .env defines XCP_*
 make test-win    # checks the core still builds for net481 (Windows app)
 make macos       # dist/xcp-ng-center-<ver>_macos_universal.zip (cross-built in the Linux container)
+make windows     # dist/xcp-ng-center-<ver>-win-x64.zip (single xcp-ng-center.exe, cross-built too)
 ```
+
+### Windows
+
+`make windows` publishes the same Avalonia app for `win-x64` as one self-contained `xcp-ng-center.exe` (Windows 10/11).
+It is not the WinForms XCP-ng Center of `XenAdmin/`, which stays the full Windows client; settings live apart from it
+(`%APPDATA%\xcp-ng-center`). SSH uses Windows' OpenSSH client and Remote Desktop uses `mstsc`.
 
 ### macOS (universal: Apple Silicon and Intel)
 
-`make macos` publishes the app twice, for `osx-arm64` and `osx-x64`, into one `XCP-ng Center.app`. Its
+`make macos` publishes the app twice, for `osx-arm64` and `osx-x64`, into one `XCP-ng Center.app`. On Windows, unzip the `-win-x64.zip` and run `xcp-ng-center.exe`. Its
 `Contents/MacOS/xcp-ng-center` is a small launcher that runs the build for the Mac's CPU (also under Rosetta). The
 two trees replace `lipo`: the .NET runtime ships ReadyToRun code per CPU, so fat binaries are not enough. The .NET SDK
 signs each `xcp-ng-center` ad hoc; the bundle is not signed or notarized (that needs a Mac with a Developer ID), so a
@@ -91,4 +98,4 @@ Needs an X11 or XWayland desktop with fontconfig (present on standard Ubuntu/Fed
 ## Release
 
 Push a tag `linux-v<version>` (or use the `create-release` skill); `.github/workflows/linux.yml` builds, tests and
-publishes the tarball, the AppImage, the macOS universal zip and `SHA256SUMS` as a GitHub pre-release.
+publishes the tarball, the AppImage, the macOS universal zip, the Windows zip and `SHA256SUMS` as a GitHub pre-release.

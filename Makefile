@@ -3,6 +3,7 @@
 #   make dist        self-contained single-file build + .tar.gz
 #   make appimage    AppImage from the dist build
 #   make macos       universal macOS app (Apple Silicon + Intel) as a _macos_universal.zip
+#   make windows     Windows x64 app (Avalonia, not the WinForms XCP-ng Center) as a -win-x64.zip
 #   make test        unit tests (+ integration tests when .env defines XCP_*)
 #   make smoke       run the AppImage under Xvfb in a clean Ubuntu 22.04 container
 
@@ -14,7 +15,7 @@ DIST      := dist
 UID_GID   := $(shell id -u):$(shell id -g)
 RUN       := docker run --rm -e NUGET_PACKAGES=/src/_output/nuget -v "$(CURDIR)":/src -w /src $(IMAGE) sh -ec
 
-.PHONY: all image build test test-win dist appimage macos smoke clean
+.PHONY: all image build test test-win dist appimage macos windows smoke clean
 all: appimage
 
 image:
@@ -71,6 +72,17 @@ macos: image
 	  (cd $$out && zip -qry ../xcp-ng-center-$(VERSION)_macos_universal.zip "XCP-ng Center.app"); \
 	  chown -R $(UID_GID) /src'
 	@echo "-> $(DIST)/xcp-ng-center-$(VERSION)_macos_universal.zip"
+
+# Self-contained single file; the WinForms app (XenAdmin/) stays the Windows release of upstream.
+windows: image
+	$(RUN) '\
+	  out=$(DIST)/xcp-ng-center-$(VERSION)-win-x64; rm -rf $$out $$out.zip; \
+	  dotnet publish XenAdmin.Desktop/XenAdmin.Desktop.csproj -c Release -r win-x64 --self-contained \
+	    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+	    -p:Version=$(VERSION) -p:DebugType=none -o $$out; \
+	  (cd $(DIST) && zip -qr xcp-ng-center-$(VERSION)-win-x64.zip xcp-ng-center-$(VERSION)-win-x64); \
+	  chown -R $(UID_GID) /src'
+	@echo "-> $(DIST)/xcp-ng-center-$(VERSION)-win-x64.zip"
 
 smoke:
 	docker run --rm -v "$(CURDIR)/$(DIST)":/dist:ro -v "$(CURDIR)/_output":/out ubuntu:22.04 sh -ec '\

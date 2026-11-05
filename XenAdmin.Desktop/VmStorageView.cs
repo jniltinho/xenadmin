@@ -160,6 +160,9 @@ namespace XenAdmin.Desktop
                 _updatingDvd = true;
                 combo.ItemsSource = isos;
                 combo.SelectedItem = isos.FirstOrDefault(i => i.Vdi?.opaque_ref == (cd.empty ? null : cd.VDI.opaque_ref)) ?? isos[0];
+                combo.IsEnabled = !cd.Locked;
+                if (existing.Children[2] is Button ejectButton)
+                    ejectButton.IsEnabled = !cd.empty;
                 _updatingDvd = false;
                 return;
             }

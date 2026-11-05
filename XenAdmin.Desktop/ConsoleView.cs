@@ -376,8 +376,13 @@ namespace XenAdmin.Desktop
 
         private readonly System.Collections.Generic.Dictionary<(Avalonia.Input.PhysicalKey, Avalonia.Input.Key), int> _pressed = new();
 
-        // XCP_CONSOLE_KEYLOG=1 prints every key event and the keysym sent, to diagnose keyboard layouts
+        // XCP_CONSOLE_KEYLOG=1 prints every key event and the keysym sent, to diagnose keyboard layouts.
+        // Debug builds only: it would print passwords typed in the guests.
+#if DEBUG
         private static readonly bool KeyLog = Environment.GetEnvironmentVariable("XCP_CONSOLE_KEYLOG") == "1";
+#else
+        private const bool KeyLog = false;
+#endif
         // XCP_CONSOLE_KEYSYMS=1 sends keysyms to HVM guests too (diagnostics; the guest then depends on QEMU's keymap)
         private static readonly bool ForceKeysyms = Environment.GetEnvironmentVariable("XCP_CONSOLE_KEYSYMS") == "1";
 

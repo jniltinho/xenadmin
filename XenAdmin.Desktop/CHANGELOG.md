@@ -26,6 +26,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Properties > Home Server: no home server (with shared storage) or one of the live servers of the pool.
 - macOS: one universal app for Apple Silicon and Intel (`make macos`, `xcp-ng-center-<ver>_macos_universal.zip`),
   built in the Linux container and attached to the releases.
+- Windows: the same Avalonia app for Windows 10/11 x64 as one `xcp-ng-center.exe` (`make windows`,
+  `xcp-ng-center-<ver>-win-x64.zip`), next to the WinForms XCP-ng Center.
 - Nested XCP-ng lab in VirtualBox (`tools/vagrant/xcp-ng-lab`) for pool and write tests.
 
 ### Changed
@@ -35,6 +37,11 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - One TLS trust policy for XenAPI and the console tunnel; pool members trusted through the coordinator.
 
 ### Fixed
+- Connections on ports 80/8080 (plain HTTP) are refused, so passwords never cross the network unencrypted; IPv6
+  addresses (bare or `[addr]:port`) are parsed correctly.
+- The console key log (`XCP_CONSOLE_KEYLOG`) exists only in debug builds.
+- The DVD drive's Eject button follows an ISO inserted elsewhere.
+- The main window is maximized on screens smaller than its default size.
 - Leaving the Console tab no longer drops the connection to the pool, and coming back to it reconnects
   (it stayed at "Connecting..." with the old picture).
 - Console keyboard: HVM guests get scancodes, so symbols such as % and layouts such as ABNT2 work.

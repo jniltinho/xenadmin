@@ -131,11 +131,8 @@ namespace XenAdmin.Desktop
             ServerInput result = null;
             ok.Click += (_, _) =>
             {
-                var text = (hostBox.Text ?? "").Trim();
-                var port = 443;
-                var idx = text.LastIndexOf(':');
-                if (idx > 0 && int.TryParse(text[(idx + 1)..], out var p)) { port = p; text = text[..idx]; }
-                if (text.Length == 0 || port < 1 || port > 65535) { error.Text = "Enter a valid server name or address."; return; }
+                if (!ServerAddress.TryParse(hostBox.Text, out var text, out var port)) { error.Text = "Enter a valid server name or address."; return; }
+                if (ServerAddress.IsPlainHttp(port)) { error.Text = "Ports 80 and 8080 are plain HTTP; connect over HTTPS (443)."; return; }
                 if (string.IsNullOrWhiteSpace(userBox.Text)) { error.Text = "Enter a user name."; return; }
                 result = new ServerInput { Host = text, Port = port, User = userBox.Text.Trim(), Password = passBox.Text ?? "" };
                 w.Close();

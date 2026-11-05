@@ -208,6 +208,25 @@ namespace XenAdmin.Desktop.Tests
     
 
         [TestMethod]
+        public void ServerAddressParsing()
+        {
+            Assert.IsTrue(ServerAddress.TryParse(" xcp1.lan ", out var h, out var p)); Assert.AreEqual(("xcp1.lan", 443), (h, p));
+            Assert.IsTrue(ServerAddress.TryParse("10.0.0.5:8443", out h, out p)); Assert.AreEqual(("10.0.0.5", 8443), (h, p));
+            Assert.IsTrue(ServerAddress.TryParse("2001:db8::11", out h, out p)); Assert.AreEqual(("2001:db8::11", 443), (h, p), "bare IPv6 has no port");
+            Assert.IsTrue(ServerAddress.TryParse("[2001:db8::11]:4443", out h, out p)); Assert.AreEqual(("2001:db8::11", 4443), (h, p));
+            Assert.IsFalse(ServerAddress.TryParse("", out _, out _));
+            Assert.IsFalse(ServerAddress.TryParse("host:99999", out _, out _));
+            Assert.IsFalse(ServerAddress.TryParse("host:abc", out _, out _));
+            Assert.IsTrue(ServerAddress.IsPlainHttp(80) && ServerAddress.IsPlainHttp(8080) && !ServerAddress.IsPlainHttp(443));
+
+            // the parsed address reaches XenAPI as a valid URL (no network: the constructor only builds the client)
+            ServerAddress.TryParse("[2001:db8::11]:4443", out h, out p);
+            var url = new Uri(new Session(h, p).Url);
+            Assert.AreEqual(("[2001:db8::11]", 4443, "https"), (url.Host, url.Port, url.Scheme));
+            Assert.AreEqual("https://10.0.0.5:443", new Session("10.0.0.5", 443).Url);
+        }
+
+        [TestMethod]
         public void AlertPriorityAndIcon()
         {
             Assert.AreEqual(XenAdmin.Alerts.AlertPriority.Priority5, NotificationRules.PriorityOf(new Message { priority = 5 }));

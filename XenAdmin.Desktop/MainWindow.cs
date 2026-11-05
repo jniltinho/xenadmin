@@ -65,6 +65,14 @@ namespace XenAdmin.Desktop
             Title = "XCP-ng Center";
             Width = 1280;
             Height = 800;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            // a screen smaller than the default size (1280x800 VMs, small laptops) gets the window maximized
+            Opened += (_, _) =>
+            {
+                if (Screens.ScreenFromWindow(this)?.WorkingArea is PixelRect area
+                    && (area.Width / RenderScaling < Width || area.Height / RenderScaling < Height))
+                    WindowState = WindowState.Maximized;
+            };
             FontSize = 12;
             Background = Brush.Parse("#F0F0F0");
             try { Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://xcp-ng-center/Assets/xcp-ng-center.png"))); } catch { }
@@ -348,6 +356,8 @@ namespace XenAdmin.Desktop
         private void StartConnect(XenConnection c)
         {
             if (_connecting.TryGetValue(c, out var existing)) { existing.Activate(); return; }
+            // saved servers too: never send the password over plain HTTP
+            if (ServerAddress.IsPlainHttp(c.Port)) { SetStatus($"{c.Hostname}:{c.Port} is plain HTTP; connect over HTTPS (443)."); return; }
             SetStatus(string.Format(Messages.LABEL_ATTEMPT, c.Hostname));
             _connecting[c] = Dialogs.Connecting(this, c.Hostname, () => { _connecting.Remove(c); c.EndConnect(); RefreshTree(); });
             c.BeginConnect(false, (_, _) => false);

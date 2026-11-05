@@ -178,6 +178,9 @@ namespace XenAPI
 
         private static string GetUrl(string hostname, int port)
         {
+            // an IPv6 literal needs brackets in a URL ("https://[2001:db8::11]:443")
+            if (IPAddress.TryParse(hostname, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+                hostname = "[" + hostname + "]";
             return string.Format("{0}://{1}:{2}", port == 8080 || port == 80 ? "http" : "https", hostname, port);
         }
 

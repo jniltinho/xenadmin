@@ -88,4 +88,5 @@
 - [x] 8.3 Seam `IPlatformServices` (diretório de configuração por SO, cofre de senhas) com testes por plataforma
 - [x] 8.4a macOS universal: `make macos` publica `osx-arm64` e `osx-x64` num único `XCP-ng Center.app` (launcher escolhe a CPU, Info.plist, ícone) e gera `xcp-ng-center-<ver>_macos_universal.zip`; job no workflow e asset do release; testado no macOS 15 (x86_64, KVM)
 - [x] 8.4b Página Home Server do Properties (AffinityPicker: sem servidor com storage compartilhado, ou um servidor vivo; `VM.set_affinity`), testada no pool KVM
-- [ ] 8.4c Assinatura e notarização do app macOS (precisa de Mac com Developer ID); FreeBSD e Windows (`win-x64`) — fora do escopo atual
+- [x] 8.4c Windows x64: `make windows` publica o app Avalonia como `xcp-ng-center.exe` único (`-win-x64.zip`), no workflow e no release; testado no Windows 11 (dockur/KVM) conectando ao pool do lab
+- [ ] 8.4d Assinatura e notarização do app macOS (precisa de Mac com Developer ID), assinatura Authenticode no Windows; FreeBSD — fora do escopo atual
