@@ -151,6 +151,47 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Pool menu on the lab pool: Rotate Pool Secret, and Change Server Password to a temporary one and back.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void RotateSecretAndChangePasswordOnLabPool()
+        {
+            var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (lab == null || lab.Length < 1 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_LAB_HOSTS and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(lab[0]);
+            var original = c.Password;
+            var temporary = original + "-tmp";
+            var changed = false;
+            try
+            {
+                var pool = Helpers.GetPool(c);
+                if (pool == null)
+                    Assert.Inconclusive("needs the lab pool");
+                Assert.IsTrue(PoolRules.CanRotateSecret(c), "XCP-ng 8.3 pool without HA");
+                Assert.IsNull(PoolRules.RotateSecretRestriction(c), "root may rotate the secret");
+                Run(PoolRules.RotateSecretAction(c), 5);
+
+                Assert.IsTrue(PoolRules.CanChangePassword(pool));
+                Assert.AreEqual(Messages.PASSWORD_INCORRECT, PoolRules.ChangePasswordError(c, "wrong", temporary, temporary));
+                Assert.AreEqual(Messages.PASSWORDS_DONT_MATCH, PoolRules.ChangePasswordError(c, original, temporary, temporary + "x"));
+                Assert.IsNull(PoolRules.ChangePasswordError(c, original, temporary, temporary));
+                Run(PoolRules.ChangePasswordAction(c, original, temporary), 5);
+                changed = true;
+                var probe = new Session(Session.STANDARD_TIMEOUT, lab[0], 443); // a fresh login with the new password
+                probe.login_with_password("root", temporary);
+                probe.logout();
+            }
+            finally
+            {
+                if (changed)
+                {
+                    c.Password = temporary;
+                    Run(PoolRules.ChangePasswordAction(c, temporary, original), 5);
+                }
+                c.EndConnect();
+            }
+        }
+
         private static void CreateAndRemoveVlan(IXenConnection c, IXenObject owner, int vlan, int hosts)
         {
             var nic = NetworkRules.WizardNics(NetworkRules.WizardHost(owner)).First();

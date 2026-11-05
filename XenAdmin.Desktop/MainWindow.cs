@@ -56,7 +56,8 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
-            _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps;
+            _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps,
+            _poolDisconnect, _poolReconnectAs, _rotateSecret, _poolPassword, _hostPassword;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -297,13 +298,19 @@ namespace XenAdmin.Desktop
                     Top("_File", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", Item("E_xit", Close, "Alt+F4")),
                     Top("_View", Item("_Infrastructure", () => { _showEvents = false; UpdateContent(); }),
                         Item("_Notifications", () => { _showEvents = true; UpdateContent(); })),
-                    Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool(), icon: "000_PoolNew_h32bit_16"), "-", _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
+                    Top("_Pool", _newPoolMenu = Item("New Pool...", () => ShowNewPool(), icon: "000_PoolNew_h32bit_16"), "-",
+                        _poolReconnectAs = Item("Reconnect _As...", async () => { if (SelectedConnection() is XenConnection c) await ReconnectAs(c); }),
+                        _poolDisconnect = Item("_Disconnect", () => { if (SelectedConnection() is XenConnection c) Disconnect(c); }), "-",
+                        _poolPassword = Item("Change Server Pass_word...", () => ChangePassword(SelectedNode()?.XenObject as Pool)),
+                        _rotateSecret = Item("Rotate Pool _Secret", () => RotateSecret(SelectedNode()?.Connection)), "-",
+                        _poolProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Pool), icon: "edit_16")),
                     Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
                         _hostReboot = Item("_Reboot", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, true); }, icon: "001_Reboot_h32bit_16"),
                         _hostShutdown = Item("S_hut Down", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, false); }, icon: "001_ShutDown_h32bit_16"),
                         _restartToolstack = Item(Dialogs.M(Messages.MAINWINDOW_RESTART_TOOLSTACK), () => { if (SelectedNode()?.XenObject is Host h) RestartToolstack(h); }),
                         "-", _removeFromPool = Item("Remove From _Pool", () => { if (SelectedNode()?.XenObject is Host h) RemoveFromPool(h); }),
                         _hostMaintenance = Item(Dialogs.M(Messages.ENTER_MAINTENANCE_MODE_CONTEXT_MENU), () => { if (SelectedNode()?.XenObject is Host h) ToggleMaintenance(h); }, icon: "000_ServerMaintenance_h32bit_16"), "-",
+                        _hostPassword = Item("Change Server Pass_word...", () => ChangePassword(SelectedNode()?.XenObject as Host)), "-",
                         _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host), icon: "edit_16")),
                     Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
                         _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
@@ -521,6 +528,13 @@ namespace XenAdmin.Desktop
             _disconnectMenu.IsEnabled = c != null && (c.IsConnected || c.InProgress);
             _removeMenu.IsEnabled = c != null;
             _poolProps.IsEnabled = o is Pool && VmRules.CanEditProperties(o);
+            // PoolReconnectAsCommand / DisconnectPoolCommand: any object of a connection that is a pool (PoolAncestor)
+            var poolConnection = c != null && XenAdmin.Core.Helpers.GetPool(c) != null ? c : null;
+            _poolReconnectAs.IsEnabled = poolConnection != null;
+            _poolDisconnect.IsEnabled = poolConnection != null && (poolConnection.IsConnected || poolConnection.InProgress);
+            _poolPassword.IsEnabled = o is Pool && PoolRules.CanChangePassword(o);
+            _hostPassword.IsEnabled = o is Host && PoolRules.CanChangePassword(o);
+            _rotateSecret.IsEnabled = (o is Pool || o is Host) && PoolRules.CanRotateSecret(c);
             _hostProps.IsEnabled = o is Host && VmRules.CanEditProperties(o);
             _vmProps.IsEnabled = o is VM && VmRules.CanEditProperties(o);
             _newVm.IsEnabled = _newVmMenu.IsEnabled = c != null && c.IsConnected;
@@ -669,6 +683,37 @@ namespace XenAdmin.Desktop
             var (title, text, yes) = HostRules.RemoveFromPoolConfirmation(host);
             if (await Dialogs.Confirm(this, title, text, yes, Messages.NO_BUTTON_CAPTION, cancelIsDefault: true))
                 RunTracked(new EjectHostFromPoolAction(Helpers.GetPool(host.Connection), host));
+        }
+
+        /// <summary>PoolReconnectAsCommand: disconnect, then connect again with other credentials.</summary>
+        private async System.Threading.Tasks.Task ReconnectAs(XenConnection c)
+        {
+            var input = await Dialogs.AddServer(this, c.Port == 443 ? c.Hostname : $"{c.Hostname}:{c.Port}", c.Username ?? "root", true);
+            if (input == null) return;
+            Disconnect(c);
+            c.Username = input.User;
+            c.Password = input.Password;
+            StartConnect(c);
+        }
+
+        /// <summary>ChangeHostPasswordCommand.</summary>
+        private async void ChangePassword(IXenObject hostOrPool)
+        {
+            if (!PoolRules.CanChangePassword(hostOrPool)) return;
+            if (await Dialogs.ChangeServerPassword(this, hostOrPool) is AsyncAction a) RunTracked(a);
+        }
+
+        /// <summary>RotatePoolSecretCommand: the Pool Admin restriction, the password reminder, then pool.rotate_secret.</summary>
+        private async void RotateSecret(IXenConnection c)
+        {
+            if (!PoolRules.CanRotateSecret(c)) return;
+            if (PoolRules.RotateSecretRestriction(c) is string restriction)
+            {
+                await Dialogs.Info(this, Messages.ROTATE_POOL_SECRET_TITLE, restriction);
+                return;
+            }
+            await Dialogs.Info(this, Messages.ROTATE_POOL_SECRET_TITLE, Messages.ROTATE_POOL_SECRET_REMIND_CHANGE_PASSWORD);
+            RunTracked(PoolRules.RotateSecretAction(c));
         }
 
         /// <summary>ConvertVMToTemplateCommand: the Convert / Cancel warning, then the two actions.</summary>

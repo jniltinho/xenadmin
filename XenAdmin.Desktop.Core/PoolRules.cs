@@ -11,6 +11,48 @@ namespace XenAdmin.Desktop
     /// <summary>NewPoolDialog / ConnectionWrapperWithMoreStuff: who can be coordinator or member, validation and warnings.</summary>
     public static class PoolRules
     {
+        /// <summary>RotatePoolSecretCommand.CanRun: Stockholm or newer, licensed, no HA and no rolling upgrade.</summary>
+        public static bool CanRotateSecret(IXenConnection c)
+        {
+            if (c == null || !c.IsConnected || !Helpers.StockholmOrGreater(c) || c.Cache.Hosts.Any(Host.RestrictPoolSecretRotation))
+                return false;
+            var pool = Helpers.GetPoolOfOne(c);
+            return pool != null && !pool.ha_enabled && !pool.RollingUpgrade();
+        }
+
+        /// <summary>RotatePoolSecretCommand: the pool secret needs a Pool Admin (null when the session may rotate it).</summary>
+        public static string RotateSecretRestriction(IXenConnection c)
+        {
+            var session = c.Session;
+            if (session == null || session.IsLocalSuperuser || session.Roles.Any(r => r.name_label == Role.MR_ROLE_POOL_ADMIN))
+                return null;
+            var roles = session.Roles.ToList();
+            roles.Sort();
+            return string.Format(Messages.ROTATE_POOL_SECRET_RBAC_RESTRICTION, roles[0].FriendlyName(), Role.FriendlyName(Role.MR_ROLE_POOL_ADMIN));
+        }
+
+        /// <summary>RotatePoolSecretCommand: pool.rotate_secret.</summary>
+        public static AsyncAction RotateSecretAction(IXenConnection c) =>
+            new DelegatedAsyncAction(c, Messages.ROTATE_POOL_SECRET_TITLE, Messages.ROTATE_POOL_SECRET_TITLE, Messages.COMPLETED, Pool.rotate_secret, "pool.rotate_secret");
+
+        /// <summary>ChangeHostPasswordCommand.CanRun: logged in as the local root, on a live server or a pool.</summary>
+        public static bool CanChangePassword(IXenObject o) =>
+            o?.Connection?.Session is Session s && s.IsLocalSuperuser && (o is Host h && h.IsLive() || o is Pool);
+
+        /// <summary>ChangeServerPasswordDialog.okButton_Click: null when the change can go ahead, else the error.</summary>
+        public static string ChangePasswordError(IXenConnection c, string current, string next, string confirm)
+        {
+            if (string.IsNullOrEmpty(current) || string.IsNullOrEmpty(next) || string.IsNullOrEmpty(confirm))
+                return "";
+            if (current != c.Password)
+                return Messages.PASSWORD_INCORRECT;
+            return next == confirm ? null : Messages.PASSWORDS_DONT_MATCH;
+        }
+
+        /// <summary>ChangeHostPasswordAction (it also updates the password the connection keeps).</summary>
+        public static AsyncAction ChangePasswordAction(IXenConnection c, string current, string next) =>
+            new ChangeHostPasswordAction(c, current.ToCharArray(), next.ToCharArray());
+
         public sealed record Candidate(IXenConnection Connection, PoolJoinRules.Reason Reason)
         {
             public string Name => Helpers.GetName(Helpers.GetCoordinator(Connection)) is var n && n != "" ? n : Connection.Hostname;

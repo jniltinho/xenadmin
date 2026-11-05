@@ -643,6 +643,63 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        /// <summary>
+        /// ChangeServerPasswordDialog: the current root password (checked against the connection's), the new one twice,
+        /// and the pool secret advice. Returns ChangeHostPasswordAction, or null. The passwords stay in memory only.
+        /// </summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> ChangeServerPassword(Window owner, XenAPI.IXenObject hostOrPool)
+        {
+            var c = hostOrPool.Connection;
+            TextBox Pass() => new TextBox { PasswordChar = '•' };
+            var current = Pass();
+            var next = Pass();
+            var confirm = Pass();
+            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+            var ok = new Button { Content = "OK", IsDefault = true, IsEnabled = false };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            foreach (var box in new[] { current, next, confirm })
+                box.TextChanged += (_, _) =>
+                {
+                    error.Text = "";
+                    ok.IsEnabled = PoolRules.ChangePasswordError(c, current.Text, next.Text, confirm.Text) != "";
+                };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto"), RowSpacing = 8, ColumnSpacing = 10 };
+            void Row(int r, string label, TextBox box)
+            {
+                var l = new Label { Content = M(label), Target = box, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0) };
+                Grid.SetRow(l, r); Grid.SetRow(box, r); Grid.SetColumn(box, 1);
+                grid.Children.Add(l); grid.Children.Add(box);
+            }
+            Row(0, "&Current root password:", current);
+            Row(1, "&New root password:", next);
+            Row(2, "&Re-enter new password:", confirm);
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(grid);
+            panel.Children.Add(new TextBlock { Text = "Passwords are case sensitive. If you lose or forget the password, it cannot be recovered.", TextWrapping = Avalonia.Media.TextWrapping.Wrap, Opacity = 0.8 });
+            if (PoolRules.CanRotateSecret(c))
+                panel.Children.Add(new TextBlock { Text = "To reduce the risk of unauthorized access to your system, it is recommended that you also rotate the pool secret.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(error);
+            panel.Children.Add(Buttons(ok, cancel));
+            var name = XenAdmin.Core.Helpers.GetPoolOfOne(c)?.Name() ?? XenAdmin.Core.Helpers.GetName(c);
+            var w = Frame(string.Format(Messages.CHANGEPASS_DIALOG_TITLE, name.Ellipsise(30)), panel, 480);
+            XenAdmin.Actions.AsyncAction result = null;
+            ok.Click += (_, _) =>
+            {
+                var err = PoolRules.ChangePasswordError(c, current.Text, next.Text, confirm.Text);
+                if (err != null)
+                {
+                    error.Text = err;
+                    (err == Messages.PASSWORD_INCORRECT ? current : next).Focus();
+                    return;
+                }
+                result = PoolRules.ChangePasswordAction(c, current.Text, next.Text);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>DestroyBondCommand: the warning for the management interfaces (or the HA error), then DestroyBondAction.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> DeleteBond(Window owner, XenAPI.Network network)
         {
