@@ -28,6 +28,16 @@ namespace XenAdmin.Desktop.Tests
             Assert.IsTrue(done.Wait(TimeSpan.FromMinutes(3)), action.Title + " timed out");
         }
 
+        private static string WaitForRef(XenAdmin.Network.XenConnection c, string name)
+        {
+            var deadline = DateTime.Now.AddSeconds(60);
+            VM vm;
+            while ((vm = c.Cache.VMs.FirstOrDefault(v => v.name_label == name)) == null && DateTime.Now < deadline)
+                Thread.Sleep(250);
+            Assert.IsNotNull(vm, name + " in the cache");
+            return vm.opaque_ref;
+        }
+
         private static VM WaitFor(XenAdmin.Network.XenConnection c, string vmRef, Func<VM, bool> cond)
         {
             var deadline = DateTime.Now.AddSeconds(60);
@@ -224,11 +234,21 @@ namespace XenAdmin.Desktop.Tests
                 vm = WaitFor(c, vmRef, v => v.is_a_template && v.other_config.TryGetValue("instant", out var i) && i == "true");
                 Assert.IsFalse(VmRules.CanConvertToTemplate(vm), "a template cannot be converted again");
                 Assert.IsFalse(VmRules.CanTakeSnapshot(vm), "templates are not snapshotted from the VM menu");
+
+                // Templates menu on the new user template: Create VM From Selection, Copy, Delete Template
+                Assert.IsTrue(VmRules.IsUserTemplate(vm), "a converted VM is a user template");
+                Assert.IsTrue(VmRules.CanDeleteTemplate(vm));
+                Assert.IsTrue(VmRules.CanCopyTemplate(vm), "allowed: " + string.Join(",", vm.allowed_operations));
+                Run(VmRules.CopyAction(vm, false, null, VmName + "-template-copy", ""));
+                var copy = WaitFor(c, WaitForRef(c, VmName + "-template-copy"), v => v.is_a_template);
+                VM.destroy(session, copy.opaque_ref);
             }
             finally
             {
                 if (vmRef != null)
                     VM.destroy(session, vmRef);
+                foreach (var left in c.Cache.VMs.Where(v => v.name_label == VmName + "-template-copy").ToList())
+                    try { VM.destroy(session, left.opaque_ref); } catch { }
                 c.EndConnect();
             }
         }

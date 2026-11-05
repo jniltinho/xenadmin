@@ -22,6 +22,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   only the filtered ones).
 - Move Virtual Disk from the VM and SR Storage tabs: live storage migration for attached disks, an offline move
   otherwise, with the reason each storage repository cannot take the disk, and Rescan.
+- Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
+  Properties.
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).

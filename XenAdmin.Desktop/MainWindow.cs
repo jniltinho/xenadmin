@@ -56,7 +56,7 @@ namespace XenAdmin.Desktop
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
         private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
-            _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu;
+            _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu, _fromTemplateMenu, _copyTemplateMenu, _deleteTemplateMenu, _templateProps;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -312,7 +312,11 @@ namespace XenAdmin.Desktop
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
                     Top("S_torage", _newSrMenu = Item("New SR...", () => ShowNewSr(), icon: "000_NewStorage_h32bit_16")),
-                    Top("_Templates", Item("New VM from Template...")),
+                    Top("_Templates", _fromTemplateMenu = Item("Create _VM From Selection...", () => { if (SelectedNode()?.XenObject is VM t) ShowNewVm(t); }, icon: "000_CreateVM_h32bit_16"), "-",
+                        new MenuItem { Header = "_Export to File...", IsEnabled = false }, // ExportTemplateCommand: export is not ported yet
+                        _copyTemplateMenu = Item("_Copy...", () => CopyVm(SelectedNode()?.XenObject as VM)), "-",
+                        _deleteTemplateMenu = Item("_Delete Template...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
+                        _templateProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
                     Top("T_ools", Item("Server Status Report...")),
                     Top("_Help", Item("_About XCP-ng Center", async () => await Dialogs.Info(this, "About XCP-ng Center",
                         $"XCP-ng Center for {Platform.PlatformServices.Current.Name} {typeof(MainWindow).Assembly.GetName().Version}\nPreview build based on the XCP-ng Center core (XenModel).")))
@@ -523,6 +527,11 @@ namespace XenAdmin.Desktop
             _copyVmMenu.IsEnabled = vm != null && VmRules.CanCopy(vm);
             _snapshotMenu.IsEnabled = VmRules.CanTakeSnapshot(vm);
             _toTemplateMenu.IsEnabled = VmRules.CanConvertToTemplate(vm);
+            var template = o as VM;
+            _fromTemplateMenu.IsEnabled = VmRules.IsUserTemplate(template) && template.Connection.IsConnected;
+            _copyTemplateMenu.IsEnabled = VmRules.CanCopyTemplate(template);
+            _deleteTemplateMenu.IsEnabled = VmRules.CanDeleteTemplate(template);
+            _templateProps.IsEnabled = template != null && template.is_a_template && VmRules.CanEditProperties(template);
             _migrateMenu.IsEnabled = vm != null && MigrateRules.CanMigrate(vm);
             _deleteVmMenu.IsEnabled = vm != null && VmRules.CanDeleteVm(vm);
 
@@ -912,11 +921,11 @@ namespace XenAdmin.Desktop
             await new NewSrWizard(c, RunTracked).ShowDialog(this);
         }
 
-        private async void ShowNewVm()
+        private async void ShowNewVm(VM template = null)
         {
-            var c = SelectedNode()?.Connection ?? _connections.FirstOrDefault(x => x.IsConnected);
+            var c = template?.Connection ?? SelectedNode()?.Connection ?? _connections.FirstOrDefault(x => x.IsConnected);
             if (c == null || !c.IsConnected) return;
-            var wizard = new NewVmWizard(c);
+            var wizard = new NewVmWizard(c, template);
             await wizard.ShowDialog(this);
             if (wizard.Action != null)
                 RunTracked(wizard.Action);
@@ -948,7 +957,7 @@ namespace XenAdmin.Desktop
 
         private async void CopyVm(VM vm)
         {
-            if (!VmRules.CanCopy(vm)) return;
+            if (!VmRules.CanCopy(vm) && !VmRules.CanCopyTemplate(vm)) return;
             var action = await Dialogs.CopyVm(this, vm);
             if (action != null) RunTracked(action);
         }

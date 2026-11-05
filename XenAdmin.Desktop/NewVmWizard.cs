@@ -54,7 +54,8 @@ namespace XenAdmin.Desktop
 
         public CreateVMAction Action { get; private set; }
 
-        public NewVmWizard(IXenConnection connection)
+        /// <param name="template">Templates > Create VM From Selection: the template to start from.</param>
+        public NewVmWizard(IXenConnection connection, VM template = null)
         {
             _c = connection;
             Title = "New VM";
@@ -110,7 +111,7 @@ namespace XenAdmin.Desktop
             root.Children.Add(body);
             Content = root;
 
-            _template = Templates().FirstOrDefault();
+            _template = template ?? Templates().FirstOrDefault();
             Go(0);
         }
 

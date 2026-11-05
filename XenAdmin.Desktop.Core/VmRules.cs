@@ -128,6 +128,18 @@ namespace XenAdmin.Desktop
             vm != null && !vm.is_a_template && !vm.is_a_snapshot && !vm.Locked
             && (vm.allowed_operations.Contains(vm_operations.snapshot) || vm.allowed_operations.Contains(vm_operations.checkpoint));
 
+        /// <summary>Templates menu: a user template (shown in the tree) that is not locked.</summary>
+        public static bool IsUserTemplate(VM vm) => vm != null && vm.is_a_template && !vm.is_a_snapshot && !vm.Locked && !vm.DefaultTemplate();
+
+        /// <summary>CopyTemplateCommand.CanRun (intra-pool copy; cross-pool migration is not ported).</summary>
+        public static bool CanCopyTemplate(VM vm) =>
+            IsUserTemplate(vm) && vm.allowed_operations != null && !vm.InternalTemplate()
+            && (vm.allowed_operations.Contains(vm_operations.clone) || vm.allowed_operations.Contains(vm_operations.copy));
+
+        /// <summary>DeleteTemplateCommand.CanRun.</summary>
+        public static bool CanDeleteTemplate(VM vm) =>
+            vm != null && vm.is_a_template && !vm.is_a_snapshot && !vm.Locked && vm.allowed_operations != null && vm.allowed_operations.Contains(vm_operations.destroy);
+
         public static bool CanCopy(VM vm) =>
             vm != null && !vm.is_a_snapshot && !vm.is_a_template && !vm.Locked && vm.power_state == vm_power_state.Halted
             && (vm.allowed_operations.Contains(vm_operations.clone) || vm.allowed_operations.Contains(vm_operations.copy));
