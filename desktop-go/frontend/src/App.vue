@@ -138,6 +138,25 @@ const hostCommands = [
 ];
 type HostCommand = (typeof hostCommands)[number];
 const selectedHost = computed(() => (selected.value?.object?.kind === "hosts" ? selected.value : null));
+const selectedSr = computed(() => (selected.value?.object?.kind === "srs" ? selected.value : null));
+
+// the SR commands of the Storage menu (RepairSRCommand, SetAsDefaultSRCommand, DetachSRCommand, ForgetSRCommand,
+// DestroySRCommand); shortcut: Repair runs without the C# RepairSRDialog's per-host list
+const srCommands = [{ op: "repair", label: "Repair...", icon: "000_StorageBroken_h32bit_16" }, { op: "set_default", label: "Set as Default", icon: "000_StorageDefault_h32bit_16" }, { op: "detach", label: "Detach..." },
+  { op: "forget", label: "Forget" }, { op: "destroy", label: "Destroy..." }];
+async function runSr(op: string, label: string, n: Node | null) {
+  closeMenus();
+  if (!n?.object || !n.server || !n.object.allowed?.includes(op)) return;
+  const q = await api.srQuestion(op, n.label);
+  if (q.title && (await choose({ title: q.title, text: q.text ?? "" }, [q.option || "Yes", "No"])) !== 0) return;
+  label = label.replace("...", "");
+  status.value = `${label}: '${n.label}'...`;
+  let error = "";
+  try { await api.srCommand(n.server, n.object.uuid, op); } catch (e) { error = `${label} '${n.label}': ${String(e)}`; }
+  await load(n.server);
+  if (error) failure.value = error;
+  if (!reselect(n.id)) reselect(n.server); // a forgotten or destroyed SR: its pool
+}
 const hostCanRun = (c: HostCommand, n: Node | null) =>
   !!n?.object?.live && (c.op === "enter_maintenance" ? !n.object.maintenance : c.op === "exit_maintenance" ? !!n.object.maintenance : true);
 function closeMenus() { menu.value = null; openMenu.value = ""; }
@@ -219,7 +238,7 @@ const tree = computed<Node>(() => ({
       children: (d.vms ?? []).filter((v) => v.host_uuid === h.uuid).map((v) => ({ id: `${s.key}/${v.uuid}`, label: v.name, icon: vmIcon(v), object: v, server: s.key, children: [] })),
     }));
     const loose = (d.vms ?? []).filter((v) => !v.host_uuid).map<Node>((v) => ({ id: `${s.key}/${v.uuid}`, label: v.name, icon: vmIcon(v), object: v, server: s.key, children: [] }));
-    const srs = (d.srs ?? []).map<Node>((r) => ({ id: `${s.key}/${r.uuid}`, label: r.name, icon: "000_Storage_h32bit_16", object: r, server: s.key, children: [] }));
+    const srs = (d.srs ?? []).map<Node>((r) => ({ id: `${s.key}/${r.uuid}`, label: r.name, icon: r.icon || "000_Storage_h32bit_16", object: r, server: s.key, children: [] }));
     // Pool.Name: an unnamed pool is called after its coordinator
     const coordinator = (d.hosts ?? []).find((h) => h.coordinator);
     return { id: s.key, label: pool?.name || coordinator?.name || s.name || s.host, icon: "000_PoolConnected_h32bit_16", object: pool, server: s.key, children: [...hosts, ...loose, ...srs] };
@@ -236,7 +255,7 @@ const objectsTree = computed<Node>(() => {
     group("g:pools", "Pools", "000_PoolConnected_h32bit_16", "pools", () => "000_PoolConnected_h32bit_16"), // pool ids are fixed below
     group("g:hosts", "Servers", "000_TreeConnected_h32bit_16", "hosts", (h) => (!h.live ? "000_ServerDisconnected_h32bit_16" : h.maintenance ? "000_ServerMaintenance_h32bit_16" : "000_TreeConnected_h32bit_16")),
     group("g:vms", "Virtual Machines", "000_StartVM_h32bit_16", "vms", vmIcon),
-    group("g:srs", "Storage", "000_Storage_h32bit_16", "srs", () => "000_Storage_h32bit_16"),
+    group("g:srs", "Storage", "000_Storage_h32bit_16", "srs", (r) => r.icon || "000_Storage_h32bit_16"),
   ];
   for (const n of groups[0].children) n.id = n.server!; // a pool is its server's node, as in the Infrastructure tree
   return { id: "root", label: "Objects by Type", icon: "objects_16", children: groups.filter((g) => g.children.length) };
@@ -371,6 +390,8 @@ async function propertiesClosed(saved: boolean) {
 
 const soon = "Not available in this version yet";
 const hostItems = (n: Node | null): MenuItem[] => hostCommands.map((c) => ({ label: c.label, icon: `${c.icon}_h32bit_16`, enabled: hostCanRun(c, n), run: () => runHost(c, n) }));
+const srItems = (n: Node | null): MenuItem[] => srCommands.flatMap((c, i) => [...(i === 2 ? [{ label: "", sep: true }] : []),
+  { label: c.label, icon: c.icon, enabled: !!n?.object?.allowed?.includes(c.op), run: () => runSr(c.op, c.label, n) }]);
 const vmItems = (n: Node | null): MenuItem[] => [
   ...vmCommands.map((c) => ({ label: c.label, icon: `${c.menuIcon ?? c.icon}_h32bit_16`, enabled: canRun(c, n), run: () => runVm(c, n) })),
   { label: "", sep: true },
@@ -388,7 +409,7 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     { label: "Disconnect", enabled: !!serverNode.value && !serverNode.value.disconnected, run: () => { closeMenus(); disconnect(serverNode.value!); } },
     { label: "", sep: true }, ...hostItems(selectedHost.value)] },
   { label: "VM", items: [{ label: "New VM...", icon: "001_CreateVM_h32bit_16", enabled: !!targetServer.value, run: openNewVm }, { label: "", sep: true }, ...vmItems(selectedVm.value)] },
-  { label: "Storage", items: [{ label: "New SR...", icon: "000_Storage_h32bit_16", enabled: !!targetServer.value, run: openNewSr }] },
+  { label: "Storage", items: [{ label: "New SR...", icon: "000_Storage_h32bit_16", enabled: !!targetServer.value, run: openNewSr }, { label: "", sep: true }, ...srItems(selectedSr.value)] },
   { label: "Templates", items: [{ label: "New VM from Template...", enabled: false }] },
   { label: "Tools", items: [{ label: "Options...", enabled: false }] },
   { label: "Help", items: [{ label: "About XCP-ng Center", enabled: true, run: () => { closeMenus(); choose({ title: "About XCP-ng Center", text: "XCP-ng Center (Go)\nThe XCP-ng Center desktop app in Go, Wails and Vue." }, ["OK"]); } }] },
@@ -400,6 +421,7 @@ function contextItems(n: Node): MenuItem[] {
   if (n.server && n.id === n.server) return [{ label: "Disconnect", enabled: true, run: () => { closeMenus(); disconnect(n); } }];
   if (n.object?.kind === "hosts") return hostItems(n);
   if (n.object?.kind === "vms") return vmItems(n);
+  if (n.object?.kind === "srs") return srItems(n);
   return [];
 }
 function activate(n: Node) { if (n.disconnected) connectTo(n); else toggle(n); }
@@ -408,7 +430,7 @@ function activate(n: Node) { if (n.disconnected) connectTo(n); else toggle(n); }
 const overview = computed(() => Object.entries(data).flatMap(([key, d]) => [
   ...(d.pools ?? []).map((o) => ({ o: { ...o, name: o.name || (d.hosts ?? []).find((h) => h.coordinator)?.name || key }, type: "Pool", key, icon: "000_PoolConnected_h32bit_16" })),
   ...(d.hosts ?? []).map((o) => ({ o, type: "Server", key, icon: "000_TreeConnected_h32bit_16" })),
-  ...(d.vms ?? []).map((o) => ({ o, type: "VM", key, icon: vmIcon(o) })), ...(d.srs ?? []).map((o) => ({ o, type: "Storage", key, icon: "000_Storage_h32bit_16" })),
+  ...(d.vms ?? []).map((o) => ({ o, type: "VM", key, icon: vmIcon(o) })), ...(d.srs ?? []).map((o) => ({ o, type: "Storage", key, icon: o.icon || "000_Storage_h32bit_16" })),
 ]));
 
 async function refreshServers() { servers.value = await api.servers(); }

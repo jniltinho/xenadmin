@@ -1,7 +1,10 @@
 package rules
 
 import (
+	"encoding/xml"
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"xcpng-center/internal/messages"
@@ -101,4 +104,42 @@ func SRDeviceConfig(k SRKind, path, options, nfsVersion, user, password string) 
 		d["username"], d["password"] = user, password
 	}
 	return d
+}
+
+// SRInfo is an SR an SR.probe found (SR.SRInfo); the wizard lists it by UUID, as the C# app.
+type SRInfo struct {
+	UUID        string `json:"uuid"`
+	NameLabel   string `json:"name_label,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+}
+
+// ParseSRList is SR.ParseSRListXML on an SR.probe task result: the XML-RPC <value> holds the escaped <SRlist>.
+func ParseSRList(result string) ([]SRInfo, error) {
+	var value struct {
+		Text string `xml:",chardata"`
+	}
+	if err := xml.Unmarshal([]byte(result), &value); err != nil {
+		return nil, fmt.Errorf("unexpected SR.probe result: %w", err)
+	}
+	var list struct {
+		SRs []struct {
+			UUID        string `xml:"UUID"`
+			Size        string `xml:"size"`
+			NameLabel   string `xml:"name_label"`
+			Description string `xml:"name_description"`
+		} `xml:"SR"`
+	}
+	if strings.TrimSpace(value.Text) == "" {
+		return nil, nil
+	}
+	if err := xml.Unmarshal([]byte(value.Text), &list); err != nil {
+		return nil, fmt.Errorf("unexpected SR.probe result: %w", err)
+	}
+	var out []SRInfo
+	for _, sr := range list.SRs {
+		size, _ := strconv.ParseInt(strings.TrimSpace(sr.Size), 10, 64)
+		out = append(out, SRInfo{UUID: strings.TrimSpace(sr.UUID), NameLabel: strings.TrimSpace(sr.NameLabel), Description: strings.TrimSpace(sr.Description), Size: size})
+	}
+	return out, nil
 }

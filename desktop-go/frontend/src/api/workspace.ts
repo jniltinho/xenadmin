@@ -7,7 +7,7 @@ const call = <T>(method: string, ...args: unknown[]) => Call.ByName(svc + method
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
 export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean;
-  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string }
+  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string }
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
 export interface Table { title: string; headers: string[]; rows: string[][]; keys: string[] }
@@ -72,6 +72,10 @@ export const api = {
   newSrKinds: (key: string) => call<NewSRKind[]>("NewSRKinds", key),
   checkSrLocation: (key: string, kind: string, path: string) => call<string>("CheckSRLocation", key, kind, path),
   createSr: (key: string, spec: Record<string, unknown>) => call<string>("CreateSR", key, spec),
+  probeSr: (key: string, spec: Record<string, unknown>) => call<{ uuid: string; in_use?: string }[] | null>("ProbeSR", key, spec),
+  srQuestion: (command: string, name: string) => call<HostQuestion>("SRQuestion", command, name),
+  srCommand: (key: string, uuid: string, command: string) => call<void>("SRCommand", key, uuid, command),
+  srAttachWarning: (kind: string, uuid: string) => call<string>("SRAttachWarning", kind, uuid),
   openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),

@@ -10,7 +10,7 @@ RUN      := $(DOCKER) -v $(CURDIR):/src -w /src $(GO_ENV) $(GO_IMAGE)
 # the tree icons of the C# app (XenAdmin/Images, branding-xcp-ng), copied into the frontend at build time
 ICONS    := ../branding-xcp-ng/Images/Logo.png $(addprefix ../XenAdmin/Images/,000_ServerDisconnected_h32bit_16.png \
             000_PoolConnected_h32bit_16.png 000_TreeConnected_h32bit_16.png 000_StartVM_h32bit_16.png \
-            000_StoppedVM_h32bit_16.png 000_SuspendVM_h32bit_16.png 000_Storage_h32bit_16.png \
+            000_StoppedVM_h32bit_16.png 000_SuspendVM_h32bit_16.png 000_Storage_h32bit_16.png 000_StorageBroken_h32bit_16.png 000_StorageDefault_h32bit_16.png 000_StorageDisabled_h32bit_16.png \
             000_AddApplicationServer_h32bit_16.png \
             000_ServerMaintenance_h32bit_16.png 000_CPU_h32bit_16.png 000_ServerHome_h32bit_16.png 000_Search_h32bit_16.png infra_view_16_textured.png objects_16.png \
             $(foreach i,001_Back 001_Forward 000_AddApplicationServer 000_PoolNew 000_NewStorage 000_CreateVM,$(i)_h32bit_24.png) 001_CreateVM_h32bit_16.png 000_Paused_h32bit_24_green.png objects_24.png org_view_24.png saved_searches_24.png 000_Info3_h32bit_16.png console_16.png 000_VMSnapShotDiskOnly_h32bit_16.png 000_GetMemoryInfo_h32bit_16.png 000_VirtualStorage_h32bit_16.png 000_Network_h32bit_16.png 000_VMSnapshotDiskMemory_h32bit_16.png tree_plus.png tree_minus.png 001_PerformanceGraph_h32bit_16.png $(foreach i,alert1 alert2 alert3 alert4 alert5 alert6 infra_view notif_none notif_alerts,$(i)_16.png) infra_view_24.png notif_none_24.png \

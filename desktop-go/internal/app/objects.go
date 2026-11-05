@@ -8,6 +8,8 @@ import (
 
 	"go/xenapi"
 
+	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
@@ -23,11 +25,12 @@ type Object struct {
 	PowerState  string   `json:"power_state,omitempty"`
 	Host        string   `json:"host,omitempty"`
 	HostUUID    string   `json:"host_uuid,omitempty"` // the resident host of a VM (names may repeat)
-	Allowed     []string `json:"allowed,omitempty"`   // a VM's allowed_operations (what the menu and toolbar enable)
+	Allowed     []string `json:"allowed,omitempty"`   // a VM's allowed_operations, an SR's commands (what the menus enable)
 	HAProtected bool     `json:"ha_protected,omitempty"`
 	Maintenance bool     `json:"maintenance,omitempty"` // a host that is disabled (HostRules.InMaintenance)
 	Coordinator bool     `json:"coordinator,omitempty"`
-	Live        bool     `json:"live,omitempty"`
+	Live        bool     `json:"live,omitempty"` // a host that answers
+	Icon        string   `json:"icon,omitempty"` // an SR's tree icon (Images.GetIconFor)
 	// ControlDomain is a host's dom0 VM (its Console tab shows the server's console)
 	ControlDomain string `json:"control_domain,omitempty"`
 }
@@ -105,12 +108,13 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 			out = append(out, o)
 		}
 	case "srs":
-		recs, err := xenapi.SR.GetAllRecords(s)
+		states, recs, err := ops.SRStates(s)
 		if err != nil {
-			return nil, xapi.Sanitize(err)
+			return nil, err
 		}
-		for _, r := range recs {
-			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription})
+		for ref, r := range recs {
+			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription,
+				Allowed: rules.SRCommands(states[ref]), Icon: rules.SRIcon(states[ref])})
 		}
 	case "networks":
 		recs, err := xenapi.Network.GetAllRecords(s)

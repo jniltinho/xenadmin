@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The New Storage wizard (NewSRWizard): Type, Name and Location pages for NFS and SMB storage and the NFS and SMB ISO
 // libraries; the checks and the creation come from the Go side (SrRules, SrCreateAction).
-// shortcut: no Scan/Reattach of an existing SR and no iSCSI, HBA or local storage yet.
-import { computed, onMounted, reactive, ref } from "vue";
+// NFS and SMB storage can also reattach an SR a Scan finds on the share (SrReattachAction / SrIntroduceAction).
+// shortcut: no iSCSI, HBA or local storage yet.
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type NewSRKind } from "./api/workspace";
 
 const props = defineProps<{ server: string; pool: string }>();
@@ -14,7 +15,12 @@ const kinds = ref<NewSRKind[] | null>(null);
 const busy = ref(false);
 const error = ref("");
 const f = reactive({ kind: "nfs", name: "", nameFor: "", autoDescription: true, description: "", path: "", options: "", nfsVersion: "",
-  otherUser: false, user: "", password: "" });
+  otherUser: false, user: "", password: "", reattach: false, existing: "" });
+const found = ref<{ uuid: string; in_use?: string }[]>([]);
+const scanStatus = ref("");
+const question = ref(""); // the warning before reattaching an NFS SR, answered with Yes/No
+let scanGeneration = 0;
+const iso = computed(() => f.kind === "nfs_iso" || f.kind === "smb_iso");
 
 onMounted(async () => {
   try { kinds.value = await api.newSrKinds(props.server); } catch (e) { error.value = String(e); }
@@ -29,6 +35,29 @@ const groups = [{ title: "Virtual disk storage", sub: [
 { title: "ISO library", sub: [{ title: "", items: [["smb_iso", "smb_iso"], ["nfs_iso", "nfs_iso"]] }] }];
 const label = (text: string, k: string) => (k ? kinds.value?.find((x) => x.kind === k)?.name : text) ?? text;
 
+// a new share, other options or credentials: the SRs found before belong to the old ones
+function resetScan() { scanGeneration++; found.value = []; f.existing = ""; f.reattach = false; scanStatus.value = ""; }
+watch(() => [f.kind, f.path, f.options, f.user, f.password], resetScan);
+
+function spec() {
+  const smbIso = f.kind === "smb_iso" && !f.otherUser; // an ISO library's credentials only with "Use different user name"
+  return { kind: f.kind, name: f.name.trim(), description: f.description, auto_description: f.autoDescription, path: f.path,
+    options: f.kind === "nfs" ? f.options : "", nfs_version: nfs.value ? f.nfsVersion : "", user: smbIso || nfs.value ? "" : f.user,
+    password: smbIso || nfs.value ? "" : f.password, existing: f.reattach ? f.existing : "" };
+}
+
+async function scan() {
+  const generation = ++scanGeneration;
+  error.value = ""; busy.value = true;
+  scanStatus.value = `Performing SR scan from '${props.pool}'`;
+  try {
+    const srs = (await api.probeSr(props.server, spec())) ?? [];
+    if (generation !== scanGeneration) return; // the location changed while scanning
+    found.value = srs;
+    scanStatus.value = srs.length ? "" : "<No SRs were found>";
+  } catch (e) { if (generation === scanGeneration) scanStatus.value = String(e); } finally { busy.value = false; }
+}
+
 async function next() {
   error.value = "";
   if (page.value === 0 && f.nameFor !== f.kind) { f.name = kind.value?.default_name ?? ""; f.nameFor = f.kind; } // SrRules.DefaultName
@@ -36,19 +65,21 @@ async function next() {
   page.value++;
 }
 
-async function finish() {
-  busy.value = true; error.value = "";
+async function finish(confirmed = false) {
+  error.value = "";
+  if (f.reattach && !f.existing) { error.value = "Select the SR to reattach."; return; }
+  const inUse = found.value.find((x) => x.uuid === f.existing)?.in_use;
+  if (f.reattach && inUse) { error.value = `This SR is already in use by ${inUse}.`; return; }
+  busy.value = true;
   try {
     const problem = await api.checkSrLocation(props.server, f.kind, f.path);
     if (problem) { error.value = problem; busy.value = false; return; }
-    const iso = f.kind === "smb_iso" && !f.otherUser; // an ISO library's credentials only with "Use different user name"
-    const uuid = await api.createSr(props.server, { kind: f.kind, name: f.name.trim(), description: f.description, auto_description: f.autoDescription,
-      path: f.path, options: f.kind === "nfs" ? f.options : "", nfs_version: nfs.value ? f.nfsVersion : "", user: iso || nfs.value ? "" : f.user,
-      password: iso || nfs.value ? "" : f.password });
-    emit("close", uuid);
+    if (!confirmed && f.reattach && (question.value = await api.srAttachWarning(f.kind, f.existing))) { busy.value = false; return; }
+    emit("close", await api.createSr(props.server, spec()));
   } catch (e) { error.value = String(e); }
   busy.value = false;
 }
+function answer(yes: boolean) { question.value = ""; if (yes) finish(true); }
 </script>
 
 <template>
@@ -87,7 +118,9 @@ async function finish() {
               : nfs ? "Provide the name of the share where your SR is located, optionally specifying advanced options."
               : "Provide the name of the share where your SR is located, optionally specifying the credentials for it." }}</p>
             <div class="grid grid-cols-[8.5rem_1fr] items-center gap-x-2 gap-y-2">
-              <span>Share Name:</span><input v-model="f.path" class="border border-line px-1 py-0.5" />
+              <span>Share Name:</span>
+              <div class="flex gap-2"><input v-model="f.path" class="min-w-0 flex-1 border border-line px-1 py-0.5" />
+                <button v-if="!iso" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="busy || !f.path.trim()" @click="scan">Scan</button></div>
               <span /><span class="-mt-1 text-neutral-600">{{ nfs ? "Example: server:/path" : "Example: \\\\server\\share" }}</span>
               <template v-if="nfs">
                 <span class="self-start">NFS Version:</span>
@@ -103,6 +136,16 @@ async function finish() {
                 <span>Password:</span><input v-model="f.password" type="password" :disabled="f.kind === 'smb_iso' && !f.otherUser" class="border border-line px-1 py-0.5" />
               </template>
             </div>
+            <p v-if="scanStatus" class="mt-3 text-neutral-600">{{ scanStatus }}</p>
+            <template v-if="!iso">
+              <label class="mt-3 flex items-center gap-2"><input v-model="f.reattach" type="radio" :value="false" />Create a new SR</label>
+              <label class="mt-1 flex items-center gap-2" :class="found.length ? '' : 'text-neutral-400'">
+                <input v-model="f.reattach" type="radio" :value="true" :disabled="!found.length" />Reattach an existing SR:</label>
+              <div class="ml-6 mt-1 h-20 overflow-auto border border-neutral-400" :class="found.length ? '' : 'bg-neutral-50'">
+                <div v-for="x in found" :key="x.uuid" class="cursor-default px-2" :class="f.existing === x.uuid ? 'bg-select text-white' : 'hover:bg-neutral-100'"
+                     @click="f.existing = x.uuid; f.reattach = true">{{ x.uuid }}<span v-if="x.in_use"> (in use by {{ x.in_use }})</span></div>
+              </div>
+            </template>
           </template>
         </div>
         <div v-else class="p-4 text-neutral-500">{{ error || "Loading..." }}</div>
@@ -111,8 +154,18 @@ async function finish() {
         <span v-if="error && kinds" class="mr-auto text-red-600">{{ error }}</span>
         <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="page === 0 || busy" @click="page--">&lt; Previous</button>
         <button v-if="page < pages.length - 1" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" :disabled="!kinds" @click="next">Next &gt;</button>
-        <button v-else class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="busy || !f.path.trim()" @click="finish">{{ busy ? "Creating..." : "Finish" }}</button>
+        <button v-else class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="busy || !f.path.trim()" @click="finish()">{{ busy ? "Working..." : "Finish" }}</button>
         <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" :disabled="busy" @click="emit('close', '')">Cancel</button>
+      </div>
+    </div>
+    <div v-if="question" class="fixed inset-0 z-40 flex items-center justify-center bg-black/10">
+      <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">
+        <div class="bg-band-dark px-3 py-1 font-semibold text-white">New Storage Repository - {{ pool }}</div>
+        <p class="whitespace-pre-line p-4">{{ question }}</p>
+        <div class="flex justify-end gap-2 border-t border-line p-2">
+          <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(true)">Yes</button>
+          <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(false)">No</button>
+        </div>
       </div>
     </div>
   </div>

@@ -7,7 +7,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ### Added
 - New Storage wizard (Type, Name, Location) for NFS and SMB storage and the NFS and SMB ISO libraries, as
   SrCreateAction: the password in a secret only for SR.create, an unplugged PBD plugged or the SR forgotten, the
-  pool's first shared SR made its default. Scan/Reattach and iSCSI are not there yet.
+  pool's first shared SR made its default. Scan finds the SRs already on an NFS or SMB share and reattaches one
+  (SrReattachAction / SrIntroduceAction, with the C# warning; never one another connected pool uses). iSCSI is not
+  there yet.
+- Storage menu and SR context menu: Repair, Set as Default, Detach, Forget and Destroy, enabled as the C# app and
+  with its questions; the tree shows the C# SR icons (default, broken or detached, hidden).
 - New VM wizard (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish) with the
   C# defaults; the VM is created as CreateVMAction does and removed again if a step fails.
 - The navigation pane's splitter is wider, with a grip.

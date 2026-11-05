@@ -32,13 +32,14 @@ func ISOAlreadyAttached(c *xapi.Connection, kind rules.SRKind, path string) erro
 			if kind == rules.SRNfsIso {
 				key = "NFS_ISO_ALREADY_ATTACHED"
 			}
-			return errors.New(messages.Format(messages.Get(key), poolName(c)))
+			return errors.New(messages.Format(messages.Get(key), PoolName(c)))
 		}
 	}
 	return nil
 }
 
-func poolName(c *xapi.Connection) string {
+// PoolName is Helpers.GetName of a connection: the pool's name, else its coordinator's, else the address.
+func PoolName(c *xapi.Connection) string {
 	s := c.Session
 	if pools, err := xenapi.Pool.GetAllRecords(s); err == nil {
 		for _, p := range pools {
@@ -53,8 +54,8 @@ func poolName(c *xapi.Connection) string {
 	return c.Host
 }
 
-// NewSR is what the New Storage wizard asks: the kind, the name (and description, "" for the automatic one), the
-// share and its options (NFS version "", "4" or "4.1"; SMB credentials, optional).
+// NewSR is what the New Storage wizard asks: the kind, the name and description (or the automatic one), the share and
+// its options (NFS version "", "4" or "4.1"; SMB credentials, optional), and an existing SR to reattach.
 type NewSR struct {
 	Kind        rules.SRKind `json:"kind"`
 	Name        string       `json:"name"`
@@ -65,6 +66,7 @@ type NewSR struct {
 	NFSVersion  string       `json:"nfs_version"`
 	User        string       `json:"user"`
 	Password    string       `json:"password"`
+	Existing    string       `json:"existing"` // the uuid of an SR a scan found: reattach it instead of creating one
 }
 
 // CreateSR is NewSRWizard's SrCreateAction: a shared SR made on the coordinator from rules.SRDeviceConfig, with its
@@ -84,18 +86,13 @@ func CreateSR(c *xapi.Connection, spec NewSR) (uuid string, err error) {
 		description = rules.SRAutoDescription(kind, strings.TrimSpace(spec.Path))
 	}
 	dconf := rules.SRDeviceConfig(kind, spec.Path, spec.Options, spec.NFSVersion, spec.User, spec.Password)
+	if spec.Existing != "" && !rules.SRIsIso(kind) {
+		return attachSR(c, kind, spec.Existing, name, description, dconf, spec.Password)
+	}
 	s := c.Session
-	pools, err := xenapi.Pool.GetAllRecords(s)
+	coordinator, err := coordinatorOf(s)
 	if err != nil {
-		return "", xapi.Sanitize(err)
-	}
-	var pool xenapi.PoolRef
-	var coordinator xenapi.HostRef
-	for ref, p := range pools {
-		pool, coordinator = ref, p.Master
-	}
-	if coordinator == "" {
-		return "", errors.New("the pool has no coordinator")
+		return "", err
 	}
 	var password string
 	var submitted, created bool
@@ -125,12 +122,12 @@ func CreateSR(c *xapi.Connection, spec NewSR) (uuid string, err error) {
 		contentType = "iso"
 	}
 	submitted = true
-	result, err := waitResult(s)(xenapi.SR.AsyncCreate(s, coordinator, dconf, 0, name, description, rules.SRType(kind), contentType, true, map[string]string{}))
+	ref, err := waitRef(s)(xenapi.SR.AsyncCreate(s, coordinator, dconf, 0, name, description, rules.SRType(kind), contentType, true, map[string]string{}))
 	if err != nil {
 		return "", xapi.Sanitize(err, password)
 	}
 	created = true
-	sr := xenapi.SRRef(resultRef(result))
+	sr := xenapi.SRRef(ref)
 	pbds, err := xenapi.SR.GetPBDs(s, sr)
 	if err != nil {
 		return "", xapi.Sanitize(err)
@@ -161,10 +158,8 @@ func CreateSR(c *xapi.Connection, spec NewSR) (uuid string, err error) {
 		return "", xapi.Sanitize(err)
 	}
 	if !rules.SRIsIso(kind) && firstSharedSR(s, sr) {
-		for _, set := range []func(*xenapi.Session, xenapi.PoolRef, xenapi.SRRef) error{xenapi.Pool.SetDefaultSR, xenapi.Pool.SetSuspendImageSR, xenapi.Pool.SetCrashDumpSR} {
-			if err := set(s, pool, sr); err != nil {
-				return "", xapi.Sanitize(err)
-			}
+		if err := setDefaultSR(s, sr); err != nil {
+			return "", err
 		}
 	}
 	uuid, err = xenapi.SR.GetUUID(s, sr)
@@ -176,6 +171,22 @@ func CreateSR(c *xapi.Connection, spec NewSR) (uuid string, err error) {
 func createSettled(submitted, created bool, err error) bool {
 	var apiErr *xenapi.APIError
 	return !submitted || created || errors.As(err, &apiErr) && !errors.Is(err, ErrUncertain)
+}
+
+// setDefaultSR is SetSrAsDefaultAction: the pool's default, suspend image and crash dump SR.
+func setDefaultSR(s *xenapi.Session, sr xenapi.SRRef) error {
+	pools, err := xenapi.Pool.GetAll(s)
+	if err != nil {
+		return xapi.Sanitize(err)
+	}
+	for _, pool := range pools {
+		for _, set := range []func(*xenapi.Session, xenapi.PoolRef, xenapi.SRRef) error{xenapi.Pool.SetDefaultSR, xenapi.Pool.SetSuspendImageSR, xenapi.Pool.SetCrashDumpSR} {
+			if err := set(s, pool, sr); err != nil {
+				return xapi.Sanitize(err)
+			}
+		}
+	}
+	return nil
 }
 
 // firstSharedSR is SrCreateAction.isFirstSharedNonISOSR: no other shared SR of the pool is virtual disk storage.

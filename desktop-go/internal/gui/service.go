@@ -195,6 +195,8 @@ func (w *Workspace) DismissConfirmation(count int, all bool) Confirm {
 	return Confirm{Title: "Dismiss Alerts", Text: strings.TrimSpace(text)}
 }
 
+var errNotConnected = errors.New("not connected")
+
 // with runs fn on a connected server's session; logging out waits for it (Workspace.use).
 func (w *Workspace) with(key string, fn func(*xapi.Connection) error) error {
 	w.use.RLock()
@@ -203,7 +205,7 @@ func (w *Workspace) with(key string, fn func(*xapi.Connection) error) error {
 	conn := w.conns[key]
 	w.mu.Unlock()
 	if conn == nil {
-		return errors.New("not connected")
+		return errNotConnected
 	}
 	return fn(conn)
 }
@@ -494,6 +496,74 @@ func (w *Workspace) CheckSRLocation(key, kind, path string) (problem string, err
 
 // CreateSR creates the SR the wizard describes and returns its uuid.
 func (w *Workspace) CreateSR(key string, spec ops.NewSR) (uuid string, err error) {
+	if spec.Existing != "" {
+		if pool, err := w.srInUseElsewhere(key, spec.Existing); err != nil {
+			return "", err
+		} else if pool != "" {
+			return "", fmt.Errorf("this SR is already in use by %s", pool)
+		}
+	}
 	err = w.with(key, func(c *xapi.Connection) error { uuid, err = ops.CreateSR(c, spec); return err })
 	return uuid, err
+}
+
+// srInUseElsewhere is SrWizardHelpers.SrInUse over the other connected pools: the name of one that has the SR attached
+// ("" for none). A pool that cannot answer stops the attach (two pools must never share an SR).
+func (w *Workspace) srInUseElsewhere(key, uuid string) (string, error) {
+	w.mu.Lock()
+	var keys []string
+	for k := range w.conns {
+		if k != key {
+			keys = append(keys, k)
+		}
+	}
+	w.mu.Unlock()
+	for _, k := range keys {
+		var pool string
+		err := w.with(k, func(c *xapi.Connection) error {
+			used, err := ops.SRInUse(c, uuid)
+			if used {
+				pool = ops.PoolName(c)
+			}
+			return err
+		})
+		if err != nil && !errors.Is(err, errNotConnected) { // disconnected meanwhile: it holds nothing
+			return "", fmt.Errorf("cannot check whether %s uses this SR: %w", k, err)
+		}
+		if pool != "" {
+			return pool, nil
+		}
+	}
+	return "", nil
+}
+
+// ProbeSR is the Location page's Scan: the SRs already on the share.
+func (w *Workspace) ProbeSR(key string, spec ops.NewSR) (out []ops.FoundSR, err error) {
+	if err = w.with(key, func(c *xapi.Connection) error { out, err = ops.ProbeSR(c, spec); return err }); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].InUse == "" {
+			if out[i].InUse, err = w.srInUseElsewhere(key, out[i].UUID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
+// SRAttachWarning is the question before reattaching an existing NFS SR ("" for none).
+func (w *Workspace) SRAttachWarning(kind, uuid string) string {
+	return ops.MultiPoolWarning(rules.SRKind(kind), uuid)
+}
+
+// SRQuestion is the confirmation of an SR command (an empty title: none, for Set as Default).
+func (w *Workspace) SRQuestion(command, name string) HostQuestion {
+	title, text, yes := rules.SRConfirmation(command, name)
+	return HostQuestion{Title: title, Text: text, Option: yes}
+}
+
+// SRCommand runs an SR command of the Storage menu (set_default, detach, forget, destroy).
+func (w *Workspace) SRCommand(key, uuid, command string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SRCommand(c, uuid, command) })
 }

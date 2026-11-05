@@ -11,7 +11,8 @@
   certificate's SHA-256); the ones that write also need `XCP_ALLOW_WRITE=1` and touch only the VM named in `XCP_LAB_VM`:
   `XCP_LAB_HOST=10.77.58.11 XCP_TRUST_FINGERPRINT=... XCP_PASS=... XCP_LAB_VM=... XCP_ALLOW_WRITE=1 go test -tags nogui -run TestLab ./internal/app/`.
   The SR tests also need the lab storage (`lab.sh storage-up`): `XCP_LAB_NFS=10.77.58.1:/export` (an NFS SR and an
-  NFS ISO library on `/export/iso`, removed afterwards) and `XCP_LAB_SMB='\\10.77.58.1\sr'` (an SMB SR, user `xcp`).
+  NFS ISO library on `/export/iso`, removed afterwards) and `XCP_LAB_SMB='\\10.77.58.1\sr'` (an SMB SR, user `xcp`);
+  `TestLabReattachSR` and `TestLabSRCommands` detach, forget, reattach, repair and destroy their own SRs only.
 - Tests use a fake JSON-RPC server over TLS (`internal/xapi/client_test.go`) and an in-memory MCP client
   (`internal/mcp/server_test.go`); none needs a real server.
 - Against a server: `XCP_HOST`, `XCP_USER`, `XCP_PASS` in the environment (never in files); the lab servers and rules

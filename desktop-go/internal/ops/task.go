@@ -30,6 +30,7 @@ func wait(s *xenapi.Session) func(xenapi.TaskRef, error) error {
 
 // waitResult is wait for a task whose result is wanted (the new object's reference, as an XML-RPC value). A task that
 // succeeded but whose result cannot be read gives ErrUncertain: the object exists, so it must not be made again.
+// waitRef is waitResult for a task that makes an object: no reference in its result is uncertain too.
 func waitResult(s *xenapi.Session) func(xenapi.TaskRef, error) (string, error) {
 	return func(task xenapi.TaskRef, err error) (string, error) {
 		var result string
@@ -42,10 +43,20 @@ func waitResult(s *xenapi.Session) func(xenapi.TaskRef, error) (string, error) {
 				time.Sleep(pollEvery)
 			}
 		})
-		if err == nil && (readErr != nil || resultRef(result) == "") {
+		if err == nil && readErr != nil {
 			return "", fmt.Errorf("%w (the task succeeded, its result is unreadable: %v)", ErrUncertain, readErr)
 		}
 		return result, err
+	}
+}
+
+func waitRef(s *xenapi.Session) func(xenapi.TaskRef, error) (string, error) {
+	return func(task xenapi.TaskRef, err error) (string, error) {
+		result, err := waitResult(s)(task, err)
+		if err == nil && resultRef(result) == "" {
+			return "", fmt.Errorf("%w (the task succeeded without saying which object it made)", ErrUncertain)
+		}
+		return resultRef(result), err
 	}
 }
 

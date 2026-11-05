@@ -418,3 +418,167 @@ func TestLabCreateSMBSR(t *testing.T) {
 		t.Fatalf("secrets: %d before, %d after", len(secrets), len(after))
 	}
 }
+
+// TestLabReattachSR creates an SR on XCP_LAB_NFS or, with XCP_LAB_SMB, on that SMB share (XCP_ALLOW_WRITE=1), detaches
+// it, finds it with a scan and reattaches it (SrReattachAction), forgets it and attaches it again (SrIntroduceAction),
+// then destroys it. On SMB the password never stays in a PBD's device_config.
+func TestLabReattachSR(t *testing.T) {
+	c := labConnection(t)
+	spec := ops.NewSR{Kind: rules.SRNfs, Name: "xcpng-center-go-test-reattach", AutoDesc: true, Path: os.Getenv("XCP_LAB_NFS")}
+	if smb := os.Getenv("XCP_LAB_SMB"); smb != "" {
+		spec = ops.NewSR{Kind: rules.SRSmb, Name: spec.Name, AutoDesc: true, Path: smb, User: "xcp", Password: os.Getenv("XCP_PASS")}
+	}
+	if spec.Path == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_NFS or XCP_LAB_SMB, and XCP_ALLOW_WRITE=1, not set")
+	}
+	s := c.Session
+	uuid, err := ops.CreateSR(c, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unplug := func() xenapi.SRRef {
+		ref, err := xenapi.SR.GetByUUID(s, uuid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pbds, _ := xenapi.SR.GetPBDs(s, ref)
+		for _, p := range pbds {
+			_ = xenapi.PBD.Unplug(s, p)
+			_ = xenapi.PBD.Destroy(s, p)
+		}
+		return ref
+	}
+	defer func() {
+		if ref, err := xenapi.SR.GetByUUID(s, uuid); err == nil {
+			pbds, _ := xenapi.SR.GetPBDs(s, ref)
+			for _, p := range pbds {
+				_ = xenapi.PBD.Unplug(s, p)
+			}
+			if len(pbds) == 0 { // SR.destroy needs a plugged PBD: attach it once more
+				spec.Existing = uuid
+				_, _ = ops.CreateSR(c, spec)
+				pbds, _ = xenapi.SR.GetPBDs(s, ref)
+				for _, p := range pbds {
+					_ = xenapi.PBD.Unplug(s, p)
+				}
+			}
+			if err := xenapi.SR.Destroy(s, ref); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	attach := func(path string) {
+		found, err := ops.ProbeSR(c, spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ok := false
+		for _, f := range found {
+			ok = ok || f.UUID == uuid && f.InUse == ""
+		}
+		if !ok {
+			t.Fatalf("%s: the scan did not offer %s: %+v", path, uuid, found)
+		}
+		spec.Existing, spec.Name = uuid, "xcpng-center-go-test-reattach-"+path
+		if _, err := ops.CreateSR(c, spec); err != nil {
+			t.Fatal(path, err)
+		}
+		ref, _ := xenapi.SR.GetByUUID(s, uuid)
+		rec, _ := xenapi.SR.GetRecord(s, ref)
+		hosts, _ := xenapi.Host.GetAll(s)
+		if rec.NameLabel != spec.Name || len(rec.PBDs) != len(hosts) {
+			t.Fatalf("%s: %+v", path, rec)
+		}
+		for _, p := range rec.PBDs {
+			if pbd, _ := xenapi.PBD.GetRecord(s, p); !pbd.CurrentlyAttached || pbd.DeviceConfig["password"] != "" {
+				t.Fatalf("%s: PBD %v %v", path, pbd.CurrentlyAttached, pbd.DeviceConfig["password"] != "")
+			}
+		}
+		if found, _ := ops.ProbeSR(c, spec); len(found) == 0 {
+			t.Fatal("no SR found after the attach")
+		} else {
+			for _, f := range found {
+				if f.UUID == uuid && f.InUse == "" {
+					t.Fatal("an attached SR is offered again")
+				}
+			}
+		}
+		if _, err := ops.CreateSR(c, spec); err == nil {
+			t.Fatal("attached twice")
+		}
+	}
+	unplug()
+	attach("reattach")
+	if err := xenapi.SR.Forget(s, unplug()); err != nil {
+		t.Fatal(err)
+	}
+	attach("introduce")
+}
+
+// TestLabSRCommands creates an NFS SR on XCP_LAB_NFS (XCP_ALLOW_WRITE=1) and runs the Storage menu on it: Detach (the
+// SR turns broken and offers Repair, Forget and Destroy), Repair, Detach again, then Destroy; an NFS ISO library on
+// XCP_LAB_NFS/iso is forgotten.
+func TestLabSRCommands(t *testing.T) {
+	c := labConnection(t)
+	share := os.Getenv("XCP_LAB_NFS")
+	if share == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_NFS and XCP_ALLOW_WRITE=1 not set")
+	}
+	find := func(uuid string) Object {
+		srs, err := ListObjects(c, "srs")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range srs {
+			if o.UUID == uuid {
+				return o
+			}
+		}
+		return Object{}
+	}
+	uuid, err := ops.CreateSR(c, ops.NewSR{Kind: rules.SRNfs, Name: "xcpng-center-go-test-commands", Path: share})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := find(uuid)
+	if o.Icon != "000_Storage_h32bit_16" || strings.Join(o.Allowed, ",") != "set_default,detach" {
+		t.Fatalf("new SR %+v", o)
+	}
+	if err := ops.SRCommand(c, uuid, "destroy"); err == nil {
+		t.Fatal("an attached SR was destroyed")
+	}
+	if err := ops.SRCommand(c, uuid, "detach"); err != nil {
+		t.Fatal(err)
+	}
+	if o = find(uuid); o.Icon != "000_StorageBroken_h32bit_16" || strings.Join(o.Allowed, ",") != "repair,set_default,forget,destroy" {
+		t.Fatalf("detached SR %+v", o)
+	}
+	if err := ops.SRCommand(c, uuid, "repair"); err != nil {
+		t.Fatal(err)
+	}
+	if o = find(uuid); o.Icon != "000_Storage_h32bit_16" {
+		t.Fatalf("repaired SR %+v", o)
+	}
+	if err := ops.SRCommand(c, uuid, "detach"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.SRCommand(c, uuid, "destroy"); err != nil {
+		t.Fatal(err)
+	}
+	if o = find(uuid); o.UUID != "" {
+		t.Fatalf("destroyed SR still there: %+v", o)
+	}
+	iso, err := ops.CreateSR(c, ops.NewSR{Kind: rules.SRNfsIso, Name: "xcpng-center-go-test-commands-iso", Path: share + "/iso"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.SRCommand(c, iso, "detach"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.SRCommand(c, iso, "forget"); err != nil {
+		t.Fatal(err)
+	}
+	if o = find(iso); o.UUID != "" {
+		t.Fatalf("forgotten SR still there: %+v", o)
+	}
+}
