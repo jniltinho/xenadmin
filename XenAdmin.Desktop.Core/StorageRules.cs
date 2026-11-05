@@ -68,6 +68,73 @@ namespace XenAdmin.Desktop
             return (true, null);
         }
 
+        /// <summary>MoveVirtualDiskCommand.CanBeMoved: a disk of halted VMs only, not a snapshot, HA or CBT disk.</summary>
+        public static bool CanMove(VDI vdi)
+        {
+            if (vdi == null || vdi.is_a_snapshot || vdi.Locked || vdi.IsHaType() || vdi.cbt_enabled)
+                return false;
+            var sr = vdi.Connection.Resolve(vdi.SR);
+            return sr != null && !sr.HBALunPerVDI() && vdi.GetVMs().All(vm => vm.power_state == vm_power_state.Halted);
+        }
+
+        /// <summary>MigrateVirtualDiskCommand.CanBeMigrated: an attached disk on an SR that supports storage migration.</summary>
+        public static bool CanMigrate(VDI vdi)
+        {
+            if (vdi == null || vdi.is_a_snapshot || vdi.Locked || vdi.IsHaType() || vdi.cbt_enabled)
+                return false;
+            if (vdi.Connection.ResolveAll(vdi.VBDs).Count == 0)
+                return false;
+            var sr = vdi.Connection.Resolve(vdi.SR);
+            return sr != null && !sr.HBALunPerVDI() && sr.SupportsStorageMigration();
+        }
+
+        /// <summary>
+        /// MoveVirtualDiskDialog.MoveMigrateCommand: live storage migration when the disk allows it and the license does not
+        /// forbid it, else an offline move; null when neither is possible.
+        /// </summary>
+        public static bool? UseMigrate(VDI vdi) =>
+            CanMigrate(vdi) && !Helpers.FeatureForbidden(vdi.Connection, Host.RestrictCrossPoolMigrate) ? true
+            : CanMove(vdi) ? false
+            : (bool?)null;
+
+        public sealed record SrTarget(SR Sr, bool Enabled, string Text);
+
+        /// <summary>
+        /// SrPicker for Move / Migrate (SrPickerMoveItem, SrPickerMigrateItem): the visible SRs that can hold disks, each
+        /// enabled or with the reason it cannot take the disk.
+        /// </summary>
+        public static List<SrTarget> MoveTargets(VDI vdi, bool migrate)
+        {
+            var vdis = new[] { vdi };
+            var result = new List<SrTarget>();
+            foreach (var sr in vdi.Connection.Cache.SRs.Where(x => !x.HBALunPerVDI() && x.SupportsVdiCreate() && x.Show(false)).OrderBy(x => x.Name()))
+            {
+                string reason = null;
+                if (vdi.SR.opaque_ref == sr.opaque_ref)
+                    reason = Messages.CURRENT_LOCATION;
+                else if (sr.IsDetached())
+                    reason = Messages.SR_DETACHED;
+                else if (migrate && sr.IsLocalSR())
+                {
+                    var homes = vdi.GetVMs().Select(vm => (vm, home: vm.Home())).Where(x => x.home != null).ToList();
+                    var unseen = homes.FirstOrDefault(x => !sr.CanBeSeenFrom(x.home));
+                    if (homes.Count == 0)
+                        reason = Messages.SR_IS_LOCAL;
+                    else if (unseen.vm != null)
+                        reason = unseen.vm.power_state == vm_power_state.Running
+                            ? Messages.SRPICKER_ERROR_LOCAL_SR_MUST_BE_RESIDENT_HOSTS
+                            : string.Format(Messages.SR_CANNOT_BE_SEEN, Helpers.GetName(unseen.home));
+                }
+                if (reason == null && migrate && !sr.SupportsStorageMigration())
+                    reason = Messages.UNSUPPORTED_SR_TYPE;
+                if (reason == null && !sr.CanFitDisks(out var cannotFit, vdis))
+                    reason = cannotFit;
+                result.Add(new SrTarget(sr, reason == null, reason ?? string.Format(Messages.SRPICKER_DISK_FREE,
+                    Util.DiskSizeString(sr.FreeSpace(), 2), Util.DiskSizeString(sr.physical_size, 2))));
+            }
+            return result;
+        }
+
         /// <summary>VMStoragePage: the VM's disks (no DVD or floppy drives, nor VBDs whose disk is gone), by position.</summary>
         public static List<(VBD Vbd, VDI Vdi)> VmDisks(VM vm) =>
             vm.Connection.ResolveAll(vm.VBDs).Where(b => b.type != vbd_type.CD && b.type != vbd_type.Floppy)

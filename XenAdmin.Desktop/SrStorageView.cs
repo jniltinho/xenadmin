@@ -40,10 +40,10 @@ namespace XenAdmin.Desktop
             _move = B("Mov&e...");
             _delete = B("&Delete");
             _props = B("P&roperties");
-            _move.IsEnabled = false; // MoveVirtualDiskDialog not ported yet (as in the VM Storage tab)
             _rescan.Click += (_, _) => Rescan();
             _add.Click += async (_, _) => await Add();
             _delete.Click += async (_, _) => await Delete();
+            _move.Click += async (_, _) => { if (Selected is VDI v && await Dialogs.MoveDisk(Owner, v) is AsyncAction a) _run(a); };
             _props.Click += (_, _) => { if (Selected is VDI v) _properties(v); };
 
             var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
@@ -89,6 +89,7 @@ namespace XenAdmin.Desktop
             _add.IsEnabled = StorageRules.CanAddDisk(_sr);
             _delete.IsEnabled = vdi != null && StorageRules.CanDelete(vdi, allowMultipleVbds: true);
             _props.IsEnabled = StorageRules.CanEditDisk(_sr, vdi);
+            _move.IsEnabled = vdi != null && StorageRules.UseMigrate(vdi) != null;
         }
 
         // ---------- commands (SrStoragePage handlers) ----------

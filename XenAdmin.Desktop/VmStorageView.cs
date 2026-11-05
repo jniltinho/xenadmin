@@ -45,10 +45,10 @@ namespace XenAdmin.Desktop
             _detach = B("Detach");
             _delete = B("&Delete");
             _props = B("P&roperties");
-            _move.IsEnabled = false; // MoveVirtualDiskDialog not ported yet
             _add.Click += async (_, _) => await AddDisk();
             _attach.Click += async (_, _) => await AttachDisk();
             _activate.Click += (_, _) => ToggleActive();
+            _move.Click += async (_, _) => await Move();
             _detach.Click += async (_, _) => await Detach();
             _delete.Click += async (_, _) => await Delete();
             _props.Click += (_, _) => { if (SelectedVdi is VDI v) _properties(v); };
@@ -92,6 +92,7 @@ namespace XenAdmin.Desktop
             _detach.IsEnabled = selVdi != null && StorageRules.CanDetach(_vm, selVdi);
             _delete.IsEnabled = selVdi != null && StorageRules.CanDelete(selVdi);
             _props.IsEnabled = selVdi != null && !selVdi.Locked;
+            _move.IsEnabled = selVdi != null && StorageRules.UseMigrate(selVdi) != null;
         }
 
         // ---------- DVD drive (CD changer) ----------
@@ -177,6 +178,11 @@ namespace XenAdmin.Desktop
             if (await Dialogs.Confirm(Owner, system ? Messages.MESSAGEBOX_DELETE_SYS_DISK_TITLE : Messages.MESSAGEBOX_DELETE_VD_TITLE,
                     system ? Messages.MESSAGEBOX_DELETE_SYS_DISK : Messages.MESSAGEBOX_DELETE_VD, Messages.YES, Messages.NO))
                 _run(new DestroyDiskAction(vdi));
+        }
+
+        private async Task Move()
+        {
+            if (SelectedVdi is VDI vdi && await Dialogs.MoveDisk(Owner, vdi) is AsyncAction action) _run(action);
         }
 
         private async Task AddDisk()

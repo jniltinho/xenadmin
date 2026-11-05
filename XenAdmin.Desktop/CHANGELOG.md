@@ -20,6 +20,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   and Convert to Template, with the Windows rules and confirmations.
 - Notifications > Alerts: Filter by Date (last 24 hours, 3, 7 or 30 days) and Export to a CSV file (all alerts or
   only the filtered ones).
+- Move Virtual Disk from the VM and SR Storage tabs: live storage migration for attached disks, an offline move
+  otherwise, with the reason each storage repository cannot take the disk, and Rescan.
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).

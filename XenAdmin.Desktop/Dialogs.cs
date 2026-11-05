@@ -407,6 +407,74 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        /// <summary>
+        /// MoveVirtualDiskDialog / MigrateVirtualDiskDialog: the SR list with the reason a target cannot take the disk,
+        /// Rescan, and Move (MigrateVirtualDiskAction live, MoveVirtualDiskAction offline). Returns the action, or null.
+        /// </summary>
+        public static async Task<XenAdmin.Actions.AsyncAction> MoveDisk(Window owner, XenAPI.VDI vdi)
+        {
+            var migrate = StorageRules.UseMigrate(vdi);
+            if (migrate == null) return null;
+            var list = new ListBox { Height = 220 };
+            var move = new Button { Content = M("&Move"), IsDefault = true };
+            var rescan = new Button { Content = M("&Rescan") };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            List<StorageRules.SrTarget> targets = null;
+            void Fill()
+            {
+                targets = StorageRules.MoveTargets(vdi, migrate.Value);
+                list.ItemsSource = targets.Select(t => new TextBlock { Text = $"{t.Sr.Name()}   {t.Text}", Opacity = t.Enabled ? 1 : 0.5 }).ToList();
+                list.SelectedIndex = targets.FindIndex(t => t.Enabled);
+                move.IsEnabled = list.SelectedIndex >= 0;
+            }
+            list.SelectionChanged += (_, _) =>
+            {
+                // disabled targets stay visible with their reason but cannot be picked (SrPicker)
+                if (list.SelectedIndex >= 0 && !targets[list.SelectedIndex].Enabled)
+                    list.SelectedIndex = targets.FindIndex(t => t.Enabled);
+                move.IsEnabled = list.SelectedIndex >= 0 && targets[list.SelectedIndex].Enabled;
+            };
+            var panel = new StackPanel { Spacing = 10 };
+            panel.Children.Add(new TextBlock { Text = "Select the storage repository that you would like to move the virtual disk to:", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(new Border { BorderBrush = Avalonia.Media.Brush.Parse("#828790"), BorderThickness = new Thickness(1), Child = list });
+            var buttons = new DockPanel();
+            DockPanel.SetDock(rescan, Dock.Left);
+            buttons.Children.Add(rescan);
+            buttons.Children.Add(Buttons(move, cancel));
+            panel.Children.Add(buttons);
+            var w = Frame("Move Virtual Disk", panel, 560);
+            Fill();
+            XenAdmin.Actions.AsyncAction result = null;
+            rescan.Click += (_, _) =>
+            {
+                // SrPicker.ScanSRs: rescan the attached SRs, then list them again
+                rescan.IsEnabled = false;
+                var scans = targets.Where(t => !t.Sr.IsDetached()).Select(t => (XenAdmin.Actions.AsyncAction)new XenAdmin.Actions.SrRefreshAction(t.Sr)).ToList();
+                var all = new XenAdmin.Actions.MultipleAction(vdi.Connection, Messages.SR_REFRESH_ACTION_TITLE_GENERIC, "", "", scans, true);
+                all.Completed += _ => Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+                {
+                    Fill();
+                    rescan.IsEnabled = true;
+                    // the dialog may be closed by now: report against whichever window is still open
+                    if (!all.Succeeded && all.Exception != null && (w.IsVisible ? w : owner) is Window shown && shown.IsVisible)
+                        await Info(shown, Messages.SR_REFRESH_ACTION_TITLE_GENERIC, all.Exception.Message);
+                });
+                all.RunAsync();
+            };
+            move.Click += (_, _) =>
+            {
+                if (list.SelectedIndex < 0 || !targets[list.SelectedIndex].Enabled) return;
+                var sr = targets[list.SelectedIndex].Sr;
+                result = migrate.Value
+                    ? new XenAdmin.Actions.MigrateVirtualDiskAction(vdi.Connection, vdi, sr)
+                    : new XenAdmin.Actions.MoveVirtualDiskAction(vdi.Connection, vdi, sr);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>NewDiskDialog ("Add Virtual Disk"): CreateDiskAction + VbdCreateAndPlugAction, as the original.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.VM vm) => await NewDisk(owner, vm, null);
 

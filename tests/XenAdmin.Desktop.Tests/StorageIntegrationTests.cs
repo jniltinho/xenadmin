@@ -78,6 +78,49 @@ namespace XenAdmin.Desktop.Tests
         public void NfsSharedSrLifecycleOnLabPool() =>
             Lifecycle(SrRules.Kind.Nfs, StorageHost() + ":/export", null, null);
 
+        /// <summary>
+        /// Move Virtual Disk (MoveVirtualDiskDialog): a 64 MB unattached disk on the coordinator's local SR moves to a
+        /// shared NFS SR (MoveVirtualDiskAction, the disk is not attached so it is not migrated live), then both go away.
+        /// </summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void MoveDiskToNfsOnLabPool()
+        {
+            var c = LabPool();
+            const string name = "xcpng-center-test-move-nfs", disk = "xcpng-center-test-move-disk";
+            SR nfs = null;
+            try
+            {
+                foreach (var stale in c.Cache.SRs.Where(sr => sr.name_label == name).ToList())
+                    Destroy(c, stale);
+                var path = StorageHost() + ":/export";
+                Run(SrRules.Finish(c, SrRules.Kind.Nfs, name, SrRules.AutoDescription(SrRules.Kind.Nfs, path), SrRules.DeviceConfig(SrRules.Kind.Nfs, path, "", "", null, null), null));
+                nfs = Until(() => c.Cache.SRs.FirstOrDefault(s => s.name_label == name), s => s != null && s.HasPBDs(), "NFS SR attached");
+
+                var coordinator = Helpers.GetCoordinator(c);
+                var local = c.Cache.SRs.First(s => s.IsLocalSR() && s.SupportsVdiCreate() && s.Home()?.opaque_ref == coordinator.opaque_ref);
+                Run(new CreateDiskAction(new VDI { Connection = c, SR = new XenRef<SR>(local), virtual_size = 64L << 20, name_label = disk, name_description = "", type = vdi_type.user }));
+                var vdi = Until(() => c.Cache.VDIs.FirstOrDefault(v => v.name_label == disk), v => v != null, "disk on the local SR");
+
+                Assert.AreEqual(false, StorageRules.UseMigrate(vdi), "an unattached disk is moved, not migrated live");
+                var targets = StorageRules.MoveTargets(vdi, false);
+                Assert.IsFalse(targets.Single(t => t.Sr.opaque_ref == local.opaque_ref).Enabled, "its own SR is the current location");
+                Assert.AreEqual(Messages.CURRENT_LOCATION, targets.Single(t => t.Sr.opaque_ref == local.opaque_ref).Text);
+                Assert.IsTrue(targets.Single(t => t.Sr.opaque_ref == nfs.opaque_ref).Enabled, "the NFS SR can take the disk");
+
+                Run(new MoveVirtualDiskAction(c, vdi, nfs));
+                var moved = Until(() => c.Cache.VDIs.FirstOrDefault(v => v.name_label == disk), v => v != null && v.SR.opaque_ref == nfs.opaque_ref, "disk on the NFS SR");
+                Assert.IsFalse(c.Cache.VDIs.Any(v => v.name_label == disk && v.SR.opaque_ref == local.opaque_ref), "the source copy is gone");
+                Run(new DestroyDiskAction(moved));
+            }
+            finally
+            {
+                foreach (var v in c.Cache.VDIs.Where(v => v.name_label == disk).ToList())
+                    try { VDI.destroy(c.DuplicateSession(), v.opaque_ref); } catch { }
+                if (nfs != null) Destroy(c, nfs);
+                c.EndConnect();
+            }
+        }
+
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void SmbSharedSrLifecycleOnLabPool() =>
             Lifecycle(SrRules.Kind.Smb, @"\\" + StorageHost() + @"\sr", "xcp", Environment.GetEnvironmentVariable("XCP_PASS"));
