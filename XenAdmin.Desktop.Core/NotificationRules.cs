@@ -29,6 +29,38 @@ namespace XenAdmin.Desktop
         public static int Count(IEnumerable<IXenConnection> connections) => AlertMessages(connections).Count();
 
         /// <summary>One grid row; format only the rows shown (the texts resolve objects by uuid).</summary>
+        /// <summary>FilterDatesToolStripDropDownButton's presets (the custom range of DateFilterDialog is not ported yet).</summary>
+        public enum DateFilter { All, Last24Hours, Last3Days, Last7Days, Last30Days }
+
+        public static string DateFilterText(DateFilter f) => f switch
+        {
+            DateFilter.Last24Hours => Messages.DATE_FILTER_LAST_24_HOURS,
+            DateFilter.Last3Days => Messages.DATE_FILTER_LAST_3_DAYS,
+            DateFilter.Last7Days => Messages.DATE_FILTER_LAST_7_DAYS,
+            DateFilter.Last30Days => Messages.DATE_FILTER_LAST_30_DAYS,
+            _ => Messages.FILTER_SHOW_ALL
+        };
+
+        /// <summary>DateFilterDialog.SetDays: the last 24 hours from now, or from the beginning of the day 3, 7 or 30 days ago.</summary>
+        public static DateTime? DateFrom(DateFilter f, DateTime now) => f switch
+        {
+            DateFilter.Last24Hours => now.AddDays(-1),
+            DateFilter.Last3Days => now.AddDays(-3).Date,
+            DateFilter.Last7Days => now.AddDays(-7).Date,
+            DateFilter.Last30Days => now.AddDays(-30).Date,
+            _ => null
+        };
+
+        /// <summary>AlertSummaryPage's CSV export: the header line.</summary>
+        public static string CsvHeader() =>
+            string.Join(",", Messages.TITLE, Messages.SEVERITY, Messages.DESCRIPTION, Messages.APPLIES_TO, Messages.TIMESTAMP);
+
+        /// <summary>AlertExtensions.GetAlertDetailsCSVQuotes: every field quoted, quotes doubled, local time.</summary>
+        public static string CsvLine(AlertRow r) =>
+            string.Format("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\"",
+                (r.Title ?? "").EscapeQuotes(), r.Priority.GetString().EscapeQuotes(), (r.Description ?? "").EscapeQuotes(),
+                (r.AppliesTo ?? "").EscapeQuotes(), r.Time.ToString(Messages.DATEFORMAT_DMY_HM).EscapeQuotes());
+
         public static AlertRow Row(Message m) => new AlertRow(m, PriorityOf(m), Title(m), Description(m), AppliesTo(m), m.TimestampLocal());
 
         /// <summary>MessageAlert.HostUuid: the message's host, else the coordinator (the Filter by Server key).</summary>

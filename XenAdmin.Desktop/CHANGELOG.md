@@ -18,6 +18,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Host NICs tab: the physical interfaces (link, speed, duplex, vendor, device, PCI bus path, FCoE and SR-IOV) and Rescan.
 - Server menu: Restart Toolstack and Remove From Pool (also in the server's context menu); VM menu: Take a Snapshot
   and Convert to Template, with the Windows rules and confirmations.
+- Notifications > Alerts: Filter by Date (last 24 hours, 3, 7 or 30 days) and Export to a CSV file (all alerts or
+  only the filtered ones).
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).

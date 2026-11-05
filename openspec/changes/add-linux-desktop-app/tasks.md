@@ -97,5 +97,6 @@
 - [x] 8.4g4 Aba Networking de host e pool e wizard New Network (External/VLAN e Single-Server Private), VLAN testada no lab num host sozinho e no pool; Bonded, SR-IOV e Delete Bond pendentes
 - [x] 8.4g5 Aba NICs do host (lista e Rescan); Create/Delete Bond pendentes
 - [x] 8.4g6 Menus: Restart Toolstack, Remove From Pool, Take a Snapshot, Convert to Template (testados no .110 e no lab)
+- [x] 8.4g7 Alertas: filtro por data (presets) e Export CSV; intervalo personalizado pendente
 - [ ] 8.4g Restantes do QA: botões das abas Networking/Storage de host, pool e SR, menus Pool/Server/VM/Templates/Help completos (HA, DR, Restart Toolstack, Export, Convert to Template, vApp, vTPM), abas NICs/GPU/USB e Console do host, barras da aba Memory, Search editável, Tree View de snapshots, Objects/Organization Views/Saved Searches, HBA/FCoE/Local no New Storage, Undock/Fullscreen do console, filtro de data e Export de alertas, ícones de SO no New VM
 - [ ] 8.4d Assinatura e notarização do app macOS (precisa de Mac com Developer ID), assinatura Authenticode no Windows; FreeBSD — fora do escopo atual

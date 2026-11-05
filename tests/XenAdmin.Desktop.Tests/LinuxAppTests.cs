@@ -317,6 +317,22 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void AlertDateFilterAndCsv()
+        {
+            var now = new DateTime(2026, 11, 5, 14, 30, 0);
+            Assert.IsNull(NotificationRules.DateFrom(NotificationRules.DateFilter.All, now));
+            Assert.AreEqual(new DateTime(2026, 11, 4, 14, 30, 0), NotificationRules.DateFrom(NotificationRules.DateFilter.Last24Hours, now));
+            Assert.AreEqual(new DateTime(2026, 11, 2), NotificationRules.DateFrom(NotificationRules.DateFilter.Last3Days, now), "from the beginning of the day");
+            Assert.AreEqual(new DateTime(2026, 10, 6), NotificationRules.DateFrom(NotificationRules.DateFilter.Last30Days, now));
+
+            var row = new NotificationRules.AlertRow(null, XenAdmin.Alerts.AlertPriority.Priority2, "Disk \"sda\" full", "a, b", "host1", now);
+            var line = NotificationRules.CsvLine(row);
+            StringAssert.StartsWith(line, "\"Disk \"\"sda\"\" full\",");
+            StringAssert.Contains(line, "\"a, b\",\"host1\",");
+            Assert.AreEqual(5, NotificationRules.CsvHeader().Split(',').Length);
+        }
+
+        [TestMethod]
         public void ServerAddressParsing()
         {
             Assert.IsTrue(ServerAddress.TryParse(" xcp1.lan ", out var h, out var p)); Assert.AreEqual(("xcp1.lan", 443), (h, p));

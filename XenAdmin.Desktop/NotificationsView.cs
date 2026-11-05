@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using XenAdmin.Actions;
 using XenAdmin.Alerts;
@@ -17,8 +18,8 @@ namespace XenAdmin.Desktop
     /// <summary>
     /// AlertSummaryPage: the alerts grid (severity, message, server/pool, date, Dismiss), severity and server filters,
     /// Refresh and Dismiss All / Dismiss Selected.
-    /// shortcut: no date filter, Export, column sorting or keyboard expansion, and the dismiss confirmations have no
-    /// "do not show again" setting; add them with the rest of AlertSummaryPage.
+    /// shortcut: the date filter has the presets but not the custom range (DateFilterDialog); no column sorting or keyboard
+    /// expansion, and the dismiss confirmations have no "do not show again" setting; add them with the rest of AlertSummaryPage.
     /// </summary>
     public class NotificationsView : DockPanel, ILiveView
     {
@@ -32,6 +33,7 @@ namespace XenAdmin.Desktop
         private readonly HashSet<string> _dismissing = new HashSet<string>();
         private List<NotificationRules.AlertRow> _rows = new List<NotificationRules.AlertRow>();
         private string _signature;
+        private NotificationRules.DateFilter _dateFilter = NotificationRules.DateFilter.All;
 
         /// <summary>Raised when the visible alerts or the filters change, so the title band and the left list follow.</summary>
         public event Action Changed;
@@ -50,6 +52,12 @@ namespace XenAdmin.Desktop
                 Check(p == AlertPriority.Unknown ? "Unknown" : $"Priority {p.GetString()}", !_hiddenSeverities.Contains(p), on => Toggle(_hiddenSeverities, p, on))));
             var server = MenuButton("Filter by S&erver", () => _connections().Where(c => c.IsConnected).SelectMany(c => c.Cache.Hosts).OrderBy(h => h).Select(h =>
                 Check(h.Name(), !_hiddenServers.Contains(h.uuid), on => Toggle(_hiddenServers, h.uuid, on))));
+            // FilterDatesToolStripDropDownButton order: the periods, then Show All
+            var date = MenuButton("Filter by &Date", () => Enum.GetValues<NotificationRules.DateFilter>()
+                .OrderBy(f => f == NotificationRules.DateFilter.All).Select(f =>
+                    Check(Dialogs.M(NotificationRules.DateFilterText(f)), _dateFilter == f, on => _dateFilter = on ? f : NotificationRules.DateFilter.All)));
+            var export = new Button { Content = Dialogs.M("E&xport") };
+            export.Click += async (_, _) => await Export();
             var refresh = new Button { Content = Dialogs.M("&Refresh") };
             refresh.Click += (_, _) => { _signature = null; Refresh(); };
             var dismiss = MenuButton("Dismiss A&ll", () => new[]
@@ -65,9 +73,9 @@ namespace XenAdmin.Desktop
             var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
             toolbar.Children.Add(severity);
             toolbar.Children.Add(server);
-            toolbar.Children.Add(new Button { Content = Dialogs.M("Filter by &Date") + "  ▾", IsEnabled = false });
+            toolbar.Children.Add(date);
             toolbar.Children.Add(refresh);
-            toolbar.Children.Add(new Button { Content = Dialogs.M("E&xport"), IsEnabled = false });
+            toolbar.Children.Add(export);
             toolbar.Children.Add(dismiss);
             var bar = new Border { Background = Brush.Parse("#F5F5F5"), BorderBrush = Brush.Parse("#DCDCDC"), BorderThickness = new Thickness(1), Padding = new Thickness(4), Child = toolbar, Margin = new Thickness(0, 0, 0, 8) };
 
@@ -112,7 +120,43 @@ namespace XenAdmin.Desktop
         private const string Title = "Dismiss Alerts";
         private IEnumerable<NotificationRules.AlertRow> Shown => _rows;
         private Window Owner => TopLevel.GetTopLevel(this) as Window;
-        private bool FilterIsOn => _hiddenSeverities.Count + _hiddenServers.Count > 0;
+        private bool FilterIsOn => _hiddenSeverities.Count + _hiddenServers.Count > 0 || _dateFilter != NotificationRules.DateFilter.All;
+
+        /// <summary>
+        /// toolStripButtonExportAll_Click: with filters on, all alerts or only the shown ones; then a .csv file chosen by
+        /// the user, written by an action so it shows in Events.
+        /// </summary>
+        private async System.Threading.Tasks.Task Export()
+        {
+            var all = true;
+            if (FilterIsOn)
+            {
+                var choice = await Dialogs.Choose(Owner, "Export", Messages.ALERT_EXPORT_ALL_OR_FILTERED, Messages.EXPORT_ALL_BUTTON, Messages.EXPORT_FILTERED_BUTTON);
+                if (choice == null) return;
+                all = choice.Value;
+            }
+            var file = await Owner.StorageProvider.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+            {
+                Title = Messages.EXPORT_ALL,
+                DefaultExtension = "csv",
+                SuggestedFileName = "alerts.csv",
+                ShowOverwritePrompt = true,
+                FileTypeChoices = new[] { new Avalonia.Platform.Storage.FilePickerFileType(Messages.CSV_DESCRIPTION) { Patterns = new[] { "*.csv" } } }
+            });
+            var path = file?.TryGetLocalPath();
+            if (path == null) return;
+            var rows = all
+                ? NotificationRules.AlertMessages(_connections()).Where(m => !_dismissing.Contains(m.opaque_ref)).OrderByDescending(m => m.timestamp).Select(NotificationRules.Row).ToList()
+                : Shown.ToList();
+            _run(new DelegatedAsyncAction(null, string.Format(Messages.EXPORT_SYSTEM_ALERTS, path), string.Format(Messages.EXPORTING_SYSTEM_ALERTS, path),
+                string.Format(Messages.EXPORTED_SYSTEM_ALERTS, path), _ =>
+                {
+                    using var stream = new System.IO.StreamWriter(path, false, System.Text.Encoding.UTF8);
+                    stream.WriteLine(NotificationRules.CsvHeader());
+                    foreach (var r in rows)
+                        stream.WriteLine(NotificationRules.CsvLine(r));
+                }));
+        }
 
         /// <summary>tsmiDismissAll_Click: with filters on, all alerts or only the shown ones; without, a confirmation.</summary>
         private async void DismissAll()
@@ -159,8 +203,10 @@ namespace XenAdmin.Desktop
             var all = NotificationRules.AlertMessages(_connections()).Where(m => !_dismissing.Contains(m.opaque_ref)).ToList();
             Total = all.Count;
             // filter and cut first, then format only the rows that change (MessageAlert texts resolve objects by uuid)
+            var from = NotificationRules.DateFrom(_dateFilter, DateTime.Now);
             var shown = all.Where(m => !_hiddenSeverities.Contains(NotificationRules.PriorityOf(m))
-                    && (_hiddenServers.Count == 0 || !_hiddenServers.Contains(NotificationRules.HostUuid(m))))
+                    && (_hiddenServers.Count == 0 || !_hiddenServers.Contains(NotificationRules.HostUuid(m)))
+                    && (from == null || m.TimestampLocal() >= from))
                 .OrderByDescending(m => m.timestamp).Take(MaxRows).ToList();
             var signature = string.Join("|", shown.Select(m => m.opaque_ref)) + "#" + string.Join(",", _expanded) + "#" + string.Join(",", _selected) + "#" + Total;
             if (signature == _signature) return;
