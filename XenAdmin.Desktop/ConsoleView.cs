@@ -50,9 +50,9 @@ namespace XenAdmin.Desktop
 
             // top: teal band with the DVD link and "Launch SSH Console", as in VNCTabView
             var top = new DockPanel { Height = 36, Background = Views.Gradient("#396D8C", "#3F8B89", true) };
-            var ssh = new Button { Content = "Launch SSH Console", IsEnabled = false, Margin = new Thickness(6, 4), Background = Brushes.White };
-            DockPanel.SetDock(ssh, Dock.Right);
-            top.Children.Add(ssh);
+            _ssh.Click += (_, _) => LaunchSsh();
+            DockPanel.SetDock(_ssh, Dock.Right);
+            top.Children.Add(_ssh);
             var dvd = Views.LinkText("Click here to create a DVD drive", null);
             dvd.Foreground = Brushes.White;
             dvd.FontWeight = FontWeight.Bold;
@@ -67,6 +67,9 @@ namespace XenAdmin.Desktop
             cad.Click += (_, _) => SendCtrlAltDel();
             DockPanel.SetDock(cad, Dock.Left);
             bottom.Children.Add(cad);
+            _rdp.Click += async (_, _) => await SwitchToRdp();
+            DockPanel.SetDock(_rdp, Dock.Left);
+            bottom.Children.Add(_rdp);
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 6, Margin = new Thickness(4) };
             right.Children.Add(_scale);
             var undock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
@@ -85,8 +88,82 @@ namespace XenAdmin.Desktop
             Children.Add(status);
             Children.Add(_screen);
             _scale.IsCheckedChanged += (_, _) => _screen.InvalidateVisual();
-            AttachedToVisualTree += (_, _) => Start();
-            DetachedFromVisualTree += (_, _) => Stop();
+            AttachedToVisualTree += (_, _) => { Start(); UpdateButtons(); _buttonsTimer.Start(); };
+            DetachedFromVisualTree += (_, _) => { Stop(); _buttonsTimer.Stop(); };
+            // the guest agent reports addresses and the RDP state later: follow its metrics while the tab is open
+            _buttonsTimer.Tick += (_, _) => UpdateButtons();
+        }
+
+        private readonly Button _ssh = new Button { Content = "Launch SSH Console", Margin = new Thickness(6, 4), Background = Brushes.White };
+        private readonly Button _rdp = new Button { Margin = new Thickness(4) };
+        private volatile int _generation;
+        private bool _rdpBusy; // the 3389 probe runs; WinForms keeps the button disabled meanwhile
+        private readonly Avalonia.Threading.DispatcherTimer _buttonsTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+
+        /// <summary>Set by the main window to run actions in its task list.</summary>
+        public static Action<XenAdmin.Actions.AsyncAction> RunAction;
+
+        private void UpdateButtons()
+        {
+            _ssh.IsVisible = ConsoleRules.SshVisible(_vm);
+            _ssh.IsEnabled = ConsoleRules.SshEnabled(_vm);
+            _rdp.IsVisible = ConsoleRules.RdpVisible(_vm);
+            _rdp.IsEnabled = !_rdpBusy && ConsoleRules.RdpEnabled(_vm);
+            _rdp.Content = Dialogs.M(ConsoleRules.RdpLabel(_vm));
+        }
+
+        /// <summary>VNCTabView.buttonSSH_Click: the desktop's terminal with OpenSSH instead of PuTTY.</summary>
+        private void LaunchSsh()
+        {
+            if (!ConsoleRules.SshEnabled(_vm)) return;
+            var target = ConsoleRules.SshTarget(_vm);
+            if (target == null)
+                _status.Text = "The address reported by the guest is not valid for SSH.";
+            else if (!Platform.PlatformServices.Current.LaunchSsh(target))
+                _status.Text = "No terminal with an ssh client was found (install OpenSSH and a terminal emulator, or set $TERMINAL).";
+        }
+
+        /// <summary>
+        /// toggleConsoleButton (RDP): offer to turn RDP on in the guest, then open the desktop's Remote Desktop client on
+        /// the first address answering on 3389 (XSVNCScreen.PollPort). There is no embedded RDP control here.
+        /// </summary>
+        private async System.Threading.Tasks.Task SwitchToRdp()
+        {
+            if (!ConsoleRules.RdpEnabled(_vm)) return;
+            if (ConsoleRules.CanTurnOnRdp(_vm))
+            {
+                if (!await Dialogs.Confirm(TopLevel.GetTopLevel(this) as Window, "XCP-ng Center", Messages.FORCE_ENABLE_RDP, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+                    return;
+                RunAction?.Invoke(ConsoleRules.TurnOnRdp(_vm));
+                _status.Text = "Asked the guest to turn on Remote Desktop; try again once it is enabled.";
+                return;
+            }
+            _rdpBusy = true;
+            UpdateButtons();
+            var generation = _generation;
+            var candidates = ConsoleRules.RdpAddresses(_vm);
+            string open;
+            try { open = await System.Threading.Tasks.Task.Run(() => candidates.FirstOrDefault(ip => PortOpen(ip.Trim('[', ']'), 3389))); }
+            finally { _rdpBusy = false; UpdateButtons(); }
+            if (_closed || generation != _generation)
+                return; // the tab was left meanwhile
+            if (open == null)
+                _status.Text = "Remote Desktop is not answering on any address of this VM.";
+            else if (!Platform.PlatformServices.Current.LaunchRdp(open))
+                _status.Text = "No Remote Desktop client was found (install FreeRDP or Remmina).";
+        }
+
+        private static bool PortOpen(string host, int port)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                return client.ConnectAsync(host, port).Wait(TimeSpan.FromSeconds(2)) && client.Connected;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public string VmName => _vm.Name();
@@ -95,12 +172,14 @@ namespace XenAdmin.Desktop
         public void Retry()
         {
             Stop();
-            _closed = false;
             Start();
         }
 
         private void Start()
         {
+            // the view is reused when the tab comes back: each attempt has its generation, and only the current one may connect
+            _closed = false;
+            var generation = ++_generation;
             if (_vm.power_state != vm_power_state.Running)
             {
                 _status.Text = "This VM is not running.";
@@ -118,9 +197,10 @@ namespace XenAdmin.Desktop
             {
                 try
                 {
-                    _session = _vm.Connection.DuplicateSession();
-                    var stream = OpenTunnel(new Uri(location), _session.opaque_ref);
-                    if (_closed) { stream.Dispose(); return; }
+                    var session = _vm.Connection.DuplicateSession();
+                    var stream = OpenTunnel(new Uri(location), session.opaque_ref);
+                    if (_closed || generation != _generation) { stream.Dispose(); return; }
+                    _session = session;
                     _vnc = new VNCStream(this, stream, false);
                     _vnc.ErrorOccurred += (_, e) => { if (KeyLog) System.Console.Error.WriteLine("console vnc error " + e); };
                     _vnc.ErrorOccurred += (_, e) => Ui(() => _status.Text = _closed ? "" : "Disconnected: " + e.Message);

@@ -50,6 +50,7 @@ namespace XenAdmin.Desktop
         {
             _config = config;
             _trust = trust;
+            ConsoleView.RunAction = RunTracked;
             Title = "XCP-ng Center";
             Width = 1280;
             Height = 800;

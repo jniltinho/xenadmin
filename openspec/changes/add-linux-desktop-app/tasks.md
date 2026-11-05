@@ -73,7 +73,7 @@
 - [x] 7.8c Lab de 2 hosts XCP-ng 8.3 aninhados no VirtualBox (`tools/vagrant/xcp-ng-lab`), instalação automática por answerfile
 - [ ] 7.8d New Storage Repository (NFS e SMB: Scan, criar, reanexar/introduzir) e Migrate to Server (intra-pool), com testes no lab
 - [x] 7.8e Console: scancodes para HVM (QEMU extended key event), keysyms com fallback US para PV; logout da sessão do console removido
-- [ ] 7.8f Console: "Launch SSH Console" (hoje desabilitado) e "Switch to Remote Desktop" (RDP) para VMs Windows
+- [x] 7.8f Console: "Launch SSH Console" (terminal do sistema com OpenSSH) e "Turn on / Switch to Remote Desktop" (cliente RDP do sistema: FreeRDP no terminal ou Remmina; mstsc no Windows; app RDP no macOS), com as regras do VNCTabView; reconexão do console corrigida
 - [ ] 7.8 Wizards: Import/Export, demais tipos de SR (iSCSI, HBA, ISO libraries)
 - [ ] 7.9 Objects, Organization Views, Saved Searches e Notifications (alertas do servidor com contador)
 - [ ] 7.10 Detalhes visuais pendentes: abas inclinadas do WinForms, recuo e seleção da árvore só no rótulo, menus Back/Forward com histórico

@@ -14,6 +14,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - Create New Pool dialog (coordinator, members with the join rules of the Windows app).
 - New Storage Repository wizard for NFS and SMB (Scan, create, reattach or introduce an existing SR).
 - VM > Migrate to Server inside a pool, with the reason each server cannot take the VM.
+- Console: Launch SSH Console (the desktop's terminal with OpenSSH) and Turn on / Switch to Remote Desktop (the
+  desktop's RDP client: FreeRDP in a terminal or Remmina on Linux, mstsc on Windows, the RDP app on macOS).
 - Nested XCP-ng lab in VirtualBox (`tools/vagrant/xcp-ng-lab`) for pool and write tests.
 
 ### Changed
@@ -23,7 +25,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 - One TLS trust policy for XenAPI and the console tunnel; pool members trusted through the coordinator.
 
 ### Fixed
-- Leaving the Console tab no longer drops the connection to the pool.
+- Leaving the Console tab no longer drops the connection to the pool, and coming back to it reconnects
+  (it stayed at "Connecting..." with the old picture).
 - Console keyboard: HVM guests get scancodes, so symbols such as % and layouts such as ABNT2 work.
 - Full copy no longer falls back to a fast clone when no storage is selected.
 - Hidden storage repositories are never picked as the default for new disks.

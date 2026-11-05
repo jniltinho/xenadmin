@@ -55,5 +55,41 @@ namespace XenAdmin.Desktop.Tests
             Assert.IsFalse(none.IsAvailable);
             Assert.IsNull(none.Load("k"));
         }
+
+        [TestMethod]
+        public void UnixLaunchersPickTheTerminalAndRdpClient()
+        {
+            System.Func<string, string> Have(params string[] names) => n => System.Array.IndexOf(names, n) >= 0 ? "/usr/bin/" + n : null;
+            // $TERMINAL wins, then the Debian alternative, then known terminals; each with its "run this" flag
+            var c = UnixPlatform.SshCommand(Have("ssh", "konsole", "xterm"), null, "root@10.0.0.5").Value;
+            Assert.AreEqual("/usr/bin/konsole", c.Exe);
+            CollectionAssert.AreEqual(new[] { "-e", "/usr/bin/ssh", "--", "root@10.0.0.5" }, c.Args);
+            c = UnixPlatform.SshCommand(Have("ssh", "gnome-terminal", "myterm"), "myterm", "root@h").Value;
+            Assert.AreEqual("/usr/bin/myterm", c.Exe);
+            c = UnixPlatform.SshCommand(Have("ssh", "gnome-terminal"), null, "root@h").Value;
+            CollectionAssert.AreEqual(new[] { "--", "/usr/bin/ssh", "--", "root@h" }, c.Args);
+            c = UnixPlatform.SshCommand(Have("ssh", "gnome-terminal", "xterm"), "gnome-terminal", "root@h").Value;
+            CollectionAssert.AreEqual(new[] { "--", "/usr/bin/ssh", "--", "root@h" }, c.Args, "$TERMINAL keeps its own run arguments");
+            Assert.IsNull(UnixPlatform.SshCommand(Have("xterm"), null, "root@h"), "no ssh client");
+
+            // FreeRDP runs in a terminal (its certificate question needs one); Remmina asks in its own window
+            var r = UnixPlatform.RdpCommand(Have("remmina", "xfreerdp", "xterm"), null, "10.0.0.7").Value;
+            Assert.AreEqual("/usr/bin/xterm", r.Exe);
+            CollectionAssert.AreEqual(new[] { "-e", "/usr/bin/xfreerdp", "/v:10.0.0.7", "/dynamic-resolution", "+clipboard" }, r.Args);
+            r = UnixPlatform.RdpCommand(Have("remmina", "xfreerdp"), null, "10.0.0.7").Value;
+            CollectionAssert.AreEqual(new[] { "-c", "rdp://10.0.0.7" }, r.Args, "no terminal: Remmina");
+            Assert.IsNull(UnixPlatform.RdpCommand(Have("xfreerdp"), null, "h"), "FreeRDP without a terminal cannot ask about the certificate");
+        }
+
+        [TestMethod]
+        public void SshTargetAcceptsOnlyLiteralAddressesAndPlainUsers()
+        {
+            Assert.AreEqual("root@10.77.58.60", ConsoleRules.SshTarget("root", "10.77.58.60"));
+            Assert.AreEqual("DOM\\ann@fe80::1", ConsoleRules.SshTarget("DOM\\ann", "fe80::1"));
+            Assert.IsNull(ConsoleRules.SshTarget("root", "$(id)"), "guest data is never a command");
+            Assert.IsNull(ConsoleRules.SshTarget("root", "127.0.0.1 -oProxyCommand=calc.exe"));
+            Assert.IsNull(ConsoleRules.SshTarget("-oProxyCommand=x", "10.0.0.1"));
+            Assert.IsNull(ConsoleRules.SshTarget("ann'; rm", "10.0.0.1"));
+        }
     }
 }

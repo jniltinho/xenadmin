@@ -13,6 +13,10 @@ namespace XenAdmin.Desktop.Platform
         string ConfigDirectory { get; }
         /// <summary>Password storage of the desktop (Secret Service, Keychain, DPAPI); may be unavailable.</summary>
         ISecretStore Secrets { get; }
+        /// <summary>Opens the desktop's terminal running "ssh target" (Launch SSH Console); false when there is none.</summary>
+        bool LaunchSsh(string target);
+        /// <summary>Opens the desktop's Remote Desktop client on host (Switch to Remote Desktop); false when there is none.</summary>
+        bool LaunchRdp(string host);
     }
 
     public interface ISecretStore

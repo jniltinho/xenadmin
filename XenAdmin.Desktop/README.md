@@ -12,6 +12,11 @@ Design and scope: [`openspec/changes/add-linux-desktop-app`](../openspec/changes
   (General, CPU, Boot Options).
 - Server list and fingerprints in the platform settings directory (below). Passwords are never stored.
 
+The console's SSH and Remote Desktop buttons start the desktop's own clients: a terminal emulator (`$TERMINAL`,
+`x-terminal-emulator`, GNOME Terminal, Konsole, xterm...) running OpenSSH, and FreeRDP (in a terminal, so its
+certificate question can be answered) or Remmina. As in XenCenter, SSH is offered once the guest agent reports an
+address, and only for guests it does not take for Windows.
+
 Not yet: Performance tab, Notifications, HA/WLB, updates, host actions, the other wizards, OS keychain.
 
 ## Layout (ready for macOS, FreeBSD and Windows without WinForms)
