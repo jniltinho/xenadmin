@@ -551,6 +551,13 @@ func (w *Workspace) CheckSRLocation(key, kind, path string) (problem string, err
 
 // CreateSR creates the SR the wizard describes and returns its uuid.
 func (w *Workspace) CreateSR(key string, spec ops.NewSR) (uuid string, err error) {
+	if spec.Kind == rules.SRIscsi && spec.Existing == "" { // Format: never a LUN an SR of any connected pool uses
+		if text, err := w.LUNInUse(spec.LUN.ScsiID); err != nil {
+			return "", err
+		} else if text != "" {
+			return "", errors.New(text)
+		}
+	}
 	if spec.Existing != "" {
 		if pool, err := w.srInUseElsewhere(key, spec.Existing); err != nil {
 			return "", err
@@ -658,4 +665,60 @@ func (w *Workspace) VMTargets(key, uuid string) (out []app.Target, err error) {
 // VMOnHost migrates the VM to a server, or starts or resumes it there (op: migrate, start_on, resume_on).
 func (w *Workspace) VMOnHost(key, uuid, host, op string) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.VMOnHost(c, uuid, host, op) })
+}
+
+// ScanIQNs is the iSCSI page's Scan Target Host.
+func (w *Workspace) ScanIQNs(key, target string, port int, chapUser, chapPassword string) (out []rules.IQN, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		out, err = ops.ScanIQNs(c, target, port, chapUser, chapPassword)
+		return err
+	})
+	return out, err
+}
+
+// ScanLUNs lists the LUNs of the chosen IQN.
+func (w *Workspace) ScanLUNs(key string, iqn rules.IQN, chapUser, chapPassword string) (out []rules.LUN, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = ops.ScanLUNs(c, iqn, chapUser, chapPassword); return err })
+	return out, err
+}
+
+// LUNInUse is the iSCSI page's check before Finish (LVMoISCSI.SrUsingLunExists over every connected pool): the
+// message when an SR already uses the LUN, "" otherwise.
+func (w *Workspace) LUNInUse(scsiID string) (string, error) {
+	w.mu.Lock()
+	var keys []string
+	for k := range w.conns {
+		keys = append(keys, k)
+	}
+	w.mu.Unlock()
+	for _, k := range keys {
+		var text string
+		err := w.with(k, func(c *xapi.Connection) error {
+			sr, err := ops.LUNInUse(c, scsiID)
+			if sr != "" {
+				text = messages.Format(messages.Get("NEWSR_LUN_IN_USE_ON_POOL"), sr, ops.PoolName(c))
+			}
+			return err
+		})
+		if err != nil && !errors.Is(err, errNotConnected) {
+			return "", err
+		}
+		if text != "" {
+			return text, nil
+		}
+	}
+	return "", nil
+}
+
+// LUNQuestion is LVMoISCSI's question after probing the LUN (LVMoIsciWarningDialog): Format only, when no SR is on
+// it, else Reattach or Format.
+func (w *Workspace) LUNQuestion(found bool) string {
+	kind := messages.Friendly("Label-SR.SRTypes-lvmoiscsi")
+	warning := "To prevent data loss you must ensure that the LUN is not in use by any other system, including XCP-ng hosts that are not connected to XCP-ng Center."
+	format := messages.Format(messages.Get("LVMOHBA_WARNING_DIALOG_FORMAT_INFO"), kind)
+	if !found {
+		return messages.Get("LVMOHBA_WARNING_DIALOG_HEADER_NO_EXISTING_SRS") + "\n\n" + format + "\n\n" + warning
+	}
+	return messages.Format(messages.Get("LVMOHBA_WARNING_DIALOG_HEADER_FOUND_EXISTING_SR"), kind) + "\n\nReattach: " +
+		messages.Format(messages.Get("LVMOHBA_WARNING_DIALOG_REATTACH_INFO"), kind) + "\nFormat: " + format + "\n\n" + warning
 }

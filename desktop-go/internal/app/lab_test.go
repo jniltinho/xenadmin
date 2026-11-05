@@ -340,7 +340,7 @@ func TestLabCreateSR(t *testing.T) {
 		t.Fatalf("ISO library attached twice: %v", err)
 	}
 	kinds, err := ReadNewSRKinds(c)
-	if err != nil || len(kinds) != 4 || kinds[0].DefaultName == "" {
+	if err != nil || len(kinds) != len(rules.SRKinds) || kinds[0].DefaultName == "" {
 		t.Fatalf("%+v %v", kinds, err)
 	}
 	pools, _ := xenapi.Pool.GetAllRecords(s)
@@ -720,5 +720,80 @@ func TestLabMigrateVM(t *testing.T) {
 	}
 	if err := ops.VMOnHost(c, uuid, from, "start_on"); err == nil {
 		t.Fatal("started a running VM")
+	}
+}
+
+// TestLabISCSI scans XCP_LAB_ISCSI (the lab's iSCSI target, XCP_ALLOW_WRITE=1), formats its first LUN as an SR, checks
+// that the LUN is then in use, forgets the SR, finds it again with the LUN probe and reattaches it, then destroys it.
+func TestLabISCSI(t *testing.T) {
+	c := labConnection(t)
+	target := os.Getenv("XCP_LAB_ISCSI")
+	if target == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_ISCSI and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	iqns, err := ops.ScanIQNs(c, target, rules.DefaultISCSIPort, "", "")
+	if err != nil || len(iqns) == 0 || iqns[0].IQN == "*" {
+		t.Fatalf("%+v %v", iqns, err)
+	}
+	luns, err := ops.ScanLUNs(c, iqns[0], "", "")
+	if err != nil || len(luns) == 0 {
+		t.Fatalf("%+v %v", luns, err)
+	}
+	if used, _ := ops.LUNInUse(c, luns[0].ScsiID); used != "" {
+		t.Skipf("the lab LUN is used by %s", used)
+	}
+	spec := ops.NewSR{Kind: rules.SRIscsi, Name: "xcpng-center-go-test-iscsi", AutoDesc: true, IQN: iqns[0], LUN: luns[0]}
+	if found, err := ops.ProbeSR(c, spec); err != nil || len(found) != 0 {
+		t.Fatalf("a fresh LUN: %+v %v", found, err)
+	}
+	uuid, err := ops.CreateSR(c, spec)
+	if uuid != "" {
+		defer func() {
+			if ref, err := xenapi.SR.GetByUUID(s, uuid); err == nil {
+				pbds, _ := xenapi.SR.GetPBDs(s, ref)
+				for _, p := range pbds {
+					_ = xenapi.PBD.Unplug(s, p)
+				}
+				if err := xenapi.SR.Destroy(s, ref); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := xenapi.SR.GetByUUID(s, uuid)
+	if rec, _ := xenapi.SR.GetRecord(s, ref); rec.Type != "lvmoiscsi" || !rec.Shared || !strings.HasPrefix(rec.NameDescription, "iSCSI SR [") {
+		t.Fatalf("%+v", rec)
+	}
+	if used, _ := ops.LUNInUse(c, luns[0].ScsiID); used != spec.Name {
+		t.Fatalf("in use: %q", used)
+	}
+	if _, err := ops.CreateSR(c, spec); err == nil {
+		t.Fatal("formatted a LUN in use")
+	}
+	if err := ops.SRCommand(c, uuid, "detach"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.SRCommand(c, uuid, "forget"); err != nil {
+		t.Fatal(err)
+	}
+	found, err := ops.ProbeSR(c, spec)
+	if err != nil || len(found) != 1 || found[0].UUID != uuid {
+		t.Fatalf("the LUN probe: %+v %v", found, err)
+	}
+	spec.Existing = uuid
+	if _, err := ops.CreateSR(c, spec); err != nil {
+		t.Fatal(err)
+	}
+	if ref, err = xenapi.SR.GetByUUID(s, uuid); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range func() []xenapi.PBDRef { r, _ := xenapi.SR.GetPBDs(s, ref); return r }() {
+		if pbd, _ := xenapi.PBD.GetRecord(s, p); !pbd.CurrentlyAttached {
+			t.Fatal("a PBD of the reattached SR is not attached")
+		}
 	}
 }

@@ -34,6 +34,8 @@ export interface NewSRKind { kind: string; name: string; blurb: string; default_
 export interface DeleteItem { uuid: string; name: string; size?: number; checked: boolean }
 export interface VMDelete { title: string; text: string; disks: DeleteItem[]; snapshots: DeleteItem[] }
 export interface VMCopy { name: string; description: string; clone: boolean; copy: boolean; srs: { uuid: string; text: string; reason?: string }[]; default_sr: string }
+export interface IQN { index: number; iqn: string; address: string; port: number; text: string }
+export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
 
 export const api = {
@@ -82,6 +84,10 @@ export const api = {
   copyVm: (key: string, uuid: string, name: string, description: string, full: boolean, sr: string) => call<string>("CopyVM", key, uuid, name, description, full, sr),
   vmTargets: (key: string, uuid: string) => call<{ uuid: string; text: string; enabled: boolean; home?: boolean }[]>("VMTargets", key, uuid),
   vmOnHost: (key: string, uuid: string, host: string, op: string) => call<void>("VMOnHost", key, uuid, host, op),
+  scanIqns: (key: string, target: string, port: number, user: string, password: string) => call<IQN[]>("ScanIQNs", key, target, port, user, password),
+  scanLuns: (key: string, iqn: IQN, user: string, password: string) => call<LUN[]>("ScanLUNs", key, iqn, user, password),
+  lunInUse: (scsiId: string) => call<string>("LUNInUse", scsiId),
+  lunQuestion: (found: boolean) => call<string>("LUNQuestion", found),
   srQuestion: (command: string, name: string) => call<HostQuestion>("SRQuestion", command, name),
   srCommand: (key: string, uuid: string, command: string) => call<void>("SRCommand", key, uuid, command),
   srAttachWarning: (kind: string, uuid: string) => call<string>("SRAttachWarning", kind, uuid),

@@ -67,6 +67,11 @@ type NewSR struct {
 	User        string       `json:"user"`
 	Password    string       `json:"password"`
 	Existing    string       `json:"existing"` // the uuid of an SR a scan found: reattach it instead of creating one
+	// iSCSI: the IQN and LUN the scans found, and CHAP (ChapUser "" for none)
+	IQN          rules.IQN `json:"iqn"`
+	LUN          rules.LUN `json:"lun"`
+	ChapUser     string    `json:"chap_user"`
+	ChapPassword string    `json:"chap_password"`
 }
 
 // CreateSR is NewSRWizard's SrCreateAction: a shared SR made on the coordinator from rules.SRDeviceConfig, with its
@@ -75,30 +80,24 @@ type NewSR struct {
 // that is not a library becomes its default SR (SetSrAsDefaultAction). It returns the new SR's UUID.
 func CreateSR(c *xapi.Connection, spec NewSR) (uuid string, err error) {
 	kind, name := spec.Kind, strings.TrimSpace(spec.Name)
-	if !contains(rules.SRKinds, kind) || name == "" || !rules.SRValidLocation(kind, spec.Path) {
-		return "", errors.New("enter a name and a valid share for the new SR")
+	if !contains(rules.SRKinds, kind) || name == "" {
+		return "", errors.New("enter a name for the new SR")
 	}
-	if err := ISOAlreadyAttached(c, kind, spec.Path); err != nil {
+	description, dconf, password, err := srSettings(c, spec)
+	if err != nil {
 		return "", err
 	}
-	description := spec.Description
-	if spec.AutoDesc {
-		description = rules.SRAutoDescription(kind, strings.TrimSpace(spec.Path))
-	}
-	dconf := rules.SRDeviceConfig(kind, spec.Path, spec.Options, spec.NFSVersion, spec.User, spec.Password)
 	if spec.Existing != "" && !rules.SRIsIso(kind) {
-		return attachSR(c, kind, spec.Existing, name, description, dconf, spec.Password)
+		return attachSR(c, kind, spec.Existing, name, description, dconf, password)
 	}
 	s := c.Session
 	coordinator, err := coordinatorOf(s)
 	if err != nil {
 		return "", err
 	}
-	var password string
 	var submitted, created bool
 	for _, key := range []string{"cifspassword", "password", "chappassword"} { // CreateSecret: the first one found
 		if v, ok := dconf[key]; ok {
-			password = v
 			secret, serr := xenapi.Secret.Create(s, xenapi.SecretRecord{Value: v, OtherConfig: map[string]string{}})
 			if serr != nil {
 				return "", xapi.Sanitize(serr, password)
@@ -171,6 +170,66 @@ func CreateSR(c *xapi.Connection, spec NewSR) (uuid string, err error) {
 func createSettled(submitted, created bool, err error) bool {
 	var apiErr *xenapi.APIError
 	return !submitted || created || errors.As(err, &apiErr) && !errors.Is(err, ErrUncertain)
+}
+
+// srSettings checks a NewSR and gives its description (the automatic one when asked), device_config and password:
+// a share for NFS/SMB and the ISO libraries (no library twice), the scanned IQN and LUN for iSCSI (never a LUN an SR
+// of this pool uses).
+func srSettings(c *xapi.Connection, spec NewSR) (description string, dconf map[string]string, password string, err error) {
+	description = spec.Description
+	if spec.Kind == rules.SRIscsi {
+		if spec.IQN.IQN == "" || spec.IQN.Address == "" || spec.LUN.ScsiID == "" && spec.LUN.Serial == "" {
+			return "", nil, "", errors.New("scan the target host and select the target IQN and LUN")
+		}
+		if sr, err := LUNInUse(c, spec.LUN.ScsiID); err != nil {
+			return "", nil, "", err
+		} else if sr != "" && spec.Existing == "" {
+			return "", nil, "", errors.New(messages.Format(messages.Get("NEWSR_LUN_IN_USE_ON_POOL"), sr, PoolName(c)))
+		}
+		if spec.AutoDesc {
+			description = rules.ISCSIDescription(spec.IQN, spec.LUN)
+		}
+		return description, rules.ISCSIDeviceConfig(spec.IQN, spec.LUN, spec.ChapUser, spec.ChapPassword), spec.ChapPassword, nil
+	}
+	if !rules.SRValidLocation(spec.Kind, spec.Path) {
+		return "", nil, "", errors.New("enter a valid share for the new SR")
+	}
+	if err := ISOAlreadyAttached(c, spec.Kind, spec.Path); err != nil {
+		return "", nil, "", err
+	}
+	if spec.AutoDesc {
+		description = rules.SRAutoDescription(spec.Kind, strings.TrimSpace(spec.Path))
+	}
+	return description, rules.SRDeviceConfig(spec.Kind, spec.Path, spec.Options, spec.NFSVersion, spec.User, spec.Password), spec.Password, nil
+}
+
+// LUNInUse is LVMoISCSI.SrUsingLunExists on one pool: the name (or uuid, when it has none) of an iSCSI or GFS2 SR
+// whose PBD uses this SCSI id, "" for none.
+func LUNInUse(c *xapi.Connection, scsiID string) (string, error) {
+	if scsiID == "" {
+		return "", nil
+	}
+	s := c.Session
+	srs, err := xenapi.SR.GetAllRecords(s)
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	for _, sr := range srs {
+		if (sr.Type != "lvmoiscsi" && sr.Type != "gfs2") || len(sr.PBDs) == 0 {
+			continue
+		}
+		pbd, err := xenapi.PBD.GetRecord(s, sr.PBDs[0])
+		if err != nil {
+			return "", xapi.Sanitize(err)
+		}
+		if pbd.DeviceConfig["SCSIid"] == scsiID {
+			if sr.NameLabel == "" { // an unnamed SR is in use all the same
+				return sr.UUID, nil
+			}
+			return sr.NameLabel, nil
+		}
+	}
+	return "", nil
 }
 
 // setDefaultSR is SetSrAsDefaultAction: the pool's default, suspend image and crash dump SR.

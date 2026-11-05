@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- iSCSI in the New Storage wizard (LVMoISCSI): Scan Target Host lists the IQNs and then the LUNs (the SM's refused
+  SR.create, as the C# app), CHAP optional; Finish probes the LUN and offers Reattach of the SR found on it or Format,
+  never on a LUN an SR of a connected pool uses.
 - The window follows the servers live, as the C# XenObjectDownloader: an `event.from` loop per connection (its own
   cancellable session copy, stopped before logout) tells the window, coalesced, to read the server again; the tree,
   the open tab and the alerts follow, and the selection stays.
@@ -16,8 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 - New Storage wizard (Type, Name, Location) for NFS and SMB storage and the NFS and SMB ISO libraries, as
   SrCreateAction: the password in a secret only for SR.create, an unplugged PBD plugged or the SR forgotten, the
   pool's first shared SR made its default. Scan finds the SRs already on an NFS or SMB share and reattaches one
-  (SrReattachAction / SrIntroduceAction, with the C# warning; never one another connected pool uses). iSCSI is not
-  there yet.
+  (SrReattachAction / SrIntroduceAction, with the C# warning; never one another connected pool uses).
 - Storage menu and SR context menu: Repair, Set as Default, Detach, Forget and Destroy, enabled as the C# app and
   with its questions; the tree shows the C# SR icons (default, broken or detached, hidden).
 - New VM wizard (Template, Name, Installation Media, Home Server, CPU & Memory, Storage, Networking, Finish) with the

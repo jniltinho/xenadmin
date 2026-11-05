@@ -2,9 +2,11 @@
 // The New Storage wizard (NewSRWizard): Type, Name and Location pages for NFS and SMB storage and the NFS and SMB ISO
 // libraries; the checks and the creation come from the Go side (SrRules, SrCreateAction).
 // NFS and SMB storage can also reattach an SR a Scan finds on the share (SrReattachAction / SrIntroduceAction).
-// shortcut: no iSCSI, HBA or local storage yet.
+// iSCSI (LVMoISCSI): Scan Target Host lists the IQNs, then the LUNs; Finish probes the LUN and asks to reattach the SR
+// found on it or to format it (LVMoIsciWarningDialog).
+// shortcut: no HBA, FCoE or local storage.
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { api, type NewSRKind } from "./api/workspace";
+import { api, type IQN, type LUN, type NewSRKind } from "./api/workspace";
 
 const props = defineProps<{ server: string; pool: string }>();
 const emit = defineEmits<{ (e: "close", created: string): void }>();
@@ -15,12 +17,19 @@ const kinds = ref<NewSRKind[] | null>(null);
 const busy = ref(false);
 const error = ref("");
 const f = reactive({ kind: "nfs", name: "", nameFor: "", autoDescription: true, description: "", path: "", options: "", nfsVersion: "",
-  otherUser: false, user: "", password: "", reattach: false, existing: "" });
+  otherUser: false, user: "", password: "", reattach: false, existing: "",
+  target: "", port: "3260", chap: false, chapUser: "", chapPassword: "", iqn: -1, lun: -1 });
+const iqns = ref<IQN[]>([]);
+const luns = ref<LUN[]>([]);
 const found = ref<{ uuid: string; in_use?: string }[]>([]);
 const scanStatus = ref("");
-const question = ref(""); // the warning before reattaching an NFS SR, answered with Yes/No
+// a question of the wizard (the NFS reattach warning, iSCSI's Reattach/Format): its text and buttons
+const question = ref<{ text: string; buttons: string[]; resolve: (i: number) => void } | null>(null);
+const ask = (text: string, buttons: string[]) => new Promise<number>((resolve) => (question.value = { text, buttons, resolve }));
+function answer(i: number) { const q = question.value; question.value = null; q?.resolve(i); }
 let scanGeneration = 0;
 const iso = computed(() => f.kind === "nfs_iso" || f.kind === "smb_iso");
+const iscsi = computed(() => f.kind === "iscsi");
 
 onMounted(async () => {
   try { kinds.value = await api.newSrKinds(props.server); } catch (e) { error.value = String(e); }
@@ -28,9 +37,9 @@ onMounted(async () => {
 const kind = computed(() => kinds.value?.find((k) => k.kind === f.kind));
 const nfs = computed(() => f.kind === "nfs" || f.kind === "nfs_iso");
 const titles = computed(() => ["Choose the type of new storage", "What do you want to call this Storage Repository?",
-  nfs.value ? "Enter a path for your NFS storage" : "Enter a path for your SMB storage"]);
+  iscsi.value ? "Enter a path for your iSCSI storage" : nfs.value ? "Enter a path for your NFS storage" : "Enter a path for your SMB storage"]);
 const groups = [{ title: "Virtual disk storage", sub: [
-  { title: "Block based storage", items: [["iSCSI", ""], ["Hardware HBA", ""], ["Software FCoE", ""]] },
+  { title: "Block based storage", items: [["iscsi", "iscsi"], ["Hardware HBA", ""], ["Software FCoE", ""]] },
   { title: "File based storage", items: [["nfs", "nfs"], ["smb", "smb"], ["Local Storage", ""]] }] },
 { title: "ISO library", sub: [{ title: "", items: [["smb_iso", "smb_iso"], ["nfs_iso", "nfs_iso"]] }] }];
 const label = (text: string, k: string) => (k ? kinds.value?.find((x) => x.kind === k)?.name : text) ?? text;
@@ -38,12 +47,51 @@ const label = (text: string, k: string) => (k ? kinds.value?.find((x) => x.kind 
 // a new share, other options or credentials: the SRs found before belong to the old ones
 function resetScan() { scanGeneration++; found.value = []; f.existing = ""; f.reattach = false; scanStatus.value = ""; }
 watch(() => [f.kind, f.path, f.options, f.user, f.password], resetScan);
+// another target or CHAP setting: what was scanned belongs to the old one (LVMoISCSI.ResetAll)
+function resetTarget() { scanGeneration++; iqns.value = []; luns.value = []; f.iqn = -1; f.lun = -1; scanStatus.value = ""; }
+watch(() => [f.target, f.port, f.chap, f.chapUser, f.chapPassword], resetTarget);
+const chap = () => (f.chap ? [f.chapUser, f.chapPassword] : ["", ""]);
+
+// CHAP needs a user name (LVMoISCSI.validChap): without it the scans and the SR would go unauthenticated
+const chapMissing = () => f.chap && !f.chapUser.trim();
+async function scanTarget() {
+  if (chapMissing()) { error.value = "Enter the CHAP user name."; return; }
+  const port = Number(f.port);
+  if (!f.target.trim() || !Number.isInteger(port) || port < 1 || port > 65535) { error.value = "Enter the target host and a port number."; return; }
+  resetTarget();
+  const generation = scanGeneration;
+  error.value = ""; busy.value = true;
+  scanStatus.value = `Scanning for IQNs on iSCSI filer ${f.target.trim()}`;
+  try {
+    const found = await api.scanIqns(props.server, f.target.trim(), port, ...(chap() as [string, string]));
+    if (generation !== scanGeneration) return;
+    iqns.value = found;
+    scanStatus.value = "";
+    if (found.length === 1) { f.iqn = 0; await scanLuns(); }
+  } catch (e) { if (generation === scanGeneration) scanStatus.value = String(e); } finally { busy.value = false; }
+}
+async function scanLuns() {
+  luns.value = []; f.lun = -1;
+  const iqn = iqns.value[f.iqn];
+  if (!iqn) return;
+  const generation = scanGeneration;
+  busy.value = true;
+  scanStatus.value = `Scanning for LUNs on iSCSI filer ${iqn.address}`;
+  try {
+    const found = await api.scanLuns(props.server, iqn, ...(chap() as [string, string]));
+    if (generation !== scanGeneration || iqns.value[f.iqn] !== iqn) return;
+    luns.value = found;
+    if (found.length === 1) f.lun = 0;
+    scanStatus.value = "";
+  } catch (e) { if (generation === scanGeneration) scanStatus.value = String(e); } finally { busy.value = false; }
+}
 
 function spec() {
   const smbIso = f.kind === "smb_iso" && !f.otherUser; // an ISO library's credentials only with "Use different user name"
   return { kind: f.kind, name: f.name.trim(), description: f.description, auto_description: f.autoDescription, path: f.path,
     options: f.kind === "nfs" ? f.options : "", nfs_version: nfs.value ? f.nfsVersion : "", user: smbIso || nfs.value ? "" : f.user,
-    password: smbIso || nfs.value ? "" : f.password, existing: f.reattach ? f.existing : "" };
+    password: smbIso || nfs.value ? "" : f.password, existing: f.reattach ? f.existing : "",
+    iqn: iqns.value[f.iqn], lun: luns.value[f.lun], chap_user: chap()[0], chap_password: chap()[1] };
 }
 
 async function scan() {
@@ -65,21 +113,41 @@ async function next() {
   page.value++;
 }
 
-async function finish(confirmed = false) {
+async function finish() {
   error.value = "";
+  if (iscsi.value) return finishIscsi();
   if (f.reattach && !f.existing) { error.value = "Select the SR to reattach."; return; }
   const inUse = found.value.find((x) => x.uuid === f.existing)?.in_use;
   if (f.reattach && inUse) { error.value = `This SR is already in use by ${inUse}.`; return; }
   busy.value = true;
   try {
     const problem = await api.checkSrLocation(props.server, f.kind, f.path);
-    if (problem) { error.value = problem; busy.value = false; return; }
-    if (!confirmed && f.reattach && (question.value = await api.srAttachWarning(f.kind, f.existing))) { busy.value = false; return; }
+    if (problem) { error.value = problem; return; }
+    const warning = f.reattach ? await api.srAttachWarning(f.kind, f.existing) : "";
+    if (warning && (await ask(warning, ["Yes", "No"])) !== 0) return;
     emit("close", await api.createSr(props.server, spec()));
-  } catch (e) { error.value = String(e); }
-  busy.value = false;
+  } catch (e) { error.value = String(e); } finally { busy.value = false; }
 }
-function answer(yes: boolean) { question.value = ""; if (yes) finish(true); }
+
+// LVMoISCSI.PageLeave: the LUN must not hold an SR of a connected pool; an SR found on it is reattached, or the LUN
+// formatted, as the user answers
+async function finishIscsi() {
+  const lun = luns.value[f.lun];
+  if (!iqns.value[f.iqn] || !lun) { error.value = "Scan the target host and select the target IQN and LUN."; return; }
+  if (chapMissing()) { error.value = "Enter the CHAP user name."; return; }
+  busy.value = true;
+  try {
+    const used = await api.lunInUse(lun.scsi_id);
+    if (used) { error.value = used; return; }
+    const srs = (await api.probeSr(props.server, { ...spec(), existing: "" })) ?? [];
+    const attached = srs.find((x) => x.in_use);
+    if (attached) { error.value = `This SR is already in use by ${attached.in_use}.`; return; } // attached meanwhile somewhere
+    const text = await api.lunQuestion(srs.length > 0);
+    const i = await ask(text, srs.length ? ["Reattach", "Format", "Cancel"] : ["Format", "Cancel"]);
+    if (srs.length ? i > 1 || i < 0 : i !== 0) return;
+    emit("close", await api.createSr(props.server, { ...spec(), existing: srs.length && i === 0 ? srs[0].uuid : "" }));
+  } catch (e) { error.value = String(e); } finally { busy.value = false; }
+}
 </script>
 
 <template>
@@ -111,6 +179,29 @@ function answer(yes: boolean) { question.value = ""; if (yes) finish(true); }
             <label class="mb-2 flex items-center gap-2"><input v-model="f.autoDescription" type="checkbox" />Autogenerate description based on SR settings (e.g., IP address, LUN etc.)</label>
             <label class="grid grid-cols-[6rem_1fr] items-start gap-2" :class="f.autoDescription ? 'text-neutral-400' : ''">Description:
               <textarea v-model="f.description" rows="4" :disabled="f.autoDescription" class="border border-line px-1 py-0.5" /></label>
+          </template>
+          <template v-else-if="iscsi">
+            <p class="mb-4">Provide a target host for your iSCSI storage, indicating your target IQN and your target LUN before proceeding.</p>
+            <div class="grid grid-cols-[8.5rem_1fr] items-center gap-x-2 gap-y-2">
+              <span>Target Host:</span>
+              <div class="flex items-center gap-2"><input v-model="f.target" class="min-w-0 flex-1 border border-line px-1 py-0.5" />
+                <span>:</span><input v-model="f.port" class="w-16 border border-line px-1 py-0.5" /></div>
+              <span /><label class="flex items-center gap-2"><input v-model="f.chap" type="checkbox" />Use CHAP authentication</label>
+              <span :class="f.chap ? '' : 'text-neutral-400'">User:</span><input v-model="f.chapUser" :disabled="!f.chap" class="border border-line px-1 py-0.5" />
+              <span :class="f.chap ? '' : 'text-neutral-400'">Password:</span><input v-model="f.chapPassword" type="password" :disabled="!f.chap" class="border border-line px-1 py-0.5" />
+              <span /><div><button class="border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="busy || !f.target.trim()" @click="scanTarget">Scan Target Host</button></div>
+              <span :class="iqns.length ? '' : 'text-neutral-400'">Target IQN:</span>
+              <select v-model.number="f.iqn" :disabled="!iqns.length || busy" class="border border-line bg-white px-1 py-0.5" @change="scanLuns">
+                <option :value="-1">Select target IQN</option>
+                <option v-for="(q, i) in iqns" :key="q.text" :value="i">{{ q.text }}</option>
+              </select>
+              <span :class="luns.length ? '' : 'text-neutral-400'">Target LUN:</span>
+              <select v-model.number="f.lun" :disabled="!luns.length || busy" class="border border-line bg-white px-1 py-0.5">
+                <option :value="-1">Select target LUN</option>
+                <option v-for="(l, i) in luns" :key="l.scsi_id + l.serial" :value="i">{{ l.text }}</option>
+              </select>
+            </div>
+            <p v-if="scanStatus" class="mt-3 text-neutral-600">{{ scanStatus }}</p>
           </template>
           <template v-else>
             <p class="mb-4">{{ f.kind === "nfs_iso" ? "Provide the name of the share where your NFS ISO storage is located."
@@ -154,17 +245,16 @@ function answer(yes: boolean) { question.value = ""; if (yes) finish(true); }
         <span v-if="error && kinds" class="mr-auto text-red-600">{{ error }}</span>
         <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="page === 0 || busy" @click="page--">&lt; Previous</button>
         <button v-if="page < pages.length - 1" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" :disabled="!kinds" @click="next">Next &gt;</button>
-        <button v-else class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="busy || !f.path.trim()" @click="finish()">{{ busy ? "Working..." : "Finish" }}</button>
+        <button v-else class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5 disabled:text-neutral-400" :disabled="busy || (iscsi ? f.lun < 0 : !f.path.trim())" @click="finish()">{{ busy ? "Working..." : "Finish" }}</button>
         <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" :disabled="busy" @click="emit('close', '')">Cancel</button>
       </div>
     </div>
     <div v-if="question" class="fixed inset-0 z-40 flex items-center justify-center bg-black/10">
-      <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">
+      <div class="w-[34rem] border border-neutral-500 bg-white shadow-lg">
         <div class="bg-band-dark px-3 py-1 font-semibold text-white">New Storage Repository - {{ pool }}</div>
-        <p class="whitespace-pre-line p-4">{{ question }}</p>
+        <p class="whitespace-pre-line p-4">{{ question.text }}</p>
         <div class="flex justify-end gap-2 border-t border-line p-2">
-          <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(true)">Yes</button>
-          <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(false)">No</button>
+          <button v-for="(b, i) in question.buttons" :key="b" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="answer(i)">{{ b }}</button>
         </div>
       </div>
     </div>

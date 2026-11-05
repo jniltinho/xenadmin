@@ -18,34 +18,38 @@ const (
 	SRSmb    SRKind = "smb"
 	SRNfsIso SRKind = "nfs_iso"
 	SRSmbIso SRKind = "smb_iso"
+	SRIscsi  SRKind = "iscsi" // LVM over iSCSI (LVMoISCSI page)
 )
 
 // SRKinds in the wizard's order, with their names and blurbs (SrRules.TypeName / Blurb).
-var SRKinds = []SRKind{SRNfs, SRSmb, SRNfsIso, SRSmbIso}
+var SRKinds = []SRKind{SRIscsi, SRNfs, SRSmb, SRNfsIso, SRSmbIso}
 
-func srKey(k SRKind, nfs, smb, nfsIso, smbIso string) string {
+func srKey(k SRKind, nfs, smb, nfsIso, smbIso string, iscsi ...string) string {
+	if k == SRIscsi && len(iscsi) > 0 {
+		return iscsi[0]
+	}
 	return map[SRKind]string{SRNfs: nfs, SRSmb: smb, SRNfsIso: nfsIso, SRSmbIso: smbIso}[k]
 }
 
 // SRTypeName is the wizard's label of a kind.
 func SRTypeName(k SRKind) string {
-	return messages.Get(srKey(k, "NEWSR_VHDONFS_TYPE_NAME", "NEWSR_CIFS_TYPE_NAME", "NEWSR_NFS_ISO_TYPE_NAME", "NEWSR_CIFS_ISO_TYPE_NAME"))
+	return messages.Get(srKey(k, "NEWSR_VHDONFS_TYPE_NAME", "NEWSR_CIFS_TYPE_NAME", "NEWSR_NFS_ISO_TYPE_NAME", "NEWSR_CIFS_ISO_TYPE_NAME", "NEWSR_LVMOISCSI_TYPE_NAME"))
 }
 
 // SRBlurb is the wizard's description of a kind.
 func SRBlurb(k SRKind) string {
-	return messages.Get(srKey(k, "NEWSR_VHDONFS_BLURB", "NEWSR_CIFS_BLURB", "NEWSR_NFS_ISO_BLURB", "NEWSR_CIFS_ISO_BLURB"))
+	return messages.Get(srKey(k, "NEWSR_VHDONFS_BLURB", "NEWSR_CIFS_BLURB", "NEWSR_NFS_ISO_BLURB", "NEWSR_CIFS_ISO_BLURB", "NEWSR_LVMOISCSI_BLURB"))
 }
 
 // SRIsIso: an ISO library ("iso" content, type iso), not virtual disk storage.
 func SRIsIso(k SRKind) bool { return k == SRNfsIso || k == SRSmbIso }
 
 // SRType is the XAPI SR type of a kind (SrRules.TypeOf).
-func SRType(k SRKind) string { return srKey(k, "nfs", "smb", "iso", "iso") }
+func SRType(k SRKind) string { return srKey(k, "nfs", "smb", "iso", "iso", "lvmoiscsi") }
 
 // SRDefaultName is SrRules.DefaultName: "NFS virtual disk storage", then "(1)", "(2)"... when taken.
 func SRDefaultName(k SRKind, taken map[string]bool) string {
-	return UniqueName(messages.Get(srKey(k, "SRWIZARD_NFS_STORAGE", "SRWIZARD_CIFS_STORAGE", "SRWIZARD_NFS_LIBRARY", "SRWIZARD_CIFS_LIBRARY")), taken)
+	return UniqueName(messages.Get(srKey(k, "SRWIZARD_NFS_STORAGE", "SRWIZARD_CIFS_STORAGE", "SRWIZARD_NFS_LIBRARY", "SRWIZARD_CIFS_LIBRARY", "SRWIZARD_ISCSI_STORAGE")), taken)
 }
 
 var (

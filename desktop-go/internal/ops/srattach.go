@@ -18,10 +18,21 @@ type FoundSR struct {
 	InUse string `json:"in_use,omitempty"`
 }
 
-// ProbeSR is the Scan button of the NFS and SMB pages (VHDoNFS / CIFS_SR.buttonScan): SR.probe on the coordinator for
-// the SRs already on the share. NFS also asks for the server's versions (probeversion), as the C# app.
+// ProbeSR is the Scan button of the NFS and SMB pages (VHDoNFS / CIFS_SR.buttonScan) and LVMoISCSI.PageLeave's probe of
+// the chosen LUN: SR.probe on the coordinator for the SRs already there. NFS also asks for the server's versions
+// (probeversion), as the C# app.
 func ProbeSR(c *xapi.Connection, spec NewSR) ([]FoundSR, error) {
-	if (spec.Kind != rules.SRNfs && spec.Kind != rules.SRSmb) || !rules.SRValidLocation(spec.Kind, spec.Path) {
+	var dconf map[string]string
+	password := spec.Password
+	switch {
+	case spec.Kind == rules.SRIscsi && spec.IQN.IQN != "" && (spec.LUN.ScsiID != "" || spec.LUN.Serial != ""):
+		dconf, password = rules.ISCSIDeviceConfig(spec.IQN, spec.LUN, spec.ChapUser, spec.ChapPassword), spec.ChapPassword
+	case (spec.Kind == rules.SRNfs || spec.Kind == rules.SRSmb) && rules.SRValidLocation(spec.Kind, spec.Path):
+		dconf = rules.SRDeviceConfig(spec.Kind, spec.Path, spec.Options, "", spec.User, spec.Password)
+		if spec.Kind == rules.SRNfs {
+			dconf["probeversion"] = ""
+		}
+	default:
 		return nil, errors.New("enter a valid share to scan")
 	}
 	s := c.Session
@@ -29,13 +40,15 @@ func ProbeSR(c *xapi.Connection, spec NewSR) ([]FoundSR, error) {
 	if err != nil {
 		return nil, err
 	}
-	dconf := rules.SRDeviceConfig(spec.Kind, spec.Path, spec.Options, "", spec.User, spec.Password)
-	if spec.Kind == rules.SRNfs {
-		dconf["probeversion"] = ""
-	}
 	result, err := waitResult(s)(xenapi.SR.AsyncProbe(s, coordinator, dconf, rules.SRType(spec.Kind), map[string]string{}))
+	var api *xenapi.APIError
+	if errors.As(err, &api) {
+		if text := rules.ISCSIError(api.Message); text != "" && spec.Kind == rules.SRIscsi {
+			return nil, errors.New(text)
+		}
+	}
 	if err != nil {
-		return nil, xapi.Sanitize(err, spec.Password)
+		return nil, xapi.Sanitize(err, password)
 	}
 	srs, err := rules.ParseSRList(result)
 	if err != nil {
