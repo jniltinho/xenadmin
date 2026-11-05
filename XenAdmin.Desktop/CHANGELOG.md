@@ -5,6 +5,13 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 
 ## [Unreleased]
 
+—
+
+## [0.3.0] — 2026-11-05
+
+**Parity with the Windows app: HA, Disaster Recovery, vApps, XVA and OVF/OVA import/export, VLAN/bond/SR-IOV networks,
+the GPU/USB/NICs tabs, Objects/Organization Views/Saved Searches, the editable Search and Tools > Options.**
+
 ### Added
 - VM Networking tab: Add Interface, Properties (network, MAC, QoS limit), Remove Interface and Activate/Deactivate,
   with the rules, tooltips and confirmations of the Windows app, and the Limit column.
