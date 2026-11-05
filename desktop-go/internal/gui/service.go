@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"xcpng-center/internal/app"
 	"xcpng-center/internal/config"
@@ -29,8 +30,30 @@ type Workspace struct {
 	conns    map[string]*xapi.Connection
 	use      sync.RWMutex // listings hold it for reading; logging a session out holds it for writing
 	console  *console.Proxy
-	closed   bool // the window closed: no console endpoint is created any more
+	closed   bool                // the window closed: no console endpoint is created any more
+	watchers map[string]*watcher // a connection's event.from loop (app.Watch)
+	pending  map[string]bool     // a change notice is scheduled for this server
+	// Emit tells the window that a server's objects changed (the Wails event "xcp:changed" with the server's key)
+	Emit func(key string)
 }
+
+// watcher is a running app.Watch: cancel cuts its call, done closes when it has returned.
+type watcher struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// stop ends the loop and waits for it, so that no call of it is left when the session is logged out.
+func (wt *watcher) stop() {
+	if wt != nil {
+		wt.cancel()
+		<-wt.done
+	}
+}
+
+// changeDelay coalesces the event batches of one operation (a VM start changes the VM, its metrics, VBDs, VIFs...)
+// into one reload of the window.
+const changeDelay = 700 * time.Millisecond
 
 // webviewOrigins are the pages Wails serves the window from (internal/assetserver: Linux and macOS, Windows).
 var webviewOrigins = []string{"wails://localhost", "http://wails.localhost"}
@@ -38,7 +61,7 @@ var webviewOrigins = []string{"wails://localhost", "http://wails.localhost"}
 // NewWorkspace uses the settings file of the CLI (servers and pinned certificates are shared) and the CLI's trust
 // policy (the operator's --trust-fingerprint applies to the window too).
 func NewWorkspace(s *config.Settings, p *trust.Policy) *Workspace {
-	return &Workspace{settings: s, policy: p, conns: map[string]*xapi.Connection{}}
+	return &Workspace{settings: s, policy: p, conns: map[string]*xapi.Connection{}, watchers: map[string]*watcher{}, pending: map[string]bool{}}
 }
 
 // ServerRow is one server of the list.
@@ -94,11 +117,16 @@ func (w *Workspace) Connect(address, user, password string) ConnectResult {
 		return ConnectResult{Error: xapi.Redact(err.Error(), password)}
 	}
 	key := xapi.HostKey(conn.Host, conn.Port)
+	ctx, cancel := context.WithCancel(context.Background())
+	wt := &watcher{cancel: cancel, done: make(chan struct{})}
+	session := conn.Session.WithContext(ctx) // its own copy: logging conn out never races with the loop
 	w.mu.Lock()
-	old := w.conns[key]
-	w.conns[key] = conn
+	old, oldWatch := w.conns[key], w.watchers[key]
+	w.conns[key], w.watchers[key] = conn, wt
 	w.mu.Unlock()
+	oldWatch.stop() // the old session's loop, before that session is logged out
 	w.logout(old)
+	go func() { defer close(wt.done); app.Watch(ctx, session, func() { w.changed(key) }) }()
 	// the name stays in the list, so a disconnected server keeps it in the tree (as the C# app's saved servers)
 	if err := w.settings.AddServer(config.Server{Host: conn.Host, Port: conn.Port, User: user, Name: app.PoolName(conn)}); err != nil {
 		return ConnectResult{Connected: true, Key: key, Error: err.Error()}
@@ -140,9 +168,11 @@ func (w *Workspace) SaveProperties(key, vmUUID string, changes ops.VMChanges) er
 // revocation.
 func (w *Workspace) Disconnect(key string) {
 	w.mu.Lock()
-	conn := w.conns[key]
+	conn, wt := w.conns[key], w.watchers[key]
 	delete(w.conns, key)
+	delete(w.watchers, key)
 	w.mu.Unlock()
+	wt.stop()
 	w.use.Lock()
 	defer w.use.Unlock()
 	w.mu.Lock()
@@ -154,6 +184,26 @@ func (w *Workspace) Disconnect(key string) {
 	if conn != nil {
 		_ = conn.Close()
 	}
+}
+
+// changed schedules one change notice for a server: the batches that come within changeDelay make one reload.
+func (w *Workspace) changed(key string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.pending[key] {
+		return
+	}
+	w.pending[key] = true
+	time.AfterFunc(changeDelay, func() {
+		w.mu.Lock()
+		delete(w.pending, key)
+		_, connected := w.conns[key]
+		emit := w.Emit
+		w.mu.Unlock()
+		if connected && emit != nil {
+			emit(key)
+		}
+	})
 }
 
 // logout waits for the calls in progress (they use the session) before logging it out.
@@ -457,7 +507,12 @@ func (w *Workspace) Close() {
 	w.closed = true
 	conns := w.conns
 	w.conns = map[string]*xapi.Connection{}
+	watchers := w.watchers
+	w.watchers = map[string]*watcher{}
 	w.mu.Unlock()
+	for _, wt := range watchers {
+		wt.stop()
+	}
 	w.use.Lock()
 	defer w.use.Unlock()
 	w.mu.Lock()

@@ -2,9 +2,11 @@
 // The Snapshots tab (SnapshotsPage / SnapshotsView): the VM's snapshots, Take Snapshot (VmSnapshotDialog),
 // Revert To (with "take a snapshot first") and Delete, with the C# questions from the Go side.
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { serial } from "./serial";
 import { api, type Snapshot, type VMSnapshots } from "./api/workspace";
 
-const props = defineProps<{ server: string; vm: string }>();
+// tick: the server's objects changed (xcp:changed), read the snapshots again
+const props = defineProps<{ server: string; vm: string; tick?: number }>();
 const emit = defineEmits<{ (e: "status", text: string, error: boolean): void; (e: "changed"): void }>();
 
 const data = ref<VMSnapshots | null>(null);
@@ -23,15 +25,17 @@ function size(bytes: number) {
 }
 const when = (t: string) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
-async function load() {
+// one read at a time (serial): changes coming faster than a slow read make one more read; an answer for the VM shown
+// before is dropped
+const load = serial(async () => {
   const vm = props.vm, server = props.server;
   try {
     const got = await api.snapshots(server, vm);
-    if (vm !== props.vm || server !== props.server) return; // an answer for the VM shown before
+    if (vm !== props.vm || server !== props.server) return;
     data.value = got;
     if (!data.value.snapshots.some((s) => s.uuid === picked.value)) picked.value = "";
-  } catch (e) { emit("status", String(e), true); }
-}
+  } catch (e) { if (vm === props.vm && server === props.server) emit("status", String(e), true); }
+});
 
 async function run(label: string, f: () => Promise<void>) {
   busy.value = true;
@@ -84,7 +88,7 @@ async function del(s: Snapshot) {
 async function confirmTake() { const ok = await submitTake(); afterTake?.(ok); afterTake = null; }
 function cancelTake() { take.open = false; afterTake?.(false); afterTake = null; }
 
-watch(() => [props.server, props.vm], load);
+watch(() => [props.server, props.vm, props.tick], load);
 onMounted(load);
 </script>
 

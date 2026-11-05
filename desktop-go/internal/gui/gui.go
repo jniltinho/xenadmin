@@ -34,6 +34,7 @@ func Run(s *config.Settings, p *trust.Policy) error {
 		Assets:   application.AssetOptions{Handler: application.AssetFileServerFS(dist)},
 		Mac:      application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
+	ws.Emit = func(key string) { app.Event.Emit("xcp:changed", key) }
 	setWindowIcon(app, dist)
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "XCP-ng Center",

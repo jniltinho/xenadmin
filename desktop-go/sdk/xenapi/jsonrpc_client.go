@@ -70,6 +70,7 @@ type rpcClient struct {
 	endpoint   string
 	httpClient *http.Client
 	headers    map[string]string
+	ctx        context.Context // XCP-NG PATCH (Session.WithContext): the calls end with it; nil is context.Background
 }
 
 func (client *rpcClient) newRequest(ctx context.Context, req interface{}) (*http.Request, error) {
@@ -161,7 +162,11 @@ func (e *APIError) Error() string {
 func (e *APIError) ErrorCode() string { return e.Message }
 
 func (client *rpcClient) sendCall(methodName string, params ...interface{}) (result interface{}, err error) {
-	response, err := client.call(context.Background(), methodName, params...)
+	ctx := client.ctx // XCP-NG PATCH (Session.WithContext)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	response, err := client.call(ctx, methodName, params...)
 	if err != nil {
 		return
 	}

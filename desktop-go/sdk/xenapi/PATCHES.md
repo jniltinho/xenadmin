@@ -12,5 +12,6 @@ Every change is marked `XCP-NG PATCH` in the code and kept as one diff from the 
 | No `log.Fatal` | `jsonrpc_client.go`, `session.go` | A bad option ended the whole process. `newJSONRPCClient` returns the error; `NewSessionE` exposes it; `NewSession` keeps its signature and fails the calls instead. |
 | `APIError` | `jsonrpc_client.go` | XAPI failures were flattened into a string. `*APIError` keeps the code (`HOST_IS_SLAVE`, `SESSION_AUTHENTICATION_FAILED`...) and its parameters for `errors.As`. |
 | `Session.Ref()` | `session.go` | The session reference for the HTTP calls of the console and of import/export. |
+| `Session.WithContext` | `session.go`, `jsonrpc_client.go` | A copy of the session whose calls end with a context: the window's `event.from` loop is cut at once on disconnect, before the session is logged out. |
 
 Not yet: `DecodeRecord` (exported record decoding for `event.from`), planned with the model cache (task 2.4).

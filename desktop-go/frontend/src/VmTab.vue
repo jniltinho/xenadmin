@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // The Storage, Networking and Memory tabs of a VM (VmStorageView, VmNetworkView, MemoryView): the tables from the
 // Go side, plus the DVD drive and Activate/Deactivate of a disk on Storage.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { api, type Confirm, type NewDisk, type Table, type VMStorage } from "./api/workspace";
 import DetailsTable from "./DetailsTable.vue";
+import { serial } from "./serial";
 
-const props = defineProps<{ server: string; vm: string; kind: "storage" | "networking" | "memory" }>();
+// tick: the server's objects changed (xcp:changed), read the tab again
+const props = defineProps<{ server: string; vm: string; kind: "storage" | "networking" | "memory"; tick?: number }>();
 const emit = defineEmits<{ (e: "status", text: string, error: boolean): void }>();
 
 const table = ref<Table | null>(null);
@@ -14,12 +16,13 @@ const picked = ref("");
 const busy = ref(false);
 const disk = computed(() => storage.value?.disks.find((d) => d.vbd === picked.value) ?? null);
 
-async function load() {
+// one read at a time (serial): changes coming faster than a slow read make one more read, never a stale table
+const load = serial(async () => {
   try {
     if (props.kind === "storage") { storage.value = await api.storage(props.server, props.vm); table.value = storage.value.table; }
     else table.value = await (props.kind === "networking" ? api.networking : api.memory)(props.server, props.vm);
   } catch (e) { emit("status", String(e), true); }
-}
+});
 
 async function run(label: string, f: () => Promise<void>) {
   busy.value = true;
@@ -90,6 +93,7 @@ function createDvd() {
 }
 
 onMounted(load);
+watch(() => props.tick, load);
 </script>
 
 <template>

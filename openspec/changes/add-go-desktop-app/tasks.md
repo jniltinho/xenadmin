@@ -14,7 +14,7 @@
 - [ ] 2.1b Sanitizador de segredos (senha, `session_id`, cookies, tokens) em logs, erros e respostas; testes com canários em todos os transportes e teste de que o token do console só sai na resposta de abertura ao frontend
 - [x] 2.2 `internal/trust`: porta de `CertificateTrust` (TOFU, certificado trocado, membros pelo coordenador, `XCP_TRUST_FINGERPRINT`), store em `config`
 - [x] 2.3 `internal/config`: `settings.toml` em `os.UserConfigDir()/xcp-ng-center-go`, permissões 0600, lista de servidores, preferências de UI
-- [ ] 2.4 `internal/model`: cache por conexão com `event.from` e `DecodeRecord`, `Workspace`, assinaturas, reconexão e recarga em `EVENTS_LOST` com diffs (inclusive remoções); teste com 1000 VMs no servidor falso
+- [ ] 2.4 `internal/model`: cache por conexão com `event.from` e `DecodeRecord`, `Workspace`, assinaturas, reconexão e recarga em `EVENTS_LOST` com diffs (inclusive remoções); teste com 1000 VMs no servidor falso — partial: `app.Watch` (`event.from`, `EVENTS_LOST`, sessão própria cancelável) avisa a janela, que relê o servidor; sem cache por objeto
 - [ ] 2.5 Servidor JSON-RPC falso (`internal/xapitest`) para testes do núcleo
 - [ ] 2.6 `internal/app`: casos de uso de conexão e árvore com `Workspace` pelo contexto; teste de dois workspaces isolados
 - [x] 2.7 CLI `server add/list/connect`, `vm list` (tabela e `--json`); servidor e usuário do ambiente ou das flags, senha de `XCP_PASS` ou prompt sem eco

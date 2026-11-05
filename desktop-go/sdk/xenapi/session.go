@@ -30,6 +30,7 @@
 package xenapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -104,6 +105,16 @@ func (t failingTransport) RoundTrip(*http.Request) (*http.Response, error) { ret
 
 // Ref is the session reference, for HTTP calls such as the console CONNECT (XCP-NG PATCH).
 func (class *Session) Ref() SessionRef { return class.ref }
+
+// WithContext is a copy of the session whose calls end when ctx does (XCP-NG PATCH): a long event.from can be cut
+// before the session is logged out, and the copy shares no field with the original.
+func (class *Session) WithContext(ctx context.Context) *Session {
+	client := *class.client
+	client.ctx = ctx
+	copied := *class
+	copied.client = &client
+	return &copied
+}
 
 // LogoutSubjectIdentifier: Log out all sessions associated to a user subject-identifier, except the session associated with the context calling this function
 // Version: george

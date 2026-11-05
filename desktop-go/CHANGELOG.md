@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- The window follows the servers live, as the C# XenObjectDownloader: an `event.from` loop per connection (its own
+  cancellable session copy, stopped before logout) tells the window, coalesced, to read the server again; the tree,
+  the open tab and the alerts follow, and the selection stays.
 - VM menu and context menu: Copy VM (fast clone or full copy to an SR, CopyVMDialog), Delete VM (the disks only it
   uses and its snapshots, ConfirmVMDeleteDialog / VMDestroyAction, every choice checked again on the server) and the
   Resume on, Migrate to and Start on Server submenus (the home server first, each server with the reason it cannot

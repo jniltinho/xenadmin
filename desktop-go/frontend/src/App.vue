@@ -3,8 +3,10 @@
 // Organization Views, Saved Searches, Notifications) with the tree and its search box, the tabs of the selected object
 // (Home and Search for the root), Add New Server and the certificate question, a status bar.
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { Events } from "@wailsio/runtime";
 import { api, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 import ConsoleView from "./ConsoleView.vue";
+import { serial } from "./serial";
 import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
@@ -92,7 +94,8 @@ const alerts = ref<AlertRow[]>([]);
 const picked = reactive(new Set<string>());
 const confirm = async (q: Confirm) => (await choose(q, ["Yes", "No"])) === 0;
 
-async function loadAlerts() {
+// one alerts read at a time (serial): reloads asked by several servers never finish out of order
+const loadAlerts = serial(async () => {
   const rows: AlertRow[] = [];
   for (const s of servers.value.filter((x) => x.connected)) {
     try {
@@ -102,8 +105,8 @@ async function loadAlerts() {
     }
   }
   alerts.value = rows.sort((a, b) => b.time.localeCompare(a.time));
-  picked.clear();
-}
+  for (const uuid of [...picked]) if (!rows.some((a) => a.uuid === uuid)) picked.delete(uuid); // the rest stays picked
+});
 
 async function dismiss(rows: AlertRow[], all = false) {
   if (!rows.length || !(await confirm(await api.dismissConfirmation(rows.length, all)))) return;
@@ -337,13 +340,14 @@ function openAdd() {
 async function disconnect(n: Node) {
   if (!n.server) return;
   await api.disconnect(n.server);
+  retire(n.server);
   delete data[n.server];
   await refreshServers();
   if (!reselect(n.server)) selected.value = view.value === "objects" ? objectsTree.value : tree.value; // gone from this view
 }
 async function forget(n: Node) {
   if (!n.server || !(await confirm({ title: "Remove Server", text: `Remove '${n.label}' from the list of servers?` }))) return;
-  try { await api.forget(n.server); delete data[n.server]; await refreshServers(); selected.value = tree.value; } catch (e) { failure.value = String(e); }
+  try { await api.forget(n.server); retire(n.server); delete data[n.server]; await refreshServers(); selected.value = tree.value; } catch (e) { failure.value = String(e); }
 }
 
 // the splitter's position (MainWindow's SplitContainer), kept for the next start
@@ -480,9 +484,7 @@ async function refreshServers() { servers.value = await api.servers(); }
 async function load(key: string) {
   status.value = `Loading ${key}...`;
   try {
-    const result: Record<string, XenObject[]> = {};
-    for (const k of ["pools", "hosts", "vms", "srs"]) result[k] = (await api.objects(key, k)) ?? [];
-    data[key] = result;
+    await reader(key)();
     expanded.add(key);
     status.value = `Connected to ${key}`;
     failure.value = "";
@@ -491,6 +493,48 @@ async function load(key: string) {
     failure.value = `Could not load ${key}: ${String(e)}`;
   }
 }
+async function read(key: string) {
+  const result: Record<string, XenObject[]> = {};
+  for (const k of ["pools", "hosts", "vms", "srs"]) result[k] = (await api.objects(key, k)) ?? [];
+  return result;
+}
+
+// One read of a server's objects at a time (serial), shared by the window's own loads and the live updates: a read
+// that ends never overwrites a newer one, and a read of a server disconnected meanwhile (its generation moved) is
+// dropped.
+const readers = new Map<string, () => Promise<void>>();
+const generations = new Map<string, number>();
+const generation = (key: string) => generations.get(key) ?? 0;
+function reader(key: string) {
+  let r = readers.get(key);
+  if (!r) {
+    r = serial(async () => {
+      const gen = generation(key);
+      const result = await read(key);
+      if (gen === generation(key)) { data[key] = result; followed(key); }
+    });
+    readers.set(key, r);
+  }
+  return r;
+}
+function retire(key: string) { generations.set(key, generation(key) + 1); readers.delete(key); }
+
+// XenObjectDownloader: the server's objects changed (app.Watch, coalesced on the Go side). After each read the tree,
+// the open tab and the alerts follow without touching the status bar; the selection stays (or goes to its server
+// when its object is gone). A change during the first load joins that load (it reads once more).
+const tick = ref(0);
+function followed(key: string) {
+  if (selected.value?.server === key) {
+    if (!reselect(selected.value.id)) reselect(key);
+    tick.value++;
+  }
+  if (view.value === "alerts") void loadAlerts();
+}
+async function refresh(key: string) {
+  if (!readers.has(key)) return; // never loaded: not shown
+  await reader(key)().catch(() => {}); // a failed background read: the next change tries again
+}
+Events.On("xcp:changed", (ev: { data: unknown }) => refresh(String(Array.isArray(ev.data) ? ev.data[0] : ev.data)));
 
 async function submitAdd() {
   form.busy = true; form.error = "";
@@ -645,11 +689,11 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         <PerformanceView v-else-if="tab === 'performance' && selected?.object && selected.server" :key="`perf/${selected.id}`"
                          :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" />
         <VmTab v-else-if="(tab === 'memory' || tab === 'storage' || tab === 'networking') && selected?.object && selected.server"
-               :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :vm="selected.object.uuid" :kind="tab"
+               :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :vm="selected.object.uuid" :kind="tab" :tick="tick"
                @status="onTabStatus" />
         <!-- keyed: another VM gets a new tab, never the previous VM's rows or selection -->
         <SnapshotsView v-else-if="tab === 'snapshots' && selected?.object && selected.server" :key="selected.server + '/' + selected.object.uuid"
-                       :server="selected.server" :vm="selected.object.uuid"
+                       :server="selected.server" :vm="selected.object.uuid" :tick="tick"
                        @status="onTabStatus" @changed="selected?.server && load(selected.server).then(() => reselect(selected!.id))" />
         <template v-else>
         <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">{{ selected?.disconnected ? "Connection General Properties" : "General Properties" }}</div>

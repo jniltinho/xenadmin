@@ -20,3 +20,12 @@ sdk/xenapi   XenServer Go SDK 26.16.1, its own module, with the patches in PATCH
 The core (`internal/{xapi,trust,config,app}`) imports no front end; `internal/archtest` fails the build if it does.
 That keeps one core for the desktop app, the CLI, the MCP server and a future web server (`internal/server`).
 The C# sources it ports are cited in each package (`ServerAddress.cs`, `CertificateTrust.cs`, `XcpTools.cs`).
+
+## Live updates
+
+The C# app keeps a cache per connection fed by `event.from` (XenObjectDownloader). Here `app.Watch` runs that loop
+for each connected server, on a copy of the session made with `Session.WithContext` (an SDK patch), so that
+`Disconnect` can cut a waiting call and wait for the loop before logging the session out. The loop only says that
+something changed: the Workspace coalesces the batches of one operation (700 ms) into one Wails event `xcp:changed`
+with the server's key, and the window reads that server's objects again (one read at a time; a read of a server
+disconnected meanwhile is dropped), then the open tab and the alerts. A cache per object, with diffs, is task 2.4.
