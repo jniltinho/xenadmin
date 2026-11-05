@@ -63,6 +63,7 @@ namespace XenAdmin.Desktop
             _config = config;
             _trust = trust;
             ConsoleView.RunAction = RunTracked;
+            ConsoleView.Changed = () => { _tabsSignature = null; UpdateContent(); };
             Title = "XCP-ng Center";
             Width = 1280;
             Height = 800;
@@ -227,6 +228,7 @@ namespace XenAdmin.Desktop
             Closing += (_, _) =>
             {
                 ((DesktopConfigProvider)XenAdminConfigManager.Provider).Exiting = true;
+                ConsoleView.CloseAll();
                 foreach (var c in _connections.Where(c => c.IsConnected))
                     c.EndConnect(true, true);
             };

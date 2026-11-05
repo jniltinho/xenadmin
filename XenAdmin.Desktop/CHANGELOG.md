@@ -29,6 +29,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   hosts down before stopping them.
 - New VM: the templates show their OS logos and categories and follow the Windows order (custom and Windows templates
   first, newest version first); the list no longer starts with an empty band.
+- Console: Undock (Alt+Shift+U) into its own window, Redock, and Fullscreen (Ctrl+Enter); while undocked the tab
+  offers Find Console and Reattach Console.
 - Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
   Properties.
 

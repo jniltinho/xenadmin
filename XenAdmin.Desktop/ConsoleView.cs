@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Security;
@@ -39,12 +40,84 @@ namespace XenAdmin.Desktop
         private volatile bool _closed;
         private int _redrawQueued;
 
-        public static Control For(VM vm) =>
-            vm == null ? new TextBlock() : new ConsoleView(vm);
+        // VNCTabView undock / fullscreen: the console of a VM shown in its own window, by VM opaque_ref
+        private static readonly Dictionary<string, Window> Undocked = new Dictionary<string, Window>();
 
-        private ConsoleView(VM vm)
+        /// <summary>Set by the main window: rebuild the Console tab after a console is undocked or redocked.</summary>
+        public static Action Changed;
+
+        private static bool _exiting;
+
+        /// <summary>App exit: close the undocked consoles without redocking them.</summary>
+        public static void CloseAll()
+        {
+            _exiting = true;
+            foreach (var w in Undocked.Values.ToList())
+                w.Close();
+        }
+
+        private readonly bool _docked;
+
+        /// <summary>The Console tab: the console, or (while it is undocked) Find Console / Reattach Console.</summary>
+        public static Control For(VM vm)
+        {
+            if (vm == null) return new TextBlock();
+            if (!Undocked.TryGetValue(vm.opaque_ref, out var window)) return new ConsoleView(vm, true);
+            // VNCView's undocked placeholder
+            var find = new Button { Content = Dialogs.M("Find &Console") };
+            var reattach = new Button { Content = Dialogs.M("&Reattach Console") };
+            find.Click += (_, _) => { window.WindowState = window.WindowState == WindowState.Minimized ? WindowState.Normal : window.WindowState; window.Activate(); };
+            reattach.Click += (_, _) => window.Close();
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
+            buttons.Children.Add(find);
+            buttons.Children.Add(reattach);
+            var panel = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            panel.Children.Add(new TextBlock { Text = $"The console of '{vm.Name()}' is undocked.", HorizontalAlignment = HorizontalAlignment.Center });
+            panel.Children.Add(buttons);
+            return new Border { Background = Brushes.White, Child = panel };
+        }
+
+        /// <summary>VNCTabView.dockButton_Click: the console moves to its own window (fullscreen when asked).</summary>
+        private static void Undock(VM vm, bool fullscreen)
+        {
+            if (Undocked.ContainsKey(vm.opaque_ref)) return;
+            var window = new Window
+            {
+                Title = vm.Name(), Width = 1024, Height = 820, WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                Content = new ConsoleView(vm, false), WindowState = fullscreen ? WindowState.FullScreen : WindowState.Normal
+            };
+            Undocked[vm.opaque_ref] = window;
+            window.Closed += (_, _) => { Undocked.Remove(vm.opaque_ref); if (!_exiting) Changed?.Invoke(); };
+            window.Opened += (_, _) => ((ConsoleView)window.Content)._screen.Focus();
+            window.Show();
+            Changed?.Invoke();
+        }
+
+        private void ToggleDock()
+        {
+            if (_docked) Undock(_vm, false);
+            else (TopLevel.GetTopLevel(this) as Window)?.Close();
+        }
+
+        /// <summary>Ctrl+Enter: fullscreen in its own window, and back.</summary>
+        private void ToggleFullscreen()
+        {
+            if (_docked)
+            {
+                Undock(_vm, true);
+                return;
+            }
+            if (TopLevel.GetTopLevel(this) is Window w)
+            {
+                w.WindowState = w.WindowState == WindowState.FullScreen ? WindowState.Normal : WindowState.FullScreen;
+                if (w.WindowState == WindowState.FullScreen) _status.Text = Messages.VNC_FULLSCREEN_MESSAGE_CTRL_ENTER;
+            }
+        }
+
+        private ConsoleView(VM vm, bool docked)
         {
             _vm = vm;
+            _docked = docked;
             Background = Brushes.White;
             _screen = new Screen(this) { Focusable = true };
 
@@ -68,10 +141,14 @@ namespace XenAdmin.Desktop
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 6, Margin = new Thickness(4) };
             right.Children.Add(_scale);
             var undock = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-            undock.Children.Add(Views.Icon("detach_24", 16));
-            undock.Children.Add(new TextBlock { Text = "Undock (Alt+Shift+U)", VerticalAlignment = VerticalAlignment.Center });
-            right.Children.Add(new Button { Content = undock, IsEnabled = false });
-            right.Children.Add(new Button { Content = "Fullscreen (Ctrl+Enter)", IsEnabled = false });
+            undock.Children.Add(Views.Icon(docked ? "detach_24" : "attach_24", 16));
+            undock.Children.Add(new Avalonia.Controls.Primitives.AccessText { Text = Dialogs.M(docked ? Messages.VNC_UNDOCK : Messages.VNC_REDOCK) + " (Alt+Shift+U)", VerticalAlignment = VerticalAlignment.Center });
+            var dock = new Button { Content = undock };
+            dock.Click += (_, _) => ToggleDock();
+            var fullscreen = new Button { Content = Dialogs.M(Messages.VNC_FULLSCREEN_CTRL_ENTER) };
+            fullscreen.Click += (_, _) => ToggleFullscreen();
+            right.Children.Add(dock);
+            right.Children.Add(fullscreen);
             bottom.Children.Add(right);
 
             var status = new Border { Child = _status, Height = 22 };
@@ -86,7 +163,22 @@ namespace XenAdmin.Desktop
             AttachedToVisualTree += (_, _) => { Start(); UpdateButtons(); _buttonsTimer.Start(); };
             DetachedFromVisualTree += (_, _) => { Stop(); _buttonsTimer.Stop(); };
             // the guest agent reports addresses and the RDP state later: follow its metrics while the tab is open
-            _buttonsTimer.Tick += (_, _) => UpdateButtons();
+            _buttonsTimer.Tick += (_, _) =>
+            {
+                // VNCTabView: an undocked console goes away with its VM or its server connection
+                if (!_docked && (!_vm.Connection.IsConnected || _vm.Connection.Resolve(new XenRef<VM>(_vm.opaque_ref)) == null))
+                {
+                    (TopLevel.GetTopLevel(this) as Window)?.Close();
+                    return;
+                }
+                UpdateButtons();
+            };
+            // VNCTabView's hotkeys work wherever the focus is in the console (screen, Scale, DVD picker)
+            AddHandler(KeyDownEvent, (_, e) =>
+            {
+                if (e.Key == Avalonia.Input.Key.U && e.KeyModifiers == (KeyModifiers.Alt | KeyModifiers.Shift)) { ToggleDock(); e.Handled = true; }
+                else if (e.Key == Avalonia.Input.Key.Enter && e.KeyModifiers == KeyModifiers.Control) { ToggleFullscreen(); e.Handled = true; }
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         }
 
         private readonly Button _ssh = new Button { Content = "Launch SSH Console", Margin = new Thickness(6, 4), Background = Brushes.White };
