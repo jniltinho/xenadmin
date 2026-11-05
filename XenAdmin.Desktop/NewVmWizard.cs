@@ -158,8 +158,7 @@ namespace XenAdmin.Desktop
         }
 
         private IEnumerable<VM> Templates() =>
-            _c.Cache.VMs.Where(v => v.is_a_template && !v.is_a_snapshot && v.Show(false))
-                .OrderBy(v => v.DefaultTemplate() ? 1 : 0).ThenBy(v => NewVmDefaults.Category(v)).ThenBy(v => v.Name(), StringComparer.CurrentCultureIgnoreCase);
+            NewVmDefaults.SortTemplates(_c.Cache.VMs.Where(v => v.is_a_template && !v.is_a_snapshot && v.Show(false)));
 
 
         // ---------- defaults from the template (Page_Name, Page_CpuMem, Page_Storage, Page_Networking) ----------
@@ -196,7 +195,7 @@ namespace XenAdmin.Desktop
         private Control TemplatePage()
         {
             var search = new TextBox { Watermark = "Search..." };
-            var list = new ListBox { Height = 330, Classes = { "props" } };
+            var list = new ListBox { Classes = { "props" } }; // fills the frame (a fixed height left a band above the first template)
             var details = new TextBlock { TextWrapping = TextWrapping.Wrap };
             void Fill()
             {
@@ -204,7 +203,7 @@ namespace XenAdmin.Desktop
                 list.ItemsSource = all.Select(t =>
                 {
                     var row = new Grid { ColumnDefinitions = new ColumnDefinitions("20,*,90"), Tag = t };
-                    row.Children.Add(Views.Icon(IconNames.For(t)));
+                    row.Children.Add(Views.Icon(NewVmDefaults.TemplateIcon(t)));
                     var n = new TextBlock { Text = t.Name() }; Grid.SetColumn(n, 1); row.Children.Add(n);
                     var c = new TextBlock { Text = NewVmDefaults.Category(t) }; Grid.SetColumn(c, 2); row.Children.Add(c);
                     return row;

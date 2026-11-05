@@ -14,25 +14,66 @@ namespace XenAdmin.Desktop
     public static class NewVmDefaults
     {
         /// <summary>Page_Template category column (VmTemplateType display names).</summary>
-        public static string Category(VM template)
+        /// <summary>Page_Template's Category column (VmTemplateTypeExtensions.ToDisplayString).</summary>
+        public static string Category(VM template) => template.TemplateType() switch
         {
-            var t = template.TemplateType();
-            switch (t)
-            {
-                case VM.VmTemplateType.Custom: return Messages.NEWVMWIZARD_TEMPLATEPAGE_CUSTOM;
-                case VM.VmTemplateType.Windows:
-                case VM.VmTemplateType.WindowsServer:
-                case VM.VmTemplateType.LegacyWindows: return Messages.NEWVMWIZARD_TEMPLATEPAGE_WINDOWS;
-                case VM.VmTemplateType.Centos: return Messages.NEWVMWIZARD_TEMPLATEPAGE_CENTOS;
-                case VM.VmTemplateType.Debian: return Messages.NEWVMWIZARD_TEMPLATEPAGE_DEBIAN;
-                case VM.VmTemplateType.Ubuntu: return Messages.NEW_VM_WIZARD_TEMPLATEPAGE_UBUNTU;
-                case VM.VmTemplateType.RedHat: return Messages.NEWVMWIZARD_TEMPLATEPAGE_REDHAT;
-                case VM.VmTemplateType.Rocky: return Messages.NEWVMWIZARD_TEMPLATEPAGE_ROCKY;
-                case VM.VmTemplateType.Oracle: return Messages.NEWVMWIZARD_TEMPLATEPAGE_ORACLE;
-                case VM.VmTemplateType.Suse: return Messages.NEWVMWIZARD_TEMPLATEPAGE_SUSE;
-                default: return Messages.NEWVMWIZARD_TEMPLATEPAGE_MISC;
-            }
-        }
+            VM.VmTemplateType.Custom => Messages.NEWVMWIZARD_TEMPLATEPAGE_CUSTOM,
+            VM.VmTemplateType.Windows or VM.VmTemplateType.WindowsServer or VM.VmTemplateType.LegacyWindows => Messages.NEWVMWIZARD_TEMPLATEPAGE_WINDOWS,
+            VM.VmTemplateType.Centos => Messages.NEWVMWIZARD_TEMPLATEPAGE_CENTOS,
+            VM.VmTemplateType.Debian => Messages.NEWVMWIZARD_TEMPLATEPAGE_DEBIAN,
+            VM.VmTemplateType.Gooroom => Messages.NEWVMWIZARD_TEMPLATEPAGE_GOOROOM,
+            VM.VmTemplateType.Rocky => Messages.NEWVMWIZARD_TEMPLATEPAGE_ROCKY,
+            VM.VmTemplateType.Linx => Messages.NEWVMWIZARD_TEMPLATEPAGE_LINX,
+            VM.VmTemplateType.Oracle => Messages.NEWVMWIZARD_TEMPLATEPAGE_ORACLE,
+            VM.VmTemplateType.RedHat => Messages.NEWVMWIZARD_TEMPLATEPAGE_REDHAT,
+            VM.VmTemplateType.SciLinux => Messages.NEWVMWIZARD_TEMPLATEPAGE_SCILINUX,
+            VM.VmTemplateType.Suse => Messages.NEWVMWIZARD_TEMPLATEPAGE_SUSE,
+            VM.VmTemplateType.Ubuntu => Messages.NEW_VM_WIZARD_TEMPLATEPAGE_UBUNTU,
+            VM.VmTemplateType.YinheKylin => Messages.NEW_VM_WIZARD_TEMPLATEPAGE_YINHEKYLIN,
+            VM.VmTemplateType.NeoKylin => Messages.NEW_VM_WIZARD_TEMPLATEPAGE_NEOKYLIN,
+            VM.VmTemplateType.Asianux => Messages.NEW_VM_WIZARD_TEMPLATEPAGE_ASIANUX,
+            VM.VmTemplateType.Turbo => Messages.NEW_VM_WIZARD_TEMPLATEPAGE_TURBO,
+            VM.VmTemplateType.Citrix => BrandManager.CompanyNameShort,
+            VM.VmTemplateType.Solaris or VM.VmTemplateType.Misc => Messages.NEWVMWIZARD_TEMPLATEPAGE_MISC,
+            VM.VmTemplateType.CoreOS => Messages.NEWVMWIZARD_TEMPLATEPAGE_COREOS,
+            _ => Messages.NEWVMWIZARD_TEMPLATEPAGE_SNAPSHOTS
+        };
+
+        /// <summary>Page_Template's icon column (VmTemplateTypeExtensions.ToBitmap): the OS logo of the template.</summary>
+        public static string TemplateIcon(VM template) => TemplateIcon(template.TemplateType());
+
+        public static string TemplateIcon(VM.VmTemplateType type) => type switch
+        {
+            VM.VmTemplateType.Custom => "000_UserTemplate_h32bit_16",
+            VM.VmTemplateType.Windows or VM.VmTemplateType.WindowsServer or VM.VmTemplateType.LegacyWindows => "windows_h32bit_16",
+            VM.VmTemplateType.Centos => "centos_16x",
+            VM.VmTemplateType.Debian => "debian_16x",
+            VM.VmTemplateType.Gooroom => "gooroom_16x",
+            VM.VmTemplateType.Rocky => "rocky_16x",
+            VM.VmTemplateType.Linx => "linx_16x",
+            VM.VmTemplateType.Oracle => "oracle_16x",
+            VM.VmTemplateType.RedHat => "redhat_16x",
+            VM.VmTemplateType.SciLinux => "scilinux_16x",
+            VM.VmTemplateType.Suse => "suse_16x",
+            VM.VmTemplateType.Ubuntu => "ubuntu_16x",
+            VM.VmTemplateType.YinheKylin => "yinhekylin_16x",
+            VM.VmTemplateType.NeoKylin => "neokylin_16x",
+            VM.VmTemplateType.Asianux => "asianux_16x",
+            VM.VmTemplateType.Turbo => "turbo_16x",
+            VM.VmTemplateType.Citrix => "Logo", // the product logo (Images.Get maps it to the app icon)
+            VM.VmTemplateType.Solaris or VM.VmTemplateType.Misc => "000_VMTemplate_h32bit_16",
+            VM.VmTemplateType.CoreOS => "coreos-globe-icon",
+            _ => "000_VMSession_h32bit_16"
+        };
+
+        /// <summary>
+        /// Page_Template's TemplatesGridViewItem order: by template type (custom templates and Windows first, hidden ones
+        /// last), then newest version first (reverse natural order of the names).
+        /// </summary>
+        public static List<VM> SortTemplates(IEnumerable<VM> templates) =>
+            templates.OrderBy(t => (int)t.TemplateType() + (t.IsHidden() ? (int)VM.VmTemplateType.Count : 0))
+                .ThenBy(t => t.Name(), Comparer<string>.Create((a, b) => -XenCenterLib.StringUtility.NaturalCompare(a, b)))
+                .ThenBy(t => t.opaque_ref, StringComparer.Ordinal).ToList();
 
         /// <summary>
         /// Page_Storage Add (NewDiskDialog): "New virtual disk" with a unique name, 1 GB, on the best SR, at the first free

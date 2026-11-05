@@ -317,6 +317,24 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void TemplateIconsExist()
+        {
+            // every template type maps to a PNG the app ships (XenAdmin/Images, linked as Avalonia resources)
+            var dir = AppContext.BaseDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "XenAdmin", "Images")))
+                dir = Path.GetDirectoryName(dir);
+            Assert.IsNotNull(dir, "repository root");
+            foreach (var type in Enum.GetValues<VM.VmTemplateType>())
+            {
+                var icon = NewVmDefaults.TemplateIcon(type);
+                var file = icon == "Logo" ? Path.Combine(dir, "XenAdmin.Desktop", "packaging", "xcp-ng-center.png") : Path.Combine(dir, "XenAdmin", "Images", icon + ".png");
+                Assert.IsTrue(File.Exists(file), type + " icon");
+            }
+            Assert.AreEqual("windows_h32bit_16", NewVmDefaults.TemplateIcon(VM.VmTemplateType.WindowsServer));
+            Assert.AreEqual("ubuntu_16x", NewVmDefaults.TemplateIcon(VM.VmTemplateType.Ubuntu));
+        }
+
+        [TestMethod]
         public void BondRulesWithoutServer()
         {
             Assert.IsFalse(BondRules.ValidSelection(1, 4), "a bond needs two NICs");

@@ -27,6 +27,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   management interfaces.
 - Lab: every KVM lab host gets two spare NICs on an isolated bridge (bonds and VLANs), and `lab.sh halt` shuts the
   hosts down before stopping them.
+- New VM: the templates show their OS logos and categories and follow the Windows order (custom and Windows templates
+  first, newest version first); the list no longer starts with an empty band.
 - Templates menu: Create VM From Selection (New VM wizard on the selected template), Copy, Delete Template and
   Properties.
 
