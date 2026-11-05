@@ -110,8 +110,8 @@ namespace XenAdmin.Desktop.Tests
             try
             {
                 vmRef = CreateThrowawayVm(c, session, VmName + "-snap");
-                var vm = WaitFor(c, vmRef, v => !v.is_a_template);
-                Assert.IsTrue(vm.allowed_operations.Contains(vm_operations.snapshot));
+                // allowed_operations of a fresh VM reaches the cache in a later event
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template && v.allowed_operations.Contains(vm_operations.snapshot));
 
                 var take = new VMSnapshotCreateAction(vm, "linux-test-snapshot", "taken by the Linux Snapshots tab test", SnapshotType.DISK, null);
                 Run(take);
@@ -140,6 +140,66 @@ namespace XenAdmin.Desktop.Tests
                 {
                     foreach (var s in VM.get_snapshots(session, vmRef))
                         try { VM.destroy(session, s.opaque_ref); } catch { }
+                    VM.destroy(session, vmRef);
+                }
+                c.EndConnect();
+            }
+        }
+
+        /// <summary>Networking tab: add an interface, edit its QoS limit and MAC, remove it (VIF actions of NetworkList).</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void NetworkTabInterfaces()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-net");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template);
+                Assert.IsTrue(NetworkRules.CanAdd(vm) && !NetworkRules.AtMaxInterfaces(vm));
+                var net = NetworkRules.Networks(c, vm).First();
+
+                var add = new CreateVIFAction(vm, NetworkRules.Settings(vm, null, net, "", VIF.GetDeviceId(vm), false, ""));
+                Run(add);
+                Assert.IsTrue(add.Succeeded, add.Exception?.ToString());
+                vm = WaitFor(c, vmRef, v => v.VIFs.Count == 1 && c.Resolve(v.VIFs[0]) != null);
+                // a second interface: the edit below targets device 1, which UpdateVIFAction destroys and recreates
+                var second = new CreateVIFAction(vm, NetworkRules.Settings(vm, null, net, "", VIF.GetDeviceId(vm), false, ""));
+                Run(second);
+                Assert.IsTrue(second.Succeeded, second.Exception?.ToString());
+                vm = WaitFor(c, vmRef, v => v.VIFs.Count == 2 && c.ResolveAll(v.VIFs).Count == 2);
+                var vif = c.ResolveAll(vm.VIFs).Single(v => v.device == "1");
+                Assert.AreEqual(net.opaque_ref, vif.network.opaque_ref);
+                Assert.IsFalse(string.IsNullOrEmpty(vif.MAC), "auto-generated MAC");
+                Assert.IsTrue(NetworkRules.CanEdit(vm, vif) && NetworkRules.CanRemove(vm, vif), "a detached VIF of a halted VM can be edited and removed");
+                Assert.IsFalse(NetworkRules.CanToggle(vm, vif), "a halted VM cannot plug interfaces");
+
+                const string mac = "02:00:5e:10:00:01";
+                Assert.IsNull(NetworkRules.Validate(net, true, mac, true, "1024"));
+                Assert.IsTrue(NetworkRules.Changed(vif, net, mac, 1, true, "1024"));
+                var edit = new UpdateVIFAction(vm, vif, NetworkRules.Settings(vm, vif, net, mac, 1, true, "1024"));
+                Run(edit);
+                Assert.IsTrue(edit.Succeeded, edit.Exception?.ToString());
+                vm = WaitFor(c, vmRef, v => v.VIFs.Count == 2 && c.ResolveAll(v.VIFs).Any(e => e.device == "1" && e.MAC == mac && NetworkRules.Limit(e) == "1024"));
+                vif = c.ResolveAll(vm.VIFs).Single(v => v.device == "1");
+                CollectionAssert.AreEqual(new[] { "1", mac, "1024" }, Details.Networking(vm).Rows[1].Take(3).ToArray(), "device 1 keeps its row after the edit");
+                Assert.IsFalse(NetworkRules.Changed(vif, net, mac, 1, true, "1024"), "unchanged edit is a cancel");
+
+                var remove = new DeleteVIFAction(vif);
+                Run(remove);
+                Assert.IsTrue(remove.Succeeded, remove.Exception?.ToString());
+                WaitFor(c, vmRef, v => v.VIFs.Count == 1);
+            }
+            finally
+            {
+                if (vmRef != null)
+                {
+                    foreach (var v in VM.get_VIFs(session, vmRef))
+                        try { VIF.destroy(session, v.opaque_ref); } catch { }
                     VM.destroy(session, vmRef);
                 }
                 c.EndConnect();

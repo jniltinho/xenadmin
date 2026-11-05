@@ -610,8 +610,8 @@ namespace XenAdmin.Desktop
                     });
                 case "Networking":
                     var nt = Details.Networking(o);
-                    return Body(nt.Title, o is VM
-                        ? Views.GridPage(nt, null, "Add Interface...", "Properties", "Activate", "Remove")
+                    return Body(nt.Title, o is VM vmNetworking
+                        ? new VmNetworkView(vmNetworking, RunTracked)
                         : Views.GridPage(nt, null, "Add Network...", "Properties", "Remove Network"));
                 case "Console":
                     return ConsoleView.For(o as VM);

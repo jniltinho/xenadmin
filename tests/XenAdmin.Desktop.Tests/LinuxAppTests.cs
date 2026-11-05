@@ -234,6 +234,66 @@ namespace XenAdmin.Desktop.Tests
         }
 
         [TestMethod]
+        public void VmNetworkInterfaceRules()
+        {
+            var vm = new VM { opaque_ref = "OpaqueRef:vm" };
+            var plugged = new VIF { currently_attached = true, allowed_operations = new List<vif_operations> { vif_operations.unplug } };
+            var stuck = new VIF { currently_attached = true, allowed_operations = new List<vif_operations>() };
+            var detached = new VIF { currently_attached = false, allowed_operations = new List<vif_operations> { vif_operations.plug } };
+            Assert.IsTrue(NetworkRules.CanEdit(vm, plugged) && NetworkRules.CanToggle(vm, plugged));
+            Assert.IsFalse(NetworkRules.CanEdit(vm, stuck) || NetworkRules.CanRemove(vm, stuck) || NetworkRules.CanToggle(vm, stuck));
+            Assert.IsTrue(NetworkRules.CanRemove(vm, detached) && NetworkRules.CanToggle(vm, detached));
+            Assert.AreEqual(Messages.VM_NETWORK_TAB_ACTIVATE_BUTTON_LABEL, NetworkRules.ToggleLabel(detached));
+            Assert.AreEqual(Messages.VM_NETWORK_TAB_DEACTIVATE_BUTTON_LABEL, NetworkRules.ToggleLabel(plugged));
+            Assert.IsFalse(NetworkRules.CanEdit(vm, null) || NetworkRules.CanToggle(vm, null));
+
+            // VIFDialog.ValidateInput: a network is required; MAC and QoS are checked only when chosen
+            var net = new XenAPI.Network { opaque_ref = "OpaqueRef:net" };
+            Assert.AreEqual(Messages.SELECT_NETWORK_TOOLTIP, NetworkRules.Validate(null, false, null, false, null));
+            Assert.IsNull(NetworkRules.Validate(net, false, "junk", false, "junk"));
+            Assert.AreEqual("", NetworkRules.Validate(net, true, " ", false, null));
+            Assert.AreEqual(Messages.MAC_INVALID, NetworkRules.Validate(net, true, "aa:bb", false, null));
+            Assert.IsNull(NetworkRules.Validate(net, true, "aa:bb:cc:dd:ee:ff", false, null));
+            Assert.AreEqual(Messages.ENTER_VALID_QOS, NetworkRules.Validate(net, false, null, true, "0"));
+            Assert.IsNull(NetworkRules.Validate(net, false, null, true, "100"));
+
+            // GetNewSettings / ChangesHaveBeenMade: turning QoS off clears the algorithm; an unchanged edit is a cancel
+            var existing = new VIF
+            {
+                opaque_ref = "OpaqueRef:vif", device = "0", MAC = "aa:bb:cc:dd:ee:ff", network = new XenRef<XenAPI.Network>("OpaqueRef:net"),
+                qos_algorithm_type = VIF.RATE_LIMIT_QOS_VALUE, qos_algorithm_params = new Dictionary<string, string> { { VIF.KBPS_QOS_PARAMS_KEY, "100" } }
+            };
+            Assert.IsFalse(NetworkRules.Changed(existing, net, "aa:bb:cc:dd:ee:ff", 0, true, "100"));
+            Assert.IsTrue(NetworkRules.Changed(existing, net, "aa:bb:cc:dd:ee:ff", 0, true, "200"));
+            Assert.IsTrue(NetworkRules.Changed(existing, net, "aa:bb:cc:dd:ee:ff", 0, false, "100"));
+            Assert.IsTrue(NetworkRules.Changed(null, net, "", 1, false, ""));
+            var off = NetworkRules.Settings(vm, existing, net, "", 0, false, "");
+            Assert.AreEqual(("", "", "0", "OpaqueRef:vm"), (off.qos_algorithm_type, off.MAC, off.device, off.VM.opaque_ref));
+            var added = NetworkRules.Settings(vm, null, net, "", 2, true, "500");
+            Assert.AreEqual((VIF.RATE_LIMIT_QOS_VALUE, "500", "2"), (added.qos_algorithm_type, added.qos_algorithm_params[VIF.KBPS_QOS_PARAMS_KEY], added.device));
+            Assert.AreEqual("", NetworkRules.Limit(new VIF { qos_algorithm_type = "" }));
+            Assert.AreEqual("100", NetworkRules.Limit(existing));
+
+            // selection while UpdateVIFAction recreates device 1: it stays on 1, even after the action completed and
+            // before the replacement reached the cache; with no edit pending it falls back to the first device
+            Assert.AreEqual("1", NetworkRules.Selection(new[] { "0" }, "1", "1"));
+            Assert.AreEqual("1", NetworkRules.Selection(new[] { "0", "1" }, "1", null));
+            Assert.AreEqual("0", NetworkRules.Selection(new[] { "0" }, "1", null));
+            Assert.IsNull(NetworkRules.Selection(new string[0], null, null));
+
+            // the edit guard across refreshes: original present -> absent -> replacement present, device 1 selected throughout
+            var before = new[] { ("0", "r0"), ("1", "old") };
+            var gap = new[] { ("0", "r0") };
+            var after = new[] { ("0", "r0"), ("1", "new") };
+            Assert.IsFalse(NetworkRules.EditReplaced(before, "1", "old"));
+            Assert.AreEqual("1", NetworkRules.Selection(new[] { "0", "1" }, "1", "1"));
+            Assert.IsFalse(NetworkRules.EditReplaced(gap, "1", "old"));
+            Assert.AreEqual("1", NetworkRules.Selection(new[] { "0" }, "1", "1"));
+            Assert.IsTrue(NetworkRules.EditReplaced(after, "1", "old"));
+            Assert.AreEqual("1", NetworkRules.Selection(new[] { "0", "1" }, "1", null));
+        }
+
+        [TestMethod]
         public void ServerAddressParsing()
         {
             Assert.IsTrue(ServerAddress.TryParse(" xcp1.lan ", out var h, out var p)); Assert.AreEqual(("xcp1.lan", 443), (h, p));

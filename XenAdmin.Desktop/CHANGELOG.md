@@ -5,7 +5,12 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
 
 ## [Unreleased]
 
-—
+### Added
+- VM Networking tab: Add Interface, Properties (network, MAC, QoS limit), Remove Interface and Activate/Deactivate,
+  with the rules, tooltips and confirmations of the Windows app, and the Limit column.
+
+### Fixed
+- The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).
 
 ## [0.2.0] — 2026-11-05
 

@@ -305,6 +305,108 @@ namespace XenAdmin.Desktop
             return result;
         }
 
+        /// <summary>
+        /// VIFDialog ("Add Virtual Interface" / "Virtual Interface Properties"): network, MAC and QoS limit. Returns the
+        /// new settings, or null when cancelled or nothing changed (NetworkRules has the validation).
+        /// </summary>
+        public static async Task<XenAPI.VIF> Vif(Window owner, XenAPI.VM vm, XenAPI.VIF existing, int device)
+        {
+            var networks = NetworkRules.Networks(vm.Connection, vm);
+            var network = new ComboBox { ItemsSource = networks.Count > 0 ? networks.Select(n => n.Name()).ToList() : new List<string> { Messages.NONE }, SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var auto = new RadioButton { Content = M("&Auto-generate a MAC address"), GroupName = "mac", IsChecked = true };
+            var manual = new RadioButton { Content = M("&Use this MAC address:"), GroupName = "mac" };
+            var mac = new TextBox { Watermark = "aa:bb:cc:dd:ee:ff", Width = 200 };
+            var qos = new CheckBox { Content = M("Enable a &QoS limit of:") };
+            var limit = new TextBox { Width = 90 };
+            var error = new TextBlock { Foreground = Avalonia.Media.Brushes.Red, TextWrapping = Avalonia.Media.TextWrapping.Wrap, IsVisible = false };
+            var ok = new Button { Content = M(existing == null ? "&Add" : Messages.OK), IsDefault = true };
+            var cancel = new Button { Content = M(Messages.CANCEL), IsCancel = true };
+            if (existing != null)
+            {
+                network.SelectedIndex = Math.Max(0, networks.FindIndex(n => n.opaque_ref == existing.network.opaque_ref));
+                mac.Text = existing.MAC;
+                manual.IsChecked = !string.IsNullOrEmpty(existing.MAC);
+                auto.IsChecked = !manual.IsChecked;
+                limit.Text = existing.LimitString();
+                qos.IsChecked = existing.qos_algorithm_type == XenAPI.VIF.RATE_LIMIT_QOS_VALUE;
+            }
+            // VIFDialog.LoadDetails: QoS is set on the vSwitch Controller (pre-Stockholm pools that have one)
+            var controller = NetworkRules.QosManagedByController(vm.Connection);
+            if (controller)
+            {
+                qos.IsChecked = false;
+                qos.IsEnabled = limit.IsEnabled = false;
+            }
+            XenAPI.Network Selected() => network.SelectedIndex >= 0 && network.SelectedIndex < networks.Count ? networks[network.SelectedIndex] : null;
+            string Mac() => manual.IsChecked == true ? mac.Text?.Trim() ?? "" : "";
+            void Validate()
+            {
+                var e = NetworkRules.Validate(Selected(), manual.IsChecked == true, mac.Text, qos.IsChecked == true, limit.Text);
+                ok.IsEnabled = e == null;
+                error.Text = e;
+                error.IsVisible = !string.IsNullOrEmpty(e);
+            }
+            network.SelectionChanged += (_, _) => Validate();
+            auto.IsCheckedChanged += (_, _) => Validate();
+            manual.IsCheckedChanged += (_, _) => Validate();
+            mac.GotFocus += (_, _) => manual.IsChecked = true;
+            mac.TextChanged += (_, _) => Validate();
+            qos.IsCheckedChanged += (_, _) => Validate();
+            limit.GotFocus += (_, _) => qos.IsChecked = true;
+            limit.TextChanged += (_, _) => Validate();
+
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto"), RowSpacing = 10, ColumnSpacing = 10 };
+            void Row(int r, Control label, Control field)
+            {
+                Grid.SetRow(label, r); Grid.SetRow(field, r); Grid.SetColumn(field, 1);
+                grid.Children.Add(label); grid.Children.Add(field);
+            }
+            var macPanel = new StackPanel { Spacing = 4 };
+            macPanel.Children.Add(auto);
+            var manualRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            manualRow.Children.Add(manual);
+            manualRow.Children.Add(mac);
+            macPanel.Children.Add(manualRow);
+            var qosRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            qosRow.Children.Add(qos);
+            qosRow.Children.Add(limit);
+            qosRow.Children.Add(new TextBlock { Text = "Kbytes/s", VerticalAlignment = VerticalAlignment.Center });
+            Row(0, new Label { Content = M("&Network:"), Target = network, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0) }, network);
+            Row(1, new TextBlock { Text = "MAC address:", Margin = new Thickness(0, 6, 0, 0) }, macPanel);
+            Row(2, new TextBlock { Text = "QoS settings:", VerticalAlignment = VerticalAlignment.Center }, qosRow);
+            if (controller)
+            {
+                grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                var info = new TextBlock { Text = "QoS settings should be configured using the vSwitch Controller", TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+                Grid.SetRow(info, 3); Grid.SetColumn(info, 1);
+                grid.Children.Add(info);
+            }
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(new TextBlock { Text = "Select your network and MAC address for this virtual interface and, optionally, specify a QoS limit.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            panel.Children.Add(grid);
+            panel.Children.Add(error);
+            panel.Children.Add(Buttons(ok, cancel));
+            var w = Frame(existing == null ? "Add Virtual Interface" : Messages.VIRTUAL_INTERFACE_PROPERTIES, panel, 520);
+            Validate();
+            XenAPI.VIF result = null;
+            ok.Click += async (_, _) =>
+            {
+                var net = Selected();
+                if (net == null) return;
+                var dup = NetworkRules.DuplicateMac(XenAdmin.ConnectionsManager.XenConnectionsCopy, existing, Mac());
+                if (dup != null && !await Confirm(w, Messages.PROBLEM_MAC_ADDRESS_IS_DUPLICATE_TITLE,
+                        string.Format(Messages.PROBLEM_MAC_ADDRESS_IS_DUPLICATE, Mac(), dup.NameWithLocation()), Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION, cancelIsDefault: true))
+                    return;
+                var limitText = limit.Text?.Trim() ?? "";
+                if (NetworkRules.Changed(existing, net, Mac(), device, qos.IsChecked == true, limitText))
+                    result = NetworkRules.Settings(vm, existing, net, Mac(), device, qos.IsChecked == true, limitText);
+                w.Close();
+            };
+            cancel.Click += (_, _) => w.Close();
+            await w.ShowDialog(owner);
+            return result;
+        }
+
         /// <summary>NewDiskDialog ("Add Virtual Disk"): CreateDiskAction + VbdCreateAndPlugAction, as the original.</summary>
         public static async Task<XenAdmin.Actions.AsyncAction> NewDisk(Window owner, XenAPI.VM vm)
         {

@@ -387,14 +387,14 @@ namespace XenAdmin.Desktop
         {
             if (o is VM vm)
             {
-                var t = new Table { Title = "Virtual Network Interfaces", Headers = new[] { "Device", "MAC", "Network", "IP Address", "Active" } };
+                var t = new Table { Title = "Virtual Network Interfaces", Headers = new[] { "Device", "MAC", "Limit", "Network", "IP Address", "Active" } };
                 var gm = vm.Connection.Resolve(vm.guest_metrics);
                 foreach (var vif in vm.Connection.ResolveAll(vm.VIFs).OrderBy(v => v.device))
                 {
                     var net = vm.Connection.Resolve(vif.network);
                     // "0/ip" and "0/ipv4/0" hold the same address: list it once
                     var ips = gm?.networks?.Where(kv => kv.Key.StartsWith(vif.device + "/ip")).Select(kv => kv.Value).Distinct() ?? Enumerable.Empty<string>();
-                    t.Rows.Add(new[] { vif.device, vif.MAC, net?.Name() ?? "", string.Join(", ", ips),
+                    t.Rows.Add(new[] { vif.device, Helpers.GetMacString(vif.MAC), NetworkRules.Limit(vif), net?.Name() ?? "-", string.Join(", ", ips),
                         vif.currently_attached ? Messages.YES : Messages.NO });
                 }
                 return t;
