@@ -209,8 +209,7 @@ namespace XenAdmin.Desktop
         private void UpdateDetails()
         {
             var s = Selected;
-            var snapshotAllowed = _vm.allowed_operations.Contains(vm_operations.snapshot) || _vm.allowed_operations.Contains(vm_operations.checkpoint);
-            _take.IsEnabled = snapshotAllowed && !_vm.Locked;
+            _take.IsEnabled = VmRules.CanTakeSnapshot(_vm);
             _revert.IsEnabled = s != null && s.allowed_operations.Contains(vm_operations.revert);
             _delete.IsEnabled = s != null && s.allowed_operations.Contains(vm_operations.destroy);
             _actions.IsEnabled = s != null;

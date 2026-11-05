@@ -16,6 +16,8 @@ versions are the `linux-v*` git tags. The Windows (WinForms) app keeps its own `
   Private network; Bonded and SR-IOV listed, not yet available), Properties and Remove Network, with the Windows
   columns (NIC, VLAN, Auto, Link Status, MAC, MTU, SR-IOV).
 - Host NICs tab: the physical interfaces (link, speed, duplex, vendor, device, PCI bus path, FCoE and SR-IOV) and Rescan.
+- Server menu: Restart Toolstack and Remove From Pool (also in the server's context menu); VM menu: Take a Snapshot
+  and Convert to Template, with the Windows rules and confirmations.
 
 ### Fixed
 - The Networking tab buttons follow the Windows order (Add, Properties, Remove, Activate/Deactivate).

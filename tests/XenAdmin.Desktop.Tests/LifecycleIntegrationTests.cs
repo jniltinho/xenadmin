@@ -206,6 +206,33 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>VM menu: Convert to Template (ConvertVMToTemplateCommand) on a throwaway VM, then the template is destroyed.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void ConvertThrowawayVmToTemplate()
+        {
+            var host = Environment.GetEnvironmentVariable("XCP_HOST");
+            if (string.IsNullOrEmpty(host) || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_HOST and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(host);
+            var session = c.DuplicateSession();
+            string vmRef = null;
+            try
+            {
+                vmRef = CreateThrowawayVm(c, session, VmName + "-template");
+                var vm = WaitFor(c, vmRef, v => !v.is_a_template && VmRules.CanConvertToTemplate(v) && VmRules.CanTakeSnapshot(v));
+                Run(VmRules.ConvertToTemplateAction(vm));
+                vm = WaitFor(c, vmRef, v => v.is_a_template && v.other_config.TryGetValue("instant", out var i) && i == "true");
+                Assert.IsFalse(VmRules.CanConvertToTemplate(vm), "a template cannot be converted again");
+                Assert.IsFalse(VmRules.CanTakeSnapshot(vm), "templates are not snapshotted from the VM menu");
+            }
+            finally
+            {
+                if (vmRef != null)
+                    VM.destroy(session, vmRef);
+                c.EndConnect();
+            }
+        }
+
         /// <summary>Host Networking tab: create a single-server private network (New Network wizard) and remove it.</summary>
         [TestMethod, TestCategory("Integration"), TestCategory("Write")]
         public void HostNetworkPrivateCreateRemove()

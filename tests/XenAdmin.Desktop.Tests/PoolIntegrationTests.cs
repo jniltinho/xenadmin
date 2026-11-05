@@ -82,6 +82,36 @@ namespace XenAdmin.Desktop.Tests
             }
         }
 
+        /// <summary>Server menu on the lab pool: Restart Toolstack on the member (the coordinator's connection stays) and the Remove From Pool rule.</summary>
+        [TestMethod, TestCategory("Integration"), TestCategory("Write")]
+        public void RestartToolstackAndRemoveRuleOnLabPool()
+        {
+            var lab = Environment.GetEnvironmentVariable("XCP_LAB_HOSTS")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (lab == null || lab.Length < 1 || Environment.GetEnvironmentVariable("XCP_ALLOW_WRITE") != "1")
+                Assert.Inconclusive("XCP_LAB_HOSTS and XCP_ALLOW_WRITE=1 required");
+            var c = ConnectionIntegrationTests.Connect(lab[0]);
+            try
+            {
+                var pool = Helpers.GetPool(c);
+                if (pool == null || c.Cache.Hosts.Length < 2)
+                    Assert.Inconclusive("needs the lab pool of two");
+                var coordinator = Helpers.GetCoordinator(c);
+                var member = c.Cache.Hosts.Single(h => h.opaque_ref != coordinator.opaque_ref);
+                Assert.IsFalse(HostRules.CanRemoveFromPool(coordinator), "the coordinator cannot be removed");
+                Assert.IsTrue(HostRules.CanRemoveFromPool(member), "an idle live member can be removed");
+                StringAssert.Contains(HostRules.RemoveFromPoolConfirmation(member).Text, member.Name());
+                Assert.IsTrue(HostRules.CanRestartToolstack(member));
+                StringAssert.Contains(HostRules.RestartToolstackConfirmation(member).Text, member.Name());
+
+                Run(new RestartToolstackAction(member), 5);
+                Until(() => c.IsConnected && c.Resolve(new XenRef<Host>(member.opaque_ref))?.IsLive() == true, 300, "member live again after the toolstack restart");
+            }
+            finally
+            {
+                c.EndConnect();
+            }
+        }
+
         private static void CreateAndRemoveVlan(IXenConnection c, IXenObject owner, int vlan, int hosts)
         {
             var nic = NetworkRules.WizardNics(NetworkRules.WizardHost(owner)).First();

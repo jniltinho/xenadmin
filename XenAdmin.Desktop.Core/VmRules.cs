@@ -114,6 +114,20 @@ namespace XenAdmin.Desktop
             snapshot.power_state == vm_power_state.Suspended ? Messages.DISKS_AND_MEMORY : Messages.DISKS_ONLY;
 
         /// <summary>CopyVMCommand: a halted, unlocked VM that can be cloned or copied.</summary>
+        /// <summary>ConvertVMToTemplateCommand.CanRun.</summary>
+        public static bool CanConvertToTemplate(VM vm) =>
+            vm != null && !vm.is_a_template && !vm.Locked && vm.allowed_operations != null && vm.allowed_operations.Contains(vm_operations.make_into_template);
+
+        /// <summary>ConvertVMToTemplateCommand: mark the VM "instant" (fast clones) and turn it into a template.</summary>
+        public static AsyncAction ConvertToTemplateAction(VM vm) =>
+            new MultipleAction(vm.Connection, string.Format(Messages.ACTION_VM_TEMPLATIZING_TITLE, vm.Name()), Messages.ACTION_VM_TEMPLATIZING,
+                Messages.ACTION_VM_TEMPLATIZED, new List<AsyncAction> { new SetVMOtherConfigAction(vm.Connection, vm, "instant", "true"), new VMToTemplateAction(vm) });
+
+        /// <summary>TakeSnapshotCommand / SnapshotsPage: a disk or memory snapshot is allowed and the VM is not busy.</summary>
+        public static bool CanTakeSnapshot(VM vm) =>
+            vm != null && !vm.is_a_template && !vm.is_a_snapshot && !vm.Locked
+            && (vm.allowed_operations.Contains(vm_operations.snapshot) || vm.allowed_operations.Contains(vm_operations.checkpoint));
+
         public static bool CanCopy(VM vm) =>
             vm != null && !vm.is_a_snapshot && !vm.is_a_template && !vm.Locked && vm.power_state == vm_power_state.Halted
             && (vm.allowed_operations.Contains(vm_operations.clone) || vm.allowed_operations.Contains(vm_operations.copy));

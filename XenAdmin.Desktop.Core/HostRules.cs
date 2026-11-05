@@ -9,6 +9,29 @@ namespace XenAdmin.Desktop
     /// <summary>Server commands (ShutDownHostCommand, RebootHostCommand, HostMaintenanceModeCommand).</summary>
     public static class HostRules
     {
+        /// <summary>RestartToolstackCommand.CanRun: a live server.</summary>
+        public static bool CanRestartToolstack(Host host) => host != null && host.Connection.IsConnected && host.IsLive();
+
+        /// <summary>RestartToolstackCommand.ConfirmationDialogTitle/Text for one server.</summary>
+        public static (string Title, string Text) RestartToolstackConfirmation(Host host) =>
+            (Messages.CONFIRM_RESTART_TOOLSTACK_TITLE, string.Format(Messages.CONFIRM_RESTART_TOOLSTACK_ONE_SERVER, host.Name().Ellipsise(30), BrandManager.BrandConsole));
+
+        /// <summary>RemoveHostFromPoolCommand.CanRun: a live member (not the coordinator) running at most its control domain.</summary>
+        public static bool CanRemoveFromPool(Host host)
+        {
+            var pool = host?.Connection == null ? null : Helpers.GetPool(host.Connection);
+            return pool != null && host.opaque_ref != pool.master && host.IsLive() && host.resident_VMs != null && host.resident_VMs.Count <= 1;
+        }
+
+        /// <summary>RemoveHostFromPoolCommand's confirmation: title, text and the Yes button (No is the default).</summary>
+        public static (string Title, string Text, string Yes) RemoveFromPoolConfirmation(Host host)
+        {
+            var pool = Helpers.GetPool(host.Connection);
+            return (Messages.MAINWINDOW_CONFIRM_REMOVE_FROM_POOL_TITLE,
+                string.Format(Messages.MAINWINDOW_CONFIRM_REMOVE_FROM_POOL, host.Name().Ellipsise(500), Helpers.GetName(pool).Ellipsise(500), host.Name().Ellipsise(500)),
+                Messages.MAINWINDOW_CONFIRM_REMOVE_FROM_POOL_YES_BUTTON_LABEL);
+        }
+
         /// <summary>ShutDownHostCommand.CanRun; busy is HelpersGUI.HasActiveHostAction (a server action of ours is running).</summary>
         public static bool CanShutDown(Host host, bool busy = false) => host != null && host.Connection.IsConnected && host.IsLive() && !host.Locked && !busy;
         public static bool CanReboot(Host host, bool busy = false) => CanShutDown(host, busy);

@@ -55,7 +55,8 @@ namespace XenAdmin.Desktop
         private readonly Button _back, _forward, _addServer, _newPool, _newStorage, _newVm, _pause;
         private readonly Dictionary<VmOp, Button> _power = new Dictionary<VmOp, Button>();
         private readonly Dictionary<VmOp, MenuItem> _vmMenu = new Dictionary<VmOp, MenuItem>();
-        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu;
+        private MenuItem _connectMenu, _disconnectMenu, _removeMenu, _poolProps, _hostProps, _hostReboot, _hostShutdown, _hostMaintenance, _vmProps, _newVmMenu, _newPoolMenu, _newSrMenu, _migrateMenu, _copyVmMenu, _deleteVmMenu,
+            _restartToolstack, _removeFromPool, _snapshotMenu, _toTemplateMenu;
 
         public MainWindow(AppConfig config, CertificateTrust trust)
         {
@@ -298,12 +299,16 @@ namespace XenAdmin.Desktop
                     Top("_Server", Item("_Add...", async () => await AddServer(), icon: "000_AddApplicationServer_h32bit_16"), "-", _connectMenu, _disconnectMenu, _removeMenu, "-",
                         _hostReboot = Item("_Reboot", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, true); }, icon: "001_Reboot_h32bit_16"),
                         _hostShutdown = Item("S_hut Down", () => { if (SelectedNode()?.XenObject is Host h) HostPower(h, false); }, icon: "001_ShutDown_h32bit_16"),
+                        _restartToolstack = Item(Dialogs.M(Messages.MAINWINDOW_RESTART_TOOLSTACK), () => { if (SelectedNode()?.XenObject is Host h) RestartToolstack(h); }),
+                        "-", _removeFromPool = Item("Remove From _Pool", () => { if (SelectedNode()?.XenObject is Host h) RemoveFromPool(h); }),
                         _hostMaintenance = Item(Dialogs.M(Messages.ENTER_MAINTENANCE_MODE_CONTEXT_MENU), () => { if (SelectedNode()?.XenObject is Host h) ToggleMaintenance(h); }, icon: "000_ServerMaintenance_h32bit_16"), "-",
                         _hostProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as Host), icon: "edit_16")),
                     Top("V_M", _newVmMenu = Item("_New VM...", () => ShowNewVm(), icon: "001_CreateVM_h32bit_16"), "-", _vmMenu[VmOp.Start], _vmMenu[VmOp.Shutdown], _vmMenu[VmOp.Reboot],
                         _vmMenu[VmOp.Suspend], _vmMenu[VmOp.Resume], "-", _vmMenu[VmOp.ForceShutdown], _vmMenu[VmOp.ForceReboot], "-",
                         _migrateMenu = MigrateMenu(() => SelectedNode()?.XenObject as VM), "-",
                         _copyVmMenu = Item("Cop_y VM...", () => CopyVm(SelectedNode()?.XenObject as VM)),
+                        _snapshotMenu = Item("Ta_ke a Snapshot...", () => TakeSnapshot(SelectedNode()?.XenObject as VM), icon: "000_VMSnapShotDiskOnly_h32bit_16"),
+                        _toTemplateMenu = Item("Con_vert to Template...", () => ConvertToTemplate(SelectedNode()?.XenObject as VM)),
                         _deleteVmMenu = Item("_Delete VM...", () => DeleteVm(SelectedNode()?.XenObject as VM)), "-",
                         _vmProps = Item("P_roperties", () => ShowProperties(SelectedNode()?.XenObject as VM), icon: "edit_16")),
                     Top("S_torage", _newSrMenu = Item("New SR...", () => ShowNewSr(), icon: "000_NewStorage_h32bit_16")),
@@ -500,6 +505,8 @@ namespace XenAdmin.Desktop
             _hostReboot.IsEnabled = HostRules.CanReboot(serverHost, Busy(serverHost));
             _hostShutdown.IsEnabled = HostRules.CanShutDown(serverHost, Busy(serverHost));
             _hostMaintenance.IsEnabled = HostRules.CanToggleMaintenance(serverHost, Busy(serverHost));
+            _restartToolstack.IsEnabled = HostRules.CanRestartToolstack(serverHost) && !Busy(serverHost);
+            _removeFromPool.IsEnabled = HostRules.CanRemoveFromPool(serverHost) && !Busy(serverHost);
             _hostMaintenance.Header = Dialogs.M(serverHost != null ? HostRules.MaintenanceText(serverHost) : Messages.ENTER_MAINTENANCE_MODE_CONTEXT_MENU);
             foreach (var (op, m) in _vmMenu)
                 m.IsEnabled = Allowed(op);
@@ -514,6 +521,8 @@ namespace XenAdmin.Desktop
             _newStorage.IsEnabled = _newSrMenu.IsEnabled = c != null && c.IsConnected;
             _newPool.IsEnabled = _newPoolMenu.IsEnabled = _connections.Any(x => x.IsConnected);
             _copyVmMenu.IsEnabled = vm != null && VmRules.CanCopy(vm);
+            _snapshotMenu.IsEnabled = VmRules.CanTakeSnapshot(vm);
+            _toTemplateMenu.IsEnabled = VmRules.CanConvertToTemplate(vm);
             _migrateMenu.IsEnabled = vm != null && MigrateRules.CanMigrate(vm);
             _deleteVmMenu.IsEnabled = vm != null && VmRules.CanDeleteVm(vm);
 
@@ -627,6 +636,46 @@ namespace XenAdmin.Desktop
             return new TextBlock();
         }
 
+        // ---------- server and VM commands of the menus ----------
+
+        /// <summary>RestartToolstackCommand: confirm, then RestartToolstackAction (the connection reconnects by itself).</summary>
+        private async void RestartToolstack(Host host)
+        {
+            if (!HostRules.CanRestartToolstack(host)) return;
+            var (title, text) = HostRules.RestartToolstackConfirmation(host);
+            if (await Dialogs.Confirm(this, title, text, Messages.YES_BUTTON_CAPTION, Messages.NO_BUTTON_CAPTION))
+                RunTracked(new RestartToolstackAction(host));
+        }
+
+        /// <summary>
+        /// RemoveHostFromPoolCommand: confirm (No is the default), then EjectHostFromPoolAction; XAPI resets and reboots
+        /// the server. shortcut: the ejected server is not added back to the tree after its reboot (WinForms WaitForReboot);
+        /// add it with Add Server for now.
+        /// </summary>
+        private async void RemoveFromPool(Host host)
+        {
+            if (!HostRules.CanRemoveFromPool(host)) return;
+            var (title, text, yes) = HostRules.RemoveFromPoolConfirmation(host);
+            if (await Dialogs.Confirm(this, title, text, yes, Messages.NO_BUTTON_CAPTION, cancelIsDefault: true))
+                RunTracked(new EjectHostFromPoolAction(Helpers.GetPool(host.Connection), host));
+        }
+
+        /// <summary>ConvertVMToTemplateCommand: the Convert / Cancel warning, then the two actions.</summary>
+        private async void ConvertToTemplate(VM vm)
+        {
+            if (!VmRules.CanConvertToTemplate(vm)) return;
+            if (await Dialogs.Confirm(this, Messages.CONVERT_TO_TEMPLATE, string.Format(Messages.CONVERT_TEMPLATE_DIALOG_TEXT, vm.Name().Ellipsise(25)), Messages.CONVERT, Messages.CANCEL))
+                RunTracked(VmRules.ConvertToTemplateAction(vm));
+        }
+
+        /// <summary>TakeSnapshotCommand: the same Take Snapshot dialog as the Snapshots tab.</summary>
+        private async void TakeSnapshot(VM vm)
+        {
+            if (!VmRules.CanTakeSnapshot(vm)) return;
+            var action = await Dialogs.TakeSnapshot(this, vm);
+            if (action != null) RunTracked(action);
+        }
+
         // ---------- tree events (as NavigationView / ContextMenuBuilder) ----------
 
         /// <summary>Disconnected server: connect; halted VM: start; suspended VM: resume.</summary>
@@ -668,6 +717,10 @@ namespace XenAdmin.Desktop
                     items.Add(Item(Messages.MAINWINDOW_REBOOT, () => HostPower(host, true), icon: "001_Reboot_h32bit_16"));
                 if (HostRules.CanShutDown(host, Busy(host)))
                     items.Add(Item(Messages.MAINWINDOW_SHUTDOWN, () => HostPower(host, false), icon: "001_ShutDown_h32bit_16"));
+                if (HostRules.CanRestartToolstack(host) && !Busy(host))
+                    items.Add(Item(Messages.MAINWINDOW_RESTART_TOOLSTACK, () => RestartToolstack(host)));
+                if (HostRules.CanRemoveFromPool(host) && !Busy(host))
+                    items.Add(Item(Messages.REMOVE_SERVER_FROM_POOL_CONTEXT_MENU_ITEM_TEXT, () => RemoveFromPool(host)));
                 items.Add(new Separator());
             }
             if (n.XenObject is SR sr && sr.Connection.IsConnected)
