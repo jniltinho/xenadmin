@@ -19,6 +19,7 @@ import NewSrWizard from "./NewSrWizard.vue";
 import MenuList, { type MenuItem } from "./MenuList.vue";
 import CopyVmDialog from "./CopyVmDialog.vue";
 import ImportVmDialog from "./ImportVmDialog.vue";
+import ImportApplianceDialog from "./ImportApplianceDialog.vue";
 import OptionsDialog from "./OptionsDialog.vue";
 import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import VappsDialog from "./VappsDialog.vue";
@@ -624,6 +625,7 @@ async function newPoolClosed(coordinator: string, error: string) {
 
 // Import VM (File > Import...) and Export (VM > Export...: ExportVMCommand with the XVA path)
 const importing = ref(false);
+const appliance = ref(""); // the OVF/OVA file the Import Appliance dialog is open for
 async function runImport(label: string, key: string, f: () => Promise<string>) {
   status.value = `${label}...`;
   try {
@@ -1148,7 +1150,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <VappEditor v-if="newVappFor" :server="newVappFor.server" :data="newVappFor.data" :vapp="null" :preselect="newVappFor.vm"
                 @close="newVappFor = null; selected?.server && load(selected.server)" />
     <ObjectPropertiesDialog v-if="objProps" :server="objProps.server" :kind="objProps.kind" :uuid="objProps.uuid" @close="objPropsClosed" />
-    <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
+    <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" @appliance="(f) => (appliance = f)" />
+    <ImportApplianceDialog v-if="appliance" :file="appliance" @close="appliance = ''" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <HaDialog v-if="haOn" :server="haOn.key" :disable="haOn.disable" @close="haOn = null" @run="(label, f) => poolRun(label, haOn!.key, f)" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />

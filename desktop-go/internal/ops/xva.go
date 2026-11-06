@@ -2,6 +2,7 @@ package ops
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -24,7 +25,7 @@ import (
 
 // XVA export and import (XvaRules: ExportVmAction, and the import wizard's XVA path, ImportVmAction). The session goes
 // in a cookie, never in the URL; a server's certificate goes through the member trust as the performance graphs'.
-// shortcut: no progress bar or Cancel yet; OVF/OVA appliances are not ported (the C# app has OvfRules).
+// shortcut: no progress bar or Cancel yet. OVF/OVA appliances are in ovf.go.
 
 // xvaClient is the HTTP client of a transfer to the server at address (the coordinator, or the SR's server): no limit
 // on the whole transfer (an export takes hours), but a connection idle for transferIdle fails.
@@ -186,7 +187,7 @@ func ImportFileError(file string) string {
 	case name == "":
 		return "Select the file to import."
 	case !strings.HasSuffix(name, ".xva") && !strings.HasSuffix(name, ".xva.gz"):
-		return "Only XVA files (.xva, .xva.gz) can be imported in this version."
+		return "Only XVA files (.xva, .xva.gz) and OVF/OVA appliances (.ovf, .ova, .ova.gz, .ova.bz2) can be imported."
 	}
 	if st, err := os.Stat(file); err != nil || st.IsDir() {
 		return "The file does not exist."
@@ -219,14 +220,7 @@ func ImportVM(c *xapi.Connection, policy *trust.Policy, file, hostUUID, srUUID s
 			return "", xapi.Sanitize(err)
 		}
 	}
-	address, port := c.Host, c.Port // SR.GetStorageHost: a local SR's own server
-	if !srRec.Shared && len(srRec.PBDs) == 1 {
-		if h, err := xenapi.PBD.GetHost(s, srRec.PBDs[0]); err == nil {
-			if a, err := xenapi.Host.GetAddress(s, h); err == nil && a != "" {
-				address, port = a, 443
-			}
-		}
-	}
+	address, port := storageHost(c, srRec)
 	task, err := xenapi.Task.Create(s, "put_import_task", address)
 	if err != nil {
 		return "", xapi.Sanitize(err)
@@ -267,6 +261,18 @@ func ImportVM(c *xapi.Connection, policy *trust.Policy, file, hostUUID, srUUID s
 	return vm.UUID, nil
 }
 
+// storageHost is SR.GetStorageHost: the server a transfer to the SR goes to, a local SR's own server or the coordinator.
+func storageHost(c *xapi.Connection, sr xenapi.SRRecord) (string, int) {
+	if !sr.Shared && len(sr.PBDs) == 1 {
+		if h, err := xenapi.PBD.GetHost(c.Session, sr.PBDs[0]); err == nil {
+			if a, err := xenapi.Host.GetAddress(c.Session, h); err == nil && a != "" {
+				return a, 443
+			}
+		}
+	}
+	return c.Host, c.Port
+}
+
 func upload(s *xenapi.Session, policy *trust.Policy, host string, port int, path, file string) error {
 	f, err := os.Open(file)
 	if err != nil {
@@ -277,15 +283,51 @@ func upload(s *xenapi.Session, policy *trust.Policy, host string, port int, path
 	if err != nil {
 		return err
 	}
+	return put(s, policy, host, port, path, bufio.NewReaderSize(f, 1<<20), st.Size())
+}
+
+// exactReader gives left bytes of r and, with the last of them, fails unless r ends there: a stream that has more
+// (or a decoder that finds an error past them, as a VMDK grain out of order) fails the transfer instead of being cut.
+type exactReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (e *exactReader) Read(p []byte) (int, error) {
+	if e.left <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > e.left {
+		p = p[:e.left]
+	}
+	n, err := e.r.Read(p)
+	if e.left -= int64(n); e.left == 0 {
+		if extra, perr := e.r.Read(make([]byte, 1)); extra > 0 || perr != nil && !errors.Is(perr, io.EOF) {
+			return n, cmp.Or(perr, errors.New("the data is longer than its size"))
+		}
+		return n, io.EOF
+	}
+	if errors.Is(err, io.EOF) {
+		return n, io.ErrUnexpectedEOF
+	}
+	return n, err
+}
+
+// put is HTTPHelper.PUT: length bytes of body to the path, the session in a cookie.
+func put(s *xenapi.Session, policy *trust.Policy, host string, port int, path string, body io.Reader, length int64) error {
 	client, base := xvaClient(s, policy, host, port)
-	req, err := http.NewRequest(http.MethodPut, base+path, bufio.NewReaderSize(f, 1<<20))
+	req, err := http.NewRequest(http.MethodPut, base+path, &exactReader{r: body, left: length})
 	if err != nil {
 		return err
 	}
-	req.ContentLength = st.Size()
+	req.ContentLength = length
 	req.AddCookie(&http.Cookie{Name: "session_id", Value: string(s.Ref())})
 	resp, err := client.Do(req)
 	if err != nil {
+		var u *url.Error
+		if errors.As(err, &u) { // the cause, without the URL and its task and disk references
+			return u.Err
+		}
 		return err
 	}
 	defer resp.Body.Close()
