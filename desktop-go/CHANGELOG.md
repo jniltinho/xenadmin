@@ -9,6 +9,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 - A VLAN on an SR-IOV network (NetWDetails' checkBoxSriov, NewNetworkWizard.CreateNonBonded): on a NIC with an
   SR-IOV network the External network's Interface page offers "Create the VLAN on the SR-IOV network", which checks
   the VLAN against those already on that network and makes it on its logical PIF. Unit-tested; not run on hardware.
+- OVF/OVA import of hosted sparse VMDKs (monolithicSparse, what `qemu-img convert -O vmdk` and VMware Workstation
+  write) and monolithic flat VMDKs (a descriptor and its flat extent), converted to raw as they are read, as DiscUtils
+  does in the Windows app. A hosted sparse disk needs a folder package or an uncompressed OVA.
+- Signed OVF/OVA packages: the Export wizard's "Sign the OVF package" with a .pfx certificate and its private key's
+  password (never kept), writing the `.cert` file as the Windows app does; the import's "Verify digital signature"
+  with View Certificate (subject, issuer, validity, thumbprint), which refuses an untrusted certificate or a bad
+  signature before the manifest is checked.
 
 ## [0.3.0] — 2026-11-06
 

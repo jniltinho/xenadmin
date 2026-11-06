@@ -8,13 +8,18 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 // A stream-optimized VMDK (the disks of an OVA from VMware or VirtualBox; DiscUtils.Vmdk in the C# app) read as the raw
 // disk, as it comes: each compressed grain is preceded by a marker with its sector, so the disk is written in order
-// with zeros between the grains, one grain in memory at a time.
-// shortcut: stream-optimized VMDKs only (the hosted sparse and flat kinds need random access); the unallocated grains
-// are sent as zeros (import_raw_vdi takes raw or VHD), convert to VHD when large sparse disks are too slow.
+// with zeros between the grains, one grain in memory at a time. The hosted sparse VMDK (HostedSparseExtentFile: the
+// monolithicSparse disk qemu-img and VMware Workstation write) is read through random access (sparseVMDK), and a
+// monolithic flat VMDK is its descriptor's one flat extent (vmdkFlatExtent).
+// shortcut: the unallocated grains are sent as zeros (import_raw_vdi takes raw or VHD), convert to VHD when large
+// sparse disks are too slow.
 
 const (
 	vmdkMagic          = 0x564d444b // "KDMV"
@@ -25,6 +30,12 @@ const (
 
 // IsVMDK tells whether a disk starts with a VMDK sparse extent header.
 func IsVMDK(head []byte) bool { return len(head) >= 4 && binary.LittleEndian.Uint32(head) == vmdkMagic }
+
+// isStreamVMDK tells whether a sparse extent header is stream-optimized (compressed grains, markers), which
+// NewVMDKReader reads as a stream; the others are hosted sparse extents (NewSparseVMDKReader).
+func isStreamVMDK(head []byte) bool {
+	return len(head) >= 12 && binary.LittleEndian.Uint32(head[8:])&(vmdkFlagCompressed|vmdkFlagMarkers) != 0
+}
 
 type vmdkReader struct {
 	in       io.Reader
@@ -182,4 +193,161 @@ func (v *vmdkReader) next() error {
 	v.zeros = at - v.out
 	v.buf = v.grainBuf[:min(int64(n), v.size-at)]
 	return nil
+}
+
+const vmdkFlagZeroGrain = 1 << 2 // a grain table entry of 1 is a grain of zeros
+
+var vmdkParentCID = regexp.MustCompile(`(?m)^\s*parentCID\s*=\s*"?([0-9A-Za-z]+)`)
+
+// sparseVMDK is a hosted sparse VMDK (DiscUtils.Vmdk's HostedSparseExtentFile) read as its raw disk in order through
+// random access, one grain table in memory at a time. The file is untrusted: the grain directory and tables must lie
+// in the metadata before overHead and every grain after it and inside the file, so a table or a grain never aliases
+// the header or the tables. Two entries naming the same grain only repeat its data: the disk's size stays capacity.
+type sparseVMDK struct {
+	r       io.ReaderAt
+	file    int64 // the file's size
+	size    int64 // the raw disk's size
+	grain   int64 // bytes in a grain
+	gtes    int64 // entries in a grain table
+	gd      int64 // the grain directory's offset
+	data    int64 // where the grains start (overHead)
+	zeroGTE bool
+	out     int64 // bytes given out
+	table   int64 // the grain table in gt (-1: none read yet)
+	gt      []byte
+	noGT    bool // that table is not allocated: its grains are zeros
+}
+
+// NewSparseVMDKReader reads a hosted sparse VMDK of size bytes from r as its raw disk; Size is the disk's size.
+func NewSparseVMDKReader(r io.ReaderAt, size int64) (*sparseVMDK, error) {
+	h := make([]byte, sector)
+	if n, _ := r.ReadAt(h, 0); n < sector {
+		return nil, errors.New("the VMDK disk is truncated")
+	}
+	le := binary.LittleEndian
+	if le.Uint32(h) != vmdkMagic || isStreamVMDK(h) {
+		return nil, errors.New("the disk is not a hosted sparse VMDK")
+	}
+	version, flags := le.Uint32(h[4:]), le.Uint32(h[8:])
+	capacity, grain, gtes := le.Uint64(h[12:]), le.Uint64(h[20:]), uint64(le.Uint32(h[44:]))
+	gd, overhead := le.Uint64(h[56:]), le.Uint64(h[64:])
+	// qemu's vmdk_open_vmdk4 limits: a power-of-two grain, at most 512 entries in a table
+	if version < 1 || version > 3 || grain < 8 || grain > 2048 || grain&(grain-1) != 0 || gtes == 0 || gtes > 512 ||
+		capacity == 0 || capacity > math.MaxInt64/sector || size < 0 || overhead > uint64(size)/sector || gd == 0 || gd >= overhead {
+		return nil, errors.New("the VMDK disk's header is not valid")
+	}
+	if tables := (capacity + grain*gtes - 1) / (grain * gtes); tables > (overhead-gd)*sector/4 {
+		return nil, errors.New("the VMDK disk's grain directory is not valid")
+	}
+	// the embedded descriptor: a snapshot's delta (a parent) holds only its changes, not the disk
+	if descAt, descLen := le.Uint64(h[28:]), le.Uint64(h[36:]); descAt != 0 {
+		if descLen > vmdkMaxDescriptor/sector || descAt > overhead || descLen > overhead-descAt {
+			return nil, errors.New("the VMDK disk's descriptor is not valid")
+		}
+		desc := make([]byte, descLen*sector)
+		if n, _ := r.ReadAt(desc, int64(descAt)*sector); n < len(desc) {
+			return nil, errors.New("the VMDK disk is truncated")
+		}
+		if m := vmdkParentCID.FindSubmatch(desc); m != nil && !strings.EqualFold(string(m[1]), "ffffffff") {
+			return nil, errors.New("the VMDK disk is a snapshot of another disk, which cannot be imported on its own")
+		}
+	}
+	return &sparseVMDK{r: r, file: size, size: int64(capacity) * sector, grain: int64(grain) * sector, gtes: int64(gtes),
+		gd: int64(gd) * sector, data: int64(overhead) * sector, zeroGTE: flags&vmdkFlagZeroGrain != 0, table: -1}, nil
+}
+
+// Size is the raw disk's size in bytes.
+func (v *sparseVMDK) Size() int64 { return v.size }
+
+func (v *sparseVMDK) readAt(b []byte, at int64) error {
+	if n, err := v.r.ReadAt(b, at); n < len(b) {
+		return fmt.Errorf("the VMDK disk is truncated: %v", err)
+	}
+	return nil
+}
+
+// locate is where grain g is in the file, -1 for a grain of zeros.
+func (v *sparseVMDK) locate(g int64) (int64, error) {
+	if t := g / v.gtes; t != v.table {
+		b := make([]byte, 4)
+		if err := v.readAt(b, v.gd+t*4); err != nil {
+			return 0, err
+		}
+		at := int64(binary.LittleEndian.Uint32(b)) * sector
+		v.table, v.noGT = t, at == 0
+		if !v.noGT {
+			if at < sector || at+v.gtes*4 > v.data {
+				return 0, fmt.Errorf("the VMDK disk is not valid (grain table %d)", t)
+			}
+			if v.gt == nil {
+				v.gt = make([]byte, v.gtes*4)
+			}
+			if err := v.readAt(v.gt, at); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if v.noGT {
+		return -1, nil
+	}
+	gte := int64(binary.LittleEndian.Uint32(v.gt[g%v.gtes*4:]))
+	if gte == 0 || gte == 1 && v.zeroGTE {
+		return -1, nil
+	}
+	if at := gte * sector; at >= v.data && at+min(v.grain, v.size-g*v.grain) <= v.file {
+		return at, nil
+	}
+	return 0, fmt.Errorf("the VMDK disk is not valid (a grain at sector %d)", gte)
+}
+
+func (v *sparseVMDK) Read(p []byte) (int, error) {
+	if v.out >= v.size {
+		return 0, io.EOF
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	in := v.out % v.grain
+	n := min(int64(len(p)), v.grain-in, v.size-v.out) // within one grain
+	at, err := v.locate(v.out / v.grain)
+	if err != nil {
+		return 0, err
+	}
+	if at < 0 {
+		clear(p[:n])
+	} else if err := v.readAt(p[:n], at+in); err != nil {
+		return 0, err
+	}
+	v.out += n
+	return int(n), nil
+}
+
+const vmdkMaxDescriptor = 64 << 10
+
+var vmdkExtentLine = regexp.MustCompile(`^(RW|RDONLY|NOACCESS)\s+(\d+)\s+(\w+)(?:\s+"([^"]*)"(?:\s+(\d+))?)?\s*$`)
+
+// vmdkFlatExtent is a monolithic flat VMDK's descriptor (DiscUtils.Vmdk's DescriptorFile) read for its one extent:
+// the file with the raw disk (relative to the descriptor), where the disk starts in it and its size, in bytes.
+// shortcut: one FLAT (or ESX VMFS) extent only, not the split twoGbMaxExtent kinds nor a descriptor of sparse extents;
+// add them when such packages show up.
+func vmdkFlatExtent(desc []byte) (file string, offset, size int64, err error) {
+	var found [][]string
+	for _, line := range strings.Split(strings.ReplaceAll(string(desc), "\r", ""), "\n") {
+		if m := vmdkExtentLine.FindStringSubmatch(strings.TrimSpace(strings.Trim(line, "\x00"))); m != nil {
+			found = append(found, m)
+		}
+	}
+	if len(found) != 1 || found[0][1] == "NOACCESS" || found[0][3] != "FLAT" && found[0][3] != "VMFS" || found[0][4] == "" {
+		return "", 0, 0, errors.New("only stream-optimized, hosted sparse and monolithic flat VMDK disks can be imported in this version")
+	}
+	m := found[0]
+	sectors, err1 := strconv.ParseInt(m[2], 10, 64)
+	start, err2 := int64(0), error(nil)
+	if m[5] != "" {
+		start, err2 = strconv.ParseInt(m[5], 10, 64)
+	}
+	if err1 != nil || err2 != nil || sectors <= 0 || sectors > math.MaxInt64/sector || start > math.MaxInt64/sector-sectors {
+		return "", 0, 0, errors.New("the VMDK descriptor's extent is not valid")
+	}
+	return m[4], start * sector, sectors * sector, nil
 }

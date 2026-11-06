@@ -152,7 +152,7 @@ func TestPackageRoundTrip(t *testing.T) {
 			disk.Href, disk.Size, disk.Compressed = "d.vhd.gz", n, true
 		}
 		vm := ExportVM{Name: "x", VCPUs: 1, VCPUsMax: 1, Memory: 256 << 20, HardwarePlatformVersion: -1, Disks: []ExportDisk{disk}}
-		file, err := WritePackage(dir, "x", []ExportVM{vm}, []string{"eula"}, true, c.ova, c.compress)
+		file, err := WritePackage(dir, "x", []ExportVM{vm}, []string{"eula"}, true, c.ova, c.compress, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -183,7 +183,7 @@ func TestPackageRoundTrip(t *testing.T) {
 func TestLongNameOVA(t *testing.T) {
 	dir := t.TempDir()
 	name := strings.Repeat("Máquina ", 14)
-	file, err := WritePackage(dir, name, []ExportVM{{Name: "x", VCPUs: 1, VCPUsMax: 1, Memory: 256 << 20}}, nil, true, true, false)
+	file, err := WritePackage(dir, name, []ExportVM{{Name: "x", VCPUs: 1, VCPUsMax: 1, Memory: 256 << 20}}, nil, true, true, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestReadEulas(t *testing.T) {
 	}
 	big := strings.Repeat("<", 1<<20-1) // each "<" is "&lt;" in the descriptor
 	eulas := []string{big, big, big, big}
-	if _, err := WritePackage(t.TempDir(), "x", []ExportVM{{Name: "x"}}, eulas, false, false, false); err == nil {
+	if _, err := WritePackage(t.TempDir(), "x", []ExportVM{{Name: "x"}}, eulas, false, false, false, nil); err == nil {
 		t.Error("a descriptor larger than the import reads was written")
 	}
 }

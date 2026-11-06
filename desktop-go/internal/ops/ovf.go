@@ -20,8 +20,8 @@ import (
 
 // OVF/OVA appliance import: ImportApplianceAction (ImportApplianceAction.cs and Import.cs) with the import wizard's
 // VmMappings: a server, the SR of each disk and the network of each interface per VM (rules.ApplianceMapping).
-// shortcut: no OS fixup (see rules/ovfmap.go) and no encrypted packages (XenOvf's Security.cs ciphers) or signature
-// checks (the certificate is not verified); no vGPU, no PVS proxy, no InstallSection run, and the DVD drive stays empty.
+// shortcut: no OS fixup (see rules/ovfmap.go) and no encrypted packages (XenOvf's Security.cs ciphers); no vGPU, no
+// PVS proxy, no InstallSection run, and the DVD drive stays empty.
 // shortcut: no progress bar or Cancel yet (as the XVA import).
 
 // applianceState reads what rules.CheckApplianceMappings checks against: the servers, the SRs that can take new disks
@@ -109,7 +109,8 @@ func ApplianceMappingsError(c *xapi.Connection, a *rules.Appliance, maps []rules
 }
 
 // ImportAppliance imports the appliance file with a mapping per VM (its server, the SR of each disk and the network of
-// each interface), after verifying its manifest when asked, and starts it when asked. It returns the first VM's uuid.
+// each interface), after verifying its signature (a signed package) and its manifest when asked, and starts it when
+// asked. It returns the first VM's uuid.
 func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file string, maps []rules.ApplianceMapping, verify, start bool) (string, error) {
 	s := c.Session
 	if err := permitted(s, "vm_appliance.create", "vm_appliance.destroy", "vm.create", "vm.destroy", "vm.remove_from_other_config",
@@ -125,6 +126,11 @@ func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file string, maps
 		return "", err
 	} else if why != "" {
 		return "", errors.New(why)
+	}
+	if verify && a.HasSignature { // ImportApplianceAction.RunCore: VERIFYING_SIGNATURE, then the manifest it signs
+		if err := p.VerifySignature(nil); err != nil {
+			return "", errors.New(messages.Format(messages.Get("VERIFYING_SIGNATURE_ERROR"), err.Error()))
+		}
 	}
 	if verify { // ImportApplianceAction.RunCore: VERIFYING_MANIFEST
 		if err := p.VerifyManifest(); err != nil {

@@ -583,8 +583,10 @@ func eulaText(b []byte) string {
 
 // WritePackage is the end of ExportApplianceAction.RunCore, once the disks are in dir: the descriptor "<name>.ovf"
 // (OVF.SaveAs), the manifest when asked (ManifestAndSign: after CompressFiles compressed the disks one by one), then for
-// an OVA the archive (ConvertOVFtoOVA, compressed as a whole when asked). It returns the package's file in dir.
-func WritePackage(dir, name string, vms []ExportVM, eulas []string, manifest, ova, compress bool) (string, error) {
+// an OVA the archive (ConvertOVFtoOVA, compressed as a whole when asked). A signer (nil for none) signs the manifest,
+// which it makes even when not asked. It returns the package's file in dir.
+func WritePackage(dir, name string, vms []ExportVM, eulas []string, manifest, ova, compress bool, sign *Signer) (string, error) {
+	manifest = manifest || sign != nil
 	ovf := name + ".ovf"
 	desc := ApplianceDescriptor(name, vms, eulas)
 	if len(desc) > ovfMaxDescriptor { // the import would refuse it (the EULAs make it big)
@@ -604,11 +606,19 @@ func WritePackage(dir, name string, vms []ExportVM, eulas []string, manifest, ov
 			return "", err
 		}
 	}
+	if sign != nil {
+		if err := sign.Sign(dir, name); err != nil {
+			return "", err
+		}
+	}
 	if !ova {
 		return ovf, nil
 	}
-	if manifest { // the archive's order: the descriptor, the manifest, the disks
+	if manifest { // the archive's order: the descriptor, the manifest, the certificate, the disks
 		files = slices.Insert(files, 1, name+".mf")
+	}
+	if sign != nil {
+		files = slices.Insert(files, 2, name+".cert")
 	}
 	return WriteOVA(dir, name, files, compress)
 }
