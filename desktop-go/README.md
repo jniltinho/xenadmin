@@ -43,7 +43,10 @@ change, remove, activate and deactivate interfaces), Console (noVNC), Performanc
 delete) tabs.
 
 **Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), the Memory,
-Storage, Networking, NICs, Console and Performance tabs; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
+Storage, Networking, NICs, Console and Performance tabs; on Networking the New Network wizard (External/VLAN,
+Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU) and Remove Network;
+on NICs Create Bond (active-active, active-passive, LACP), Delete Bond and Rescan, with the C# management interface
+and HA warnings; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
 question, `pool.join`).
 
 **Storage.** The New Storage wizard: NFS, SMB, iSCSI (Scan Target Host, IQN, LUN, Reattach or Format), NFS and SMB
@@ -54,7 +57,7 @@ icons of a default, broken or detached SR.
 and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;
 Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: the other Properties pages (Custom Fields, HA, Alerts, GPU, USB), the Performance graph editor, HA, disaster recovery, NICs and bonds, import/export, and saved searches with the rarer
+Not there yet: the other Properties pages (Custom Fields, HA, Alerts, GPU, USB), the Performance graph editor, HA, disaster recovery, SR-IOV networks, changing a network's NIC, VLAN or bond mode, import/export, and saved searches with the rarer
 XenSearch filters (dates, IP addresses, object references; listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.
 
 ## Command line and MCP

@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Servers and pools, Networking tab: Add Network... (the New Network wizard: External network on a VLAN of a NIC,
+  Single-Server Private network, Bonded network), Properties (name, description, auto-add, MTU with the C# reasons it
+  is fixed; a new MTU unplugs and plugs the network's PIFs and VIFs) and Remove Network (its VLAN PIFs first; a bond
+  network deletes the bond).
+- Servers, NICs tab: Create Bond... (the NICs up to the pool's limit, active-active, active-passive or LACP, MTU,
+  auto-add; the bond on every server, the secondary management interfaces moved onto it and back on a failure),
+  Delete Bond (on every server) and Rescan, with the C# warnings (management interfaces, HA) and an RBAC check first.
 - Searches saved in pools run, for the XenSearch filters and groupings they use most (GroupQuery, string, enum,
   boolean, integer, tag and null queries; type, power state, OS, tags, tools, folder, custom field, pool, server,
   network and vApp groupings), with the C# semantics; a search with another filter is still listed, not run.
