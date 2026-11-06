@@ -11,7 +11,7 @@ import (
 // WatchClasses are the objects whose changes the window shows (the tree, the tabs and the alerts).
 // shortcut: no vm_metrics/host_metrics, which change every few seconds (memory figures); a host going down is seen
 // through its VMs and PBDs, not its "live" flag, until the reload is per object rather than per server
-var WatchClasses = []string{"pool", "host", "vm", "sr", "pbd", "vbd", "vdi", "network", "vif", "message"}
+var WatchClasses = []string{"pool", "host", "vm", "sr", "pbd", "vbd", "vdi", "network", "vif", "message", "vm_guest_metrics", "vm_appliance"}
 
 // watchTimeout is how long one event.from waits for changes (under the HTTP client's 60 s); watchRetry is the pause
 // after a failed call.

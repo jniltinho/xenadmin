@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Organization Views (Tags, Folders with the empty ones, Custom Fields, vApps) and Saved Searches (the seven C#
+  default searches) from their navigation buttons and the View menu, over every connected server; a group shows the
+  Search tab of its objects, and the views follow the servers live. Searches saved in pools are listed, not run yet.
 - New Pool (NewPoolDialog / CreatePoolAction): the coordinator and the members among the connected servers, each with
   the reason it cannot join (PoolJoinRules: a pool already, CPU vendor, server version, shared storage, running VMs,
   HA, clustering, TLS verification), the CPU levelling question, then the pool's name and pool.join from each member,

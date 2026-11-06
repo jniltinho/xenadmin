@@ -37,6 +37,8 @@ export interface VMCopy { name: string; description: string; clone: boolean; cop
 export interface IQN { index: number; iqn: string; address: string; port: number; text: string }
 export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
 export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
+export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
+export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
 
 export const api = {
@@ -93,6 +95,8 @@ export const api = {
   poolWarning: (coordinator: string, members: string[]) => call<string>("PoolWarning", coordinator, members),
   createPool: (coordinator: string, members: string[], name: string, description: string) =>
     call<{ created: boolean; error?: string }>("CreatePool", coordinator, members, name, description),
+  views: () => call<[ViewInfo[], ViewInfo[]]>("Views"),
+  view: (id: string) => call<ViewNode[] | null>("View", id),
   srQuestion: (command: string, name: string) => call<HostQuestion>("SRQuestion", command, name),
   srCommand: (key: string, uuid: string, command: string) => call<void>("SRCommand", key, uuid, command),
   srAttachWarning: (kind: string, uuid: string) => call<string>("SRAttachWarning", kind, uuid),

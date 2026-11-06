@@ -85,28 +85,7 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 		if err != nil {
 			return nil, xapi.Sanitize(err)
 		}
-		ha := false
-		for _, p := range pools {
-			ha = p.HaEnabled
-		}
-		for _, r := range vms {
-			if r.IsControlDomain || r.IsASnapshot || r.IsATemplate != (kind == "templates") {
-				continue
-			}
-			o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription}
-			if kind == "vms" {
-				o.PowerState = string(r.PowerState)
-				if h, ok := hosts[r.ResidentOn]; ok {
-					o.Host, o.HostUUID = h.NameLabel, h.UUID
-				}
-				for _, a := range r.AllowedOperations {
-					o.Allowed = append(o.Allowed, string(a))
-				}
-				o.HAProtected = ha && r.HaRestartPriority != "" // VM.HAIsProtected
-
-			}
-			out = append(out, o)
-		}
+		out = vmObjects(kind, vms, hosts, pools)
 	case "srs":
 		states, recs, err := ops.SRStates(s)
 		if err != nil {
@@ -129,6 +108,34 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 	}
 	SortObjects(out)
 	return out, nil
+}
+
+// vmObjects are the real VMs ("vms": no templates, snapshots or control domains) or the templates of the records,
+// with what the window shows of a VM (state, resident server, allowed operations, HA protection).
+func vmObjects(kind string, vms map[xenapi.VMRef]xenapi.VMRecord, hosts map[xenapi.HostRef]xenapi.HostRecord, pools map[xenapi.PoolRef]xenapi.PoolRecord) []Object {
+	ha := false
+	for _, p := range pools {
+		ha = p.HaEnabled
+	}
+	var out []Object
+	for _, r := range vms {
+		if r.IsControlDomain || r.IsASnapshot || r.IsATemplate != (kind == "templates") {
+			continue
+		}
+		o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription}
+		if kind == "vms" {
+			o.PowerState = string(r.PowerState)
+			if h, ok := hosts[r.ResidentOn]; ok {
+				o.Host, o.HostUUID = h.NameLabel, h.UUID
+			}
+			for _, a := range r.AllowedOperations {
+				o.Allowed = append(o.Allowed, string(a))
+			}
+			o.HAProtected = ha && r.HaRestartPriority != "" // VM.HAIsProtected
+		}
+		out = append(out, o)
+	}
+	return out
 }
 
 // SortObjects orders by name (case-insensitive), then UUID, so pages never repeat or skip equal names.

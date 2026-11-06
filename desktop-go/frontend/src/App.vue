@@ -4,7 +4,7 @@
 // (Home and Search for the root), Add New Server and the certificate question, a status bar.
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { Events } from "@wailsio/runtime";
-import { api, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
+import { api, type ViewInfo, type ViewNode, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 import ConsoleView from "./ConsoleView.vue";
 import { serial } from "./serial";
 import SnapshotsView from "./SnapshotsView.vue";
@@ -72,7 +72,7 @@ function reselect(id: string): boolean {
     for (const c of n.children) { const p = path(c); if (p) return [n, ...p]; }
     return null;
   };
-  const p = path(view.value === "objects" ? objectsTree.value : tree.value);
+  const p = path(currentTree.value);
   if (!p) return false; // gone (or in another view): the selection stays
   p.slice(0, -1).forEach((a) => expanded.add(a.id));
   selected.value = p[p.length - 1];
@@ -131,7 +131,74 @@ const when = (t: string) => new Date(t).toLocaleString(undefined, { dateStyle: "
 async function showView(v: View) {
   view.value = v;
   if (v === "alerts") await loadAlerts();
+  // the selection belongs to the tree shown: the same object if it is there, else the root
+  if (v !== "alerts" && (!selected.value || !reselect(selected.value.id))) selected.value = currentTree.value;
 }
+
+// Organization Views and Saved Searches (OrganizationalView, Search): their button and the View menu list the views;
+// the chosen one is read from every connected server and shown as the tree (MainWindowTreeBuilder.CreateNewRootNode)
+const views = ref<{ organization: ViewInfo[]; searches: ViewInfo[] }>({ organization: [], searches: [] });
+const chosen = ref<ViewInfo | null>(null);
+const viewNodes = ref<ViewNode[]>([]);
+const viewMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+async function viewItems(kind: "organization" | "saved"): Promise<MenuItem[]> {
+  const [organization, searches] = await api.views();
+  views.value = { organization, searches };
+  return (kind === "organization" ? organization : searches).map((v) => ({
+    label: v.name, icon: v.icon, enabled: v.supported, run: () => { closeMenus(); viewMenu.value = null; openView(kind, v); },
+  }));
+}
+async function navClick(v: View, e: MouseEvent) {
+  if (v !== "organization" && v !== "saved") { showView(v); return; }
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  viewMenu.value = { x: r.left + 8, y: r.top, items: [] };
+  try { const items = await viewItems(v); if (viewMenu.value) viewMenu.value = { x: r.left + 8, y: r.top - 4 - items.length * 26, items }; }
+  catch (e2) { viewMenu.value = null; failure.value = String(e2); }
+}
+async function openView(kind: "organization" | "saved", v: ViewInfo) {
+  chosen.value = v;
+  viewNodes.value = [];
+  view.value = kind;
+  await readView(); // it puts the selection on the view (its root, for an object or group it lacks)
+}
+// one view read at a time (serial): changes during a read read it once more; a failed read empties the view and says
+// why (never the previous view's objects under the new name)
+const readView = serial(async () => {
+  if (!chosen.value) return;
+  const id = chosen.value.id;
+  try {
+    const nodes = (await api.view(id)) ?? [];
+    if (chosen.value?.id === id) {
+      viewNodes.value = nodes;
+      // the selection follows the reread view: the same node if it is still there, else the view's root
+      if ((view.value === "organization" || view.value === "saved") && (!selected.value || !reselect(selected.value.id))) selected.value = viewTree.value;
+    }
+    // VM.GetVirtualizationStatus: "Unknown" lasts a VM's first two minutes; read again when it may have ended
+    if (id === "vms_without_tools" && nodes.some((n) => !n.object && n.name === "Unknown")) setTimeout(() => { if (chosen.value?.id === id) void readView(); }, 125_000);
+  } catch (e) {
+    if (chosen.value?.id === id) {
+      viewNodes.value = [];
+      failure.value = `Could not read ${chosen.value.name}: ${String(e)}`;
+      if (view.value === "organization" || view.value === "saved") selected.value = viewTree.value; // nothing of the old tree stays shown
+    }
+  }
+});
+const viewTree = computed<Node>(() => {
+  // ids from identities, not positions: a group is its path of values (or object keys), an object its server, uuid and
+  // place (one VM under two tags is two nodes), so selection and expansion survive a reread
+  const seg = (s: string) => encodeURIComponent(s);
+  const nodeOf = (v: ViewNode, path: string): Node => {
+    if (v.object && v.server) {
+      const o = v.object;
+      const id = `o:${path}|${seg(v.server)}/${o.uuid}`;
+      return { id, label: v.name, icon: objectIcon(o), object: o, server: v.server, children: v.children.map((c) => nodeOf(c, `${path}|${o.uuid}`)) };
+    }
+    const here = `${path}/${seg(v.key || v.name)}`;
+    return { id: `g:${here}`, label: v.name, icon: v.icon || "000_Folder_open_h32bit_16", children: v.children.map((c) => nodeOf(c, here)) };
+  };
+  return { id: "root", label: chosen.value?.name ?? "", icon: chosen.value?.icon ?? "objects_16", children: viewNodes.value.map((v) => nodeOf(v, "")) };
+});
+const currentTree = computed(() => (view.value === "objects" ? objectsTree.value : view.value === "organization" || view.value === "saved" ? viewTree.value : tree.value));
 
 function answer(i: number) { ask.value?.resolve(i); ask.value = null; }
 
@@ -165,7 +232,7 @@ async function runSr(op: string, label: string, n: Node | null) {
 }
 const hostCanRun = (c: HostCommand, n: Node | null) =>
   !!n?.object?.live && (c.op === "enter_maintenance" ? !n.object.maintenance : c.op === "exit_maintenance" ? !!n.object.maintenance : true);
-function closeMenus() { menu.value = null; openMenu.value = ""; }
+function closeMenus() { menu.value = null; openMenu.value = ""; viewMenu.value = null; }
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
 type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "console" | "performance" | "snapshots";
@@ -190,7 +257,8 @@ const tabInfo = {
 // VMTabs: General, Console, Snapshots for a VM; General, Console for a server
 const tabs = computed<Tab[]>(() => {
   const n = selected.value;
-  if (!n || n.id === "root") return ["home", "search"]; // MainWindow: the root shows Home and Search
+  if (!n || n.id === "root") return view.value === "organization" || view.value === "saved" ? ["search"] : ["home", "search"]; // MainWindow: the root shows Home and Search; a view's root, its Search
+  if (n.id.startsWith("g:")) return ["search"]; // a group of a view: the Search tab of its objects
   if (n.disconnected) return ["general"]; // GeneralTabPage.GenerateDisconnectedHostBox
   // the C# order: General, Memory, Storage, Networking, Console, Snapshots
   const t: Tab[] = ["general"];
@@ -233,6 +301,11 @@ async function runHost(c: HostCommand, n: Node | null) {
 const cert = ref<{ key: string; fingerprint: string; previous?: string } | null>(null);
 
 const vmIcon = (o: XenObject) => (o.power_state === "Running" ? "000_StartVM_h32bit_16" : o.power_state === "Suspended" ? "000_SuspendVM_h32bit_16" : "000_StoppedVM_h32bit_16");
+const hostIcon = (h: XenObject) => (!h.live ? "000_ServerDisconnected_h32bit_16" : h.maintenance ? "000_ServerMaintenance_h32bit_16" : "000_TreeConnected_h32bit_16");
+// Images.GetIconFor by kind, for the objects of the Organization Views and searches
+const objectIcon = (o: XenObject) => ({ vms: vmIcon(o), hosts: hostIcon(o), pools: "000_PoolConnected_h32bit_16", srs: o.icon || "000_Storage_h32bit_16",
+  templates: "000_VMTemplate_h32bit_16", networks: "000_Network_h32bit_16", snapshots: "000_VMSnapShotDiskOnly_h32bit_16",
+  vdis: "000_VirtualStorage_h32bit_16" } as Record<string, string>)[o.kind] ?? "000_Folder_open_h32bit_16";
 
 const tree = computed<Node>(() => ({
   id: "root", label: "XCP-ng Center", icon: "infra_view_16_textured", children: servers.value.map((s) => {
@@ -278,7 +351,7 @@ const flat = computed(() => {
     rows.push({ node: n, depth });
     if (expanded.has(n.id) || q) n.children.forEach((c) => walk(c, depth + 1));
   };
-  walk(view.value === "objects" ? objectsTree.value : tree.value, 0);
+  walk(currentTree.value, 0);
   return rows;
 });
 
@@ -343,12 +416,13 @@ async function disconnect(n: Node) {
   await api.disconnect(n.server);
   retire(n.server);
   delete data[n.server];
+  if (view.value === "organization" || view.value === "saved") void readView(); // its objects leave the view
   await refreshServers();
-  if (!reselect(n.server)) selected.value = view.value === "objects" ? objectsTree.value : tree.value; // gone from this view
+  if (!reselect(n.server)) selected.value = currentTree.value; // gone from this view
 }
 async function forget(n: Node) {
   if (!n.server || !(await confirm({ title: "Remove Server", text: `Remove '${n.label}' from the list of servers?` }))) return;
-  try { await api.forget(n.server); retire(n.server); delete data[n.server]; await refreshServers(); selected.value = tree.value; } catch (e) { failure.value = String(e); }
+  try { await api.forget(n.server); retire(n.server); delete data[n.server]; if (view.value === "organization" || view.value === "saved") void readView(); await refreshServers(); selected.value = tree.value; } catch (e) { failure.value = String(e); }
 }
 
 // the splitter's position (MainWindow's SplitContainer), kept for the next start
@@ -460,7 +534,9 @@ const serverNode = computed(() => (selected.value?.server && selected.value.id =
 // the menu bar of the C# app; what is not ported yet is shown disabled
 const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
   { label: "File", items: [{ label: "Add New Server...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } }] },
-  { label: "View", items: navButtons.map((b) => ({ label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } })) },
+  { label: "View", items: navButtons.map((b) => b.v === "organization" || b.v === "saved"
+    ? { label: b.label, enabled: true, sub: () => viewItems(b.v as "organization" | "saved") }
+    : { label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } }) },
   { label: "Pool", items: [{ label: "New Pool...", icon: "000_PoolNew_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); newPool.value = true; } }] },
   { label: "Server", items: [
     { label: "Add...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
@@ -485,8 +561,29 @@ function contextItems(n: Node): MenuItem[] {
 }
 function activate(n: Node) { if (n.disconnected) connectTo(n); else toggle(n); }
 
-// the Search tab of the root (SearchPage's overview): every object of the connected servers
-const overview = computed(() => Object.entries(data).flatMap(([key, d]) => [
+// the Search tab of the root (SearchPage's overview): every object of the connected servers; of a view's root or group,
+// the objects under it
+const typeName: Record<string, string> = { pools: "Pool", hosts: "Server", vms: "VM", srs: "Storage", templates: "Template", networks: "Network",
+  snapshots: "Snapshot", vdis: "Virtual Disk" };
+const overview = computed(() => {
+  const n = selected.value;
+  const viewing = view.value === "organization" || view.value === "saved";
+  if (n && (n.id.startsWith("g:") || (viewing && n.id === "root"))) {
+    const rows: { o: XenObject; type: string; key: string; icon: string; id: string }[] = [];
+    const seen = new Set<string>();
+    const walk = (x: Node) => x.children.forEach((c) => {
+      const uid = c.object && c.server ? `${c.server}/${c.object.uuid}` : "";
+      if (c.object && c.server && !seen.has(uid)) { seen.add(uid); rows.push({ o: c.object, type: typeName[c.object.kind] ?? c.object.kind, key: c.server, icon: c.icon, id: c.id }); }
+      walk(c);
+    });
+    walk(n);
+    return rows;
+  }
+  return everything.value;
+});
+// the tree node a row of the Search tab opens: a view's own node, else the Infrastructure tree's
+const rowId = (r: { key: string; type: string; o: XenObject; id?: string }) => r.id ?? (r.type === "Pool" ? r.key : `${r.key}/${r.o.uuid}`);
+const everything = computed(() => Object.entries(data).flatMap(([key, d]) => [
   ...(d.pools ?? []).map((o) => ({ o: { ...o, name: o.name || (d.hosts ?? []).find((h) => h.coordinator)?.name || key }, type: "Pool", key, icon: "000_PoolConnected_h32bit_16" })),
   ...(d.hosts ?? []).map((o) => ({ o, type: "Server", key, icon: "000_TreeConnected_h32bit_16" })),
   ...(d.vms ?? []).map((o) => ({ o, type: "VM", key, icon: vmIcon(o) })), ...(d.srs ?? []).map((o) => ({ o, type: "Storage", key, icon: o.icon || "000_Storage_h32bit_16" })),
@@ -542,6 +639,7 @@ function followed(key: string) {
     tick.value++;
   }
   if (view.value === "alerts") void loadAlerts();
+  if (view.value === "organization" || view.value === "saved") void readView();
 }
 async function refresh(key: string) {
   if (!readers.has(key)) return; // never loaded: not shown
@@ -608,12 +706,12 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     </div>
     <div class="flex min-h-0 flex-1">
       <aside class="flex shrink-0 flex-col bg-pane" :style="{ width: `${sideWidth}px` }">
-        <div v-if="view === 'infrastructure' || view === 'objects'" class="m-1 flex items-center border border-line bg-white">
+        <div v-if="view !== 'alerts'" class="m-1 flex items-center border border-line bg-white">
           <input v-model="filter" placeholder="Search..." class="min-w-0 flex-1 px-1 py-0.5 outline-none" />
           <img src="/icons/000_Search_h32bit_16.png" alt="" class="mx-1 h-4 w-4" />
         </div>
         <div class="mx-1 min-h-0 flex-1 overflow-auto border border-line bg-white">
-          <template v-if="view === 'infrastructure' || view === 'objects'">
+          <template v-if="view !== 'alerts'">
             <div v-for="{ node, depth } in flat" :key="node.id"
                  class="flex cursor-default items-center gap-1 whitespace-nowrap px-1 py-px"
                  :class="selected?.id === node.id ? 'bg-select text-white' : 'hover:bg-neutral-100'"
@@ -631,12 +729,11 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
           <div v-else-if="view === 'alerts'" class="flex items-center gap-1 bg-select px-2 py-px text-white">
             <img src="/icons/notif_alerts_16.png" alt="" class="h-4 w-4" /> Alerts ({{ alerts.length }})
           </div>
-          <p v-else class="p-2 text-neutral-500">{{ soon }}.</p>
         </div>
         <!-- NavigationPane -->
         <div class="mt-1 border-t border-line">
           <div v-for="b in navButtons" :key="b.v" class="flex cursor-default items-center gap-2 px-2 py-1"
-               :class="view === b.v ? 'navactive' : 'hover:bg-neutral-200'" @click="showView(b.v)">
+               :class="view === b.v ? 'navactive' : 'hover:bg-neutral-200'" @click.stop="navClick(b.v, $event)">
             <img :src="`/icons/${b.icon}.png`" alt="" class="h-6 w-6" />{{ b.label }}
           </div>
         </div>
@@ -692,7 +789,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
               <th class="border-b border-line px-2 py-1 font-normal">Name</th><th class="border-b border-line px-2 py-1 font-normal">Type</th>
               <th class="border-b border-line px-2 py-1 font-normal">Description</th><th class="border-b border-line px-2 py-1 font-normal">Server</th></tr></thead>
             <tbody>
-              <tr v-for="r in overview" :key="`${r.key}/${r.o.uuid}`" class="cursor-default hover:bg-neutral-100" @dblclick="reselect(r.type === 'Pool' ? r.key : `${r.key}/${r.o.uuid}`)">
+              <tr v-for="r in overview" :key="`${r.key}/${r.o.uuid}`" class="cursor-default hover:bg-neutral-100" @dblclick="reselect(rowId(r))">
                 <td class="border-b border-line px-2 py-1"><span class="flex items-center gap-1.5"><img :src="`/icons/${r.icon}.png`" alt="" class="h-4 w-4" />{{ r.o.name }}</span></td><td class="border-b border-line px-2 py-1">{{ r.type }}</td>
                 <td class="border-b border-line px-2 py-1">{{ r.o.description }}</td><td class="border-b border-line px-2 py-1">{{ r.key }}</td></tr>
             </tbody>
@@ -727,6 +824,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <span>{{ status }}</span><span v-if="failure" class="text-red-700">{{ failure }}</span>
     </footer>
 
+    <MenuList v-if="viewMenu && viewMenu.items.length" class="fixed z-20" :style="{ left: `${viewMenu.x}px`, top: `${viewMenu.y}px` }" :items="viewMenu.items" />
     <MenuList v-if="menu" class="fixed z-20" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" :items="menu.items" />
 
     <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />

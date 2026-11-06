@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -795,5 +796,118 @@ func TestLabISCSI(t *testing.T) {
 		if pbd, _ := xenapi.PBD.GetRecord(s, p); !pbd.CurrentlyAttached {
 			t.Fatal("a PBD of the reattached SR is not attached")
 		}
+	}
+}
+
+// TestLabViews puts a tag, a folder and a custom field on XCP_LAB_VM (XCP_ALLOW_WRITE=1), reads the Organization Views
+// and the default searches, then removes them again.
+func TestLabViews(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	refs, _ := xenapi.VM.GetByNameLabel(s, name)
+	if len(refs) != 1 {
+		t.Fatal(name)
+	}
+	vm := refs[0]
+	pools, _ := xenapi.Pool.GetAll(s)
+	gc, err := xenapi.Pool.GetGuiConfig(s, pools[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := xenapi.VM.GetRecord(s, vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldFields, hadFields := gc["XenCenter.CustomFields"]
+	oldFolder, hadFolder := rec.OtherConfig["folder"]
+	oldValue, hadValue := rec.OtherConfig["XenCenter.CustomFields.go-test-field"]
+	hadTag := slices.Contains(rec.Tags, "xcpng-center-go-test-tag")
+	restored := func(err error) {
+		if err != nil {
+			t.Errorf("the lab's metadata was not restored: %v", err)
+		}
+	}
+	defer func() { // only what the test added goes; what was there comes back
+		if !hadTag {
+			restored(xenapi.VM.RemoveTags(s, vm, "xcpng-center-go-test-tag"))
+		}
+		restored(xenapi.VM.RemoveFromOtherConfig(s, vm, "folder"))
+		if hadFolder {
+			restored(xenapi.VM.AddToOtherConfig(s, vm, "folder", oldFolder))
+		}
+		restored(xenapi.VM.RemoveFromOtherConfig(s, vm, "XenCenter.CustomFields.go-test-field"))
+		if hadValue {
+			restored(xenapi.VM.AddToOtherConfig(s, vm, "XenCenter.CustomFields.go-test-field", oldValue))
+		}
+		restored(xenapi.Pool.RemoveFromGuiConfig(s, pools[0], "XenCenter.CustomFields"))
+		if hadFields {
+			restored(xenapi.Pool.AddToGuiConfig(s, pools[0], "XenCenter.CustomFields", oldFields))
+		}
+	}()
+	if err := xenapi.VM.AddTags(s, vm, "xcpng-center-go-test-tag"); err != nil {
+		t.Fatal(err)
+	}
+	_ = xenapi.VM.RemoveFromOtherConfig(s, vm, "folder")
+	if err := xenapi.VM.AddToOtherConfig(s, vm, "folder", "/go-test/inner"); err != nil {
+		t.Fatal(err)
+	}
+	_ = xenapi.Pool.RemoveFromGuiConfig(s, pools[0], "XenCenter.CustomFields")
+	fields := `<CustomFieldDefinitions><CustomFieldDefinition name="go-test-field" type="String" defaultValue="" /></CustomFieldDefinitions>`
+	if hadFields { // the lab's own fields stay: the test's goes in their list
+		fields = strings.Replace(oldFields, "</CustomFieldDefinitions>", `<CustomFieldDefinition name="go-test-field" type="String" defaultValue="" /></CustomFieldDefinitions>`, 1)
+	}
+	if err := xenapi.Pool.AddToGuiConfig(s, pools[0], "XenCenter.CustomFields", fields); err != nil {
+		t.Fatal(err)
+	}
+	_ = xenapi.VM.RemoveFromOtherConfig(s, vm, "XenCenter.CustomFields.go-test-field")
+	if err := xenapi.VM.AddToOtherConfig(s, vm, "XenCenter.CustomFields.go-test-field", "value-1"); err != nil {
+		t.Fatal(err)
+	}
+	find := func(nodes []*ViewNode, path ...string) *ViewNode {
+		for _, p := range path {
+			var next *ViewNode
+			for _, n := range nodes {
+				if n.Name == p {
+					next = n
+				}
+			}
+			if next == nil {
+				return nil
+			}
+			nodes = next.Children
+			if p == path[len(path)-1] {
+				return next
+			}
+		}
+		return nil
+	}
+	for view, path := range map[string][]string{
+		"tags": {"xcpng-center-go-test-tag", name}, "folders": {"go-test", "inner", name},
+		"custom_fields": {"go-test-field", "value-1", name}, "vms_by_power_state": {"Running", name}, "vms_by_os": {name},
+	} {
+		got, err := ReadView(c, "lab", view)
+		if err != nil {
+			t.Fatal(view, err)
+		}
+		if view == "vms_by_os" { // whatever the guest reports: the VM is somewhere one level down
+			found := false
+			for _, g := range got {
+				found = found || find(g.Children, name) != nil
+			}
+			if !found {
+				t.Errorf("%s: %s not found", view, name)
+			}
+			continue
+		}
+		if n := find(got, path...); n == nil || n.Object == nil || n.Server != "lab" {
+			t.Errorf("%s: %v not found", view, path)
+		}
+	}
+	if searches := DefaultSearches(); len(searches) != 7 {
+		t.Errorf("%d default searches", len(searches))
 	}
 }

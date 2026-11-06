@@ -887,3 +887,53 @@ func sortedKeys(m map[string]rules.PoolFacts) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// Views lists the Organization Views and the Saved Searches (the default ones, then those saved in the pools, which
+// are listed but not run yet: they use the XenSearch query language).
+func (w *Workspace) Views() (organization, searches []app.ViewInfo, err error) {
+	organization, searches = app.OrganizationViews(), app.DefaultSearches()
+	seen := map[string]bool{}
+	for _, k := range w.connectedKeys() {
+		var list []app.ViewInfo
+		err := w.with(k, func(c *xapi.Connection) error { var err error; list, err = app.PoolSearches(c); return err })
+		if err != nil && !errors.Is(err, errNotConnected) {
+			return nil, nil, err
+		}
+		for _, s := range list {
+			if !seen[s.ID] {
+				seen[s.ID] = true
+				searches = append(searches, s)
+			}
+		}
+	}
+	return organization, searches, nil
+}
+
+// View is one view over every connected server (OrganizationalView / a default search), the servers' groups joined.
+func (w *Workspace) View(id string) ([]*app.ViewNode, error) {
+	var parts [][]*app.ViewNode
+	for _, k := range w.connectedKeys() {
+		var nodes []*app.ViewNode
+		err := w.with(k, func(c *xapi.Connection) error { var err error; nodes, err = app.ReadView(c, k, id); return err })
+		if errors.Is(err, errNotConnected) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, nodes)
+	}
+	return app.MergeViews(parts...), nil
+}
+
+// connectedKeys are the servers connected now, sorted.
+func (w *Workspace) connectedKeys() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	keys := make([]string, 0, len(w.conns))
+	for k := range w.conns {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
