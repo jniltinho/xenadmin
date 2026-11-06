@@ -113,6 +113,41 @@ type AlertRow = Alert & { server: string };
 const alerts = ref<AlertRow[]>([]);
 const picked = reactive(new Set<string>());
 const confirm = async (q: Confirm) => (await choose(q, ["Yes", "No"])) === 0;
+// AlertSummaryPage's filters (NotificationsView): hidden severities and servers, and the date presets
+// (NotificationRules.DateFrom: the last 24 hours, or from the start of the day 3, 7 or 30 days ago).
+// shortcut: no Custom... date range (DateFilterDialog); Dismiss All with filters on dismisses the alerts shown.
+const alertMenu = ref<"" | "severity" | "server" | "date">("");
+const hiddenSeverities = reactive(new Set<number>());
+const hiddenHosts = reactive(new Set<string>());
+const alertDays = ref(0);
+const dateFilters = [{ days: 1, text: "Last 24 Hours" }, { days: 3, text: "Last 3 Days" }, { days: 7, text: "Last 7 Days" }, { days: 30, text: "Last 30 Days" }, { days: 0, text: "Show All" }];
+function toggleSet<T>(set: Set<T>, v: T) { if (!set.delete(v)) set.add(v); }
+const alertHosts = computed(() => Object.values(data).flatMap((d) => d.hosts ?? []).map((h) => ({ uuid: h.uuid, name: h.name })).sort((a, b) => a.name.localeCompare(b.name)));
+const filtersOn = computed(() => hiddenSeverities.size + hiddenHosts.size > 0 || alertDays.value > 0);
+// a clock for the date presets, ticking every minute (a quiet server still loses its older alerts from the view)
+const alertClock = ref(Date.now());
+setInterval(() => (alertClock.value = Date.now()), 60000);
+const shownAlerts = computed(() => {
+  const now = new Date(alertClock.value);
+  let from = 0;
+  if (alertDays.value === 1) from = now.getTime() - 86400000;
+  else if (alertDays.value) { const d = new Date(now); d.setDate(d.getDate() - alertDays.value); d.setHours(0, 0, 0, 0); from = d.getTime(); }
+  return alerts.value.filter((a) => !hiddenSeverities.has(a.priority) && !hiddenHosts.has(a.host) && Date.parse(a.time) >= from);
+});
+// Export: all the alerts, or (filters on, as asked) only the ones shown, to a CSV file
+async function exportAlerts() {
+  let rows = alerts.value;
+  if (filtersOn.value) {
+    const i = await choose({ title: "Export", text: "You have applied filters to the list of alerts. Do you want to export all alerts from every connected server, or only the alerts you have chosen to view?" },
+      ["Export all", "Only export visible", "Cancel"]);
+    if (i === 2) return;
+    if (i === 1) rows = shownAlerts.value;
+  }
+  try {
+    const file = await api.exportAlerts(rows.map((a) => ({ title: a.title, priority: a.priority, description: a.description, applies_to: a.applies_to, time: a.time })));
+    if (file) status.value = `Exported the alerts to ${file}`;
+  } catch (e) { failure.value = `Export: ${String(e)}`; }
+}
 
 // one alerts read at a time (serial): reloads asked by several servers never finish out of order
 const loadAlerts = serial(async () => {
@@ -254,7 +289,7 @@ async function runSr(op: string, label: string, n: Node | null) {
 }
 const hostCanRun = (c: HostCommand, n: Node | null) =>
   !!n?.object?.live && (c.op === "enter_maintenance" ? !n.object.maintenance : c.op === "exit_maintenance" ? !!n.object.maintenance : true);
-function closeMenus() { menu.value = null; openMenu.value = ""; viewMenu.value = null; }
+function closeMenus() { menu.value = null; openMenu.value = ""; viewMenu.value = null; alertMenu.value = ""; }
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
 type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "nics" | "console" | "performance" | "snapshots";
@@ -1006,10 +1041,30 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         <div class="flex items-center gap-2 border-b border-line bg-pane px-2 py-1 font-semibold">
           <img src="/icons/notif_alerts_16.png" alt="" class="h-4 w-4" />Alerts
         </div>
-        <div class="flex gap-1 border-b border-line bg-pane px-2 py-1">
+        <div class="relative flex items-center gap-1 border-b border-line bg-pane px-2 py-1">
+          <!-- AlertSummaryPage's filters: severity, server, date -->
+          <button v-for="m in (['severity', 'server', 'date'] as const)" :key="m" class="px-2 py-0.5 hover:bg-neutral-200" :class="{ 'bg-neutral-200': alertMenu === m }"
+                  @click.stop="alertMenu = alertMenu === m ? '' : m">{{ { severity: "Filter by Severity", server: "Filter by Server", date: "Filter by Date" }[m] }} ▾</button>
+          <div v-if="alertMenu" class="absolute top-full left-2 z-20 min-w-56 border border-neutral-400 bg-white py-1 shadow" @click.stop>
+            <template v-if="alertMenu === 'severity'">
+              <label v-for="p in [1, 2, 3, 4, 5, 6]" :key="p" class="flex items-center gap-2 px-2 py-0.5 hover:bg-neutral-100">
+                <input type="checkbox" :checked="!hiddenSeverities.has(p)" @change="toggleSet(hiddenSeverities, p)" />{{ p === 6 ? "Unknown" : `Priority ${p}` }}</label>
+            </template>
+            <template v-else-if="alertMenu === 'server'">
+              <label v-for="h in alertHosts" :key="h.uuid" class="flex items-center gap-2 px-2 py-0.5 hover:bg-neutral-100">
+                <input type="checkbox" :checked="!hiddenHosts.has(h.uuid)" @change="toggleSet(hiddenHosts, h.uuid)" />{{ h.name }}</label>
+              <p v-if="!alertHosts.length" class="px-2 text-neutral-500">None</p>
+            </template>
+            <template v-else>
+              <label v-for="d in dateFilters" :key="d.days" class="flex items-center gap-2 px-2 py-0.5 hover:bg-neutral-100">
+                <input type="radio" :checked="alertDays === d.days" @change="alertDays = d.days" />{{ d.text }}</label>
+            </template>
+          </div>
           <button class="px-2 py-0.5 hover:bg-neutral-200" @click="loadAlerts">Refresh</button>
-          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!alerts.length" @click="dismiss(alerts, true)">Dismiss All</button>
-          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!picked.size" @click="dismiss(alerts.filter((a) => picked.has(a.uuid)))">Dismiss Selected</button>
+          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!alerts.length" @click="exportAlerts">Export</button>
+          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!shownAlerts.length" @click="dismiss(filtersOn ? shownAlerts : alerts, !filtersOn)">Dismiss All</button>
+          <button class="px-2 py-0.5 hover:bg-neutral-200 disabled:text-neutral-400" :disabled="!shownAlerts.some((a) => picked.has(a.uuid))" @click="dismiss(shownAlerts.filter((a) => picked.has(a.uuid)))">Dismiss Selected</button>
+          <span class="ml-auto font-normal text-neutral-600">{{ filtersOn ? "Filters are ON" : "Filters are OFF" }}</span>
         </div>
         <div class="min-h-0 flex-1 overflow-auto">
           <table class="w-full border-collapse">
@@ -1018,7 +1073,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
                 <th class="w-48 border-b border-line px-2 py-1 font-normal">Location</th><th class="w-44 border-b border-line px-2 py-1 font-normal">Date</th><th class="w-24 border-b border-line"></th></tr>
             </thead>
             <tbody>
-              <tr v-for="a in alerts" :key="a.uuid" class="cursor-default align-top" :class="picked.has(a.uuid) ? 'bg-select text-white' : 'hover:bg-neutral-100'" @click="pick(a, $event)">
+              <tr v-for="a in shownAlerts" :key="a.uuid" class="cursor-default align-top" :class="picked.has(a.uuid) ? 'bg-select text-white' : 'hover:bg-neutral-100'" @click="pick(a, $event)">
                 <td class="border-b border-line px-2 py-1"><img :src="`/icons/alert${a.priority}_16.png`" alt="" class="h-4 w-4" /></td>
                 <td class="border-b border-line px-2 py-1 select-text"><div class="font-semibold">{{ a.title }}</div><div class="whitespace-pre-line">{{ a.description }}</div></td>
                 <td class="border-b border-line px-2 py-1">{{ a.applies_to }}</td>
@@ -1027,7 +1082,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
               </tr>
             </tbody>
           </table>
-          <p v-if="!alerts.length" class="p-3 text-neutral-500">There are no alerts.</p>
+          <p v-if="!shownAlerts.length" class="p-3 text-neutral-500">{{ alerts.length ? "No alerts match the filters." : "There are no alerts." }}</p>
         </div>
       </main>
       <main v-else class="flex min-w-0 flex-1 flex-col">

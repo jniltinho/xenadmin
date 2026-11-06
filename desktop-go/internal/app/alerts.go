@@ -23,6 +23,8 @@ type Alert struct {
 	Description string    `json:"description"`
 	AppliesTo   string    `json:"applies_to"`
 	Time        time.Time `json:"time"`
+	// Host is MessageAlert.HostUuid: the server the message is about, else the coordinator (Filter by Server)
+	Host string `json:"host"`
 }
 
 // graphsOnly are Message.ShowOnGraphs: lifecycle events, not alerts; HA_POOL_OVERCOMMITTED is Message.IsSquelched.
@@ -53,6 +55,7 @@ type pool struct {
 	isPool     bool
 	names      map[string]string // object uuid -> name
 	hosts      map[string]bool   // host uuids
+	master     string            // the coordinator's uuid
 }
 
 func readPool(s *xenapi.Session) (pool, error) {
@@ -76,8 +79,11 @@ func readPool(s *xenapi.Session) (pool, error) {
 	for ref, h := range hosts {
 		p.names[h.UUID], p.hosts[h.UUID] = h.NameLabel, true
 		for _, r := range pools {
-			if r.Master == ref && p.name == "" {
-				p.name = h.NameLabel
+			if r.Master == ref {
+				p.master = h.UUID
+				if p.name == "" {
+					p.name = h.NameLabel
+				}
 			}
 		}
 	}
@@ -123,8 +129,12 @@ func ListAlerts(c *xapi.Connection) ([]Alert, error) {
 		if applies == "" {
 			applies = m.ObjUUID
 		}
+		host := p.master
+		if m.Cls == xenapi.ClsHost && p.hosts[m.ObjUUID] {
+			host = m.ObjUUID
+		}
 		out = append(out, Alert{UUID: m.UUID, Priority: prio, Title: alertTitle(m, p), Description: alertDescription(m, p),
-			AppliesTo: applies, Time: m.Timestamp})
+			AppliesTo: applies, Time: m.Timestamp, Host: host})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
 	return out, nil

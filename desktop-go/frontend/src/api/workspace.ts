@@ -58,7 +58,7 @@ export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: 
 export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
 export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
 export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
-export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
+export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string; host: string }
 // server networks and bonds (internal/gui/network.go)
 export interface HostNetworking { table: Table; networks: { uuid: string; can_edit: boolean; can_remove: boolean; remove_tip?: string; bond: boolean }[]; can_add: boolean }
 export interface HostNics { table: Table; nics: { uuid: string; bond_network?: string }[]; can_bond: boolean }
@@ -131,6 +131,7 @@ export const api = {
   addVtpm: (key: string, vm: string) => call<void>("AddVtpm", key, vm),
   vtpmRemoveWarning: () => call<string>("VtpmRemoveWarning"),
   removeVtpm: (key: string, vm: string, vtpm: string) => call<void>("RemoveVtpm", key, vm, vtpm),
+  exportAlerts: (rows: { title: string; priority: number; description: string; applies_to: string; time: string }[]) => call<string>("ExportAlerts", rows),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),
