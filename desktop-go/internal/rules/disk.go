@@ -35,6 +35,7 @@ type DiskInfo struct {
 	VBDs                          []DiskVBD
 	DestroyAllowed                bool // VDI allowed_operations has destroy (or the SR has one LUN per disk)
 	System                        bool // VDI type system
+	Locked                        bool // an operation runs on the disk (VDI.Locked: current_operations)
 }
 
 // DiskVBD is one VBD of the disk.
@@ -43,8 +44,14 @@ type DiskVBD struct {
 }
 
 // CanDeleteDisk is StorageRules.CanDelete (one VBD at most, none attached, not a running VM's system disk).
-func CanDeleteDisk(d DiskInfo) bool {
-	if d.SRPhysical || d.SRTools || d.UsedByHA || len(d.VBDs) > 1 {
+func CanDeleteDisk(d DiskInfo) bool { return canDelete(d, false) }
+
+// CanDeleteSRDisk is StorageRules.CanDelete(vdi, allowMultipleVbds: true): the SR Storage tab also deletes a disk
+// of several VMs.
+func CanDeleteSRDisk(d DiskInfo) bool { return canDelete(d, true) }
+
+func canDelete(d DiskInfo, allowMultipleVBDs bool) bool {
+	if d.Locked || d.SRPhysical || d.SRTools || d.UsedByHA || (len(d.VBDs) > 1 && !allowMultipleVBDs) {
 		return false
 	}
 	for _, b := range d.VBDs {

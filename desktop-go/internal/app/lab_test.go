@@ -2076,3 +2076,131 @@ func TestLabHA(t *testing.T) {
 		t.Fatal("HA still on")
 	}
 }
+
+// TestLabSrDisks drives the SR Storage tab's buttons on lab-nfs (XCP_ALLOW_WRITE=1): Add a 32 MB disk attached to no
+// VM, Rescan, Properties, Move to the coordinator's local SR and back, Delete; and reads the pool's Storage tab. It
+// touches only the disks it makes (their names start with xcpng-center-go-test-srdisk).
+func TestLabSrDisks(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	const prefix = "xcpng-center-go-test-srdisk"
+	t.Cleanup(func() { // whatever a failed step left, on any SR
+		vdis, _ := xenapi.VDI.GetAllRecords(s)
+		for r, v := range vdis {
+			if strings.HasPrefix(v.NameLabel, prefix) && len(v.VBDs) == 0 {
+				_ = xenapi.VDI.Destroy(s, r)
+			}
+		}
+	})
+	srs, err := xenapi.SR.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pools, err := xenapi.Pool.GetAllRecords(s)
+	if err != nil || len(pools) != 1 {
+		t.Fatal(pools, err)
+	}
+	var pool xenapi.PoolRecord
+	for _, p := range pools {
+		pool = p
+	}
+	nfs, local := "", ""
+	for _, sr := range srs {
+		if sr.NameLabel == "lab-nfs" {
+			nfs = sr.UUID
+		}
+		if sr.NameLabel == "Local storage" && !sr.Shared && len(sr.PBDs) == 1 && local == "" {
+			if h, err := xenapi.PBD.GetHost(s, sr.PBDs[0]); err == nil && h == pool.Master {
+				local = sr.UUID
+			}
+		}
+	}
+	if nfs == "" || local == "" {
+		t.Fatalf("no lab-nfs (%q) or local SR on the coordinator (%q)", nfs, local)
+	}
+
+	opts, err := NewSRDiskOptions(c, nfs)
+	if err != nil || opts.DefaultSR != nfs || opts.Name == "" {
+		t.Fatalf("Add's defaults: %+v %v", opts, err)
+	}
+	uuid, err := ops.CreateSRDisk(c, nfs, prefix, "lab test", 32<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.RescanSRs(c, nfs); err != nil {
+		t.Fatal(err)
+	}
+	tab, err := SRStorageTab(c, nfs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.Index(tab.Table.Keys, uuid)
+	if i < 0 || !tab.CanAdd || !tab.CanRescan {
+		t.Fatalf("the new disk is not in the tab, or Add/Rescan disabled: %+v", tab)
+	}
+	if d := tab.Disks[i]; !d.CanEdit || !d.CanDelete || !d.CanMove || d.DeleteTitle == "" {
+		t.Fatalf("buttons of an unattached disk: %+v", d)
+	}
+
+	name, desc := prefix+"-renamed", "renamed by the lab test"
+	if err := ops.SaveObject(c, "vdis", uuid, ops.ObjectChanges{Name: &name, Description: &desc}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := ReadObjectProperties(c, "vdis", uuid); err != nil || p.Name != name || p.Description != desc {
+		t.Fatalf("Properties after saving: %+v %v", p, err)
+	}
+
+	targets, err := MoveDiskTargets(c, uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := func(sr string) string {
+		for _, u := range targets.SRs {
+			if u.UUID == sr {
+				return u.Reason
+			}
+		}
+		return "not listed"
+	}
+	if targets.Migrate || reason(nfs) != "Current location" || reason(local) != "" {
+		t.Fatalf("Move targets: %+v", targets)
+	}
+	moved, err := ops.MoveSRDisk(c, uuid, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xenapi.VDI.GetByUUID(s, uuid); err == nil {
+		t.Error("the moved disk is still on lab-nfs")
+	}
+	ref, _ := xenapi.VDI.GetByUUID(s, moved)
+	v, err := xenapi.VDI.GetRecord(s, ref)
+	if err != nil || srs[v.SR].UUID != local {
+		t.Fatalf("after Move: %+v %v", v, err)
+	}
+	if v.NameLabel != name || v.VirtualSize != 32<<20 {
+		t.Errorf("the copy is %q, %d bytes", v.NameLabel, v.VirtualSize)
+	}
+	back, err := ops.MoveSRDisk(c, moved, nfs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ops.DeleteSRDisk(c, back); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xenapi.VDI.GetByUUID(s, back); err == nil {
+		t.Error("the disk is still there after Delete")
+	}
+
+	ps, err := PhysicalStorageTab(c, "pools", pool.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(ps.Table.Keys, nfs) || !ps.CanNew || ps.Pool == "" {
+		t.Fatalf("the pool's Storage tab: %+v", ps)
+	}
+	t.Logf("pool %q: trim %+v", ps.Pool, ps.SRs)
+}

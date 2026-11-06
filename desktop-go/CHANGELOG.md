@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- SR Storage tab: Rescan, Add... (a disk on the SR attached to no VM), Move... (live storage migration of a disk in
+  use, else an offline move of a disk of halted VMs, each SR with its free space or the reason it cannot take the
+  disk, and Rescan), Delete (the C# question; a snapshot disk deletes its snapshots) and Properties (name,
+  description, folder, tags, custom fields; also a double click). Servers and pools, Storage tab: New SR... (the New
+  Storage wizard), Reclaim freed space (with its question) and Properties. Each change checks the role first.
 - Servers and pools, Networking tab: Add Network... (the New Network wizard: External network on a VLAN of a NIC,
   Single-Server Private network, Bonded network), Properties (name, description, auto-add, MTU with the C# reasons it
   is fixed; a new MTU unplugs and plugs the network's PIFs and VIFs) and Remove Network (its VLAN PIFs first; a bond

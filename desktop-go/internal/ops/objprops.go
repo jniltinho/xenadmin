@@ -29,7 +29,7 @@ type object struct {
 	addTag, removeTag func(string) error
 }
 
-// readObject reads an object of a kind ("vms", "templates", "hosts", "pools", "srs", "networks") by uuid.
+// readObject reads an object of a kind ("vms", "templates", "hosts", "pools", "srs", "networks", "vdis") by uuid.
 func readObject(s *xenapi.Session, kind, uuid string) (*object, error) {
 	switch kind {
 	case "vms", "templates":
@@ -97,6 +97,19 @@ func readObject(s *xenapi.Session, kind, uuid string) (*object, error) {
 			func(v string) error { return xenapi.Network.SetNameLabel(s, ref, v) }, func(v string) error { return xenapi.Network.SetNameDescription(s, ref, v) },
 			func(k, v string) error { return xenapi.Network.AddToOtherConfig(s, ref, k, v) }, func(k string) error { return xenapi.Network.RemoveFromOtherConfig(s, ref, k) },
 			func(t string) error { return xenapi.Network.AddTags(s, ref, t) }, func(t string) error { return xenapi.Network.RemoveTags(s, ref, t) }}, nil
+	case "vdis": // a disk's Properties from the SR Storage tab (PropertiesDialog.PagesFor: General and Custom Fields)
+		ref, err := xenapi.VDI.GetByUUID(s, uuid)
+		if err != nil {
+			return nil, err
+		}
+		r, err := xenapi.VDI.GetRecord(s, ref)
+		if err != nil {
+			return nil, err
+		}
+		return &object{r.NameLabel, r.NameDescription, r.OtherConfig, r.Tags,
+			func(v string) error { return xenapi.VDI.SetNameLabel(s, ref, v) }, func(v string) error { return xenapi.VDI.SetNameDescription(s, ref, v) },
+			func(k, v string) error { return xenapi.VDI.AddToOtherConfig(s, ref, k, v) }, func(k string) error { return xenapi.VDI.RemoveFromOtherConfig(s, ref, k) },
+			func(t string) error { return xenapi.VDI.AddTags(s, ref, t) }, func(t string) error { return xenapi.VDI.RemoveTags(s, ref, t) }}, nil
 	}
 	return nil, fmt.Errorf("no properties for %q", kind)
 }
@@ -175,6 +188,10 @@ func folderUsers(s *xenapi.Session, folder string) (int, error) {
 	pools, _ := xenapi.Pool.GetAllRecords(s)
 	for _, p := range pools {
 		in(p.OtherConfig)
+	}
+	vdis, _ := xenapi.VDI.GetAllRecords(s)
+	for _, v := range vdis {
+		in(v.OtherConfig)
 	}
 	return n, nil
 }
