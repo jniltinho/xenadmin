@@ -2,6 +2,7 @@ package ops
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -30,7 +31,8 @@ func TestExactReader(t *testing.T) {
 		t.Fatalf("%q %v", got, err)
 	}
 	for name, r := range map[string]io.Reader{"longer": strings.NewReader("abcdefg"), "shorter": strings.NewReader("abc"),
-		"decoder": &failAfter{strings.NewReader("abcdef"), errors.New("a grain out of order")}} {
+		"decoder":   &failAfter{strings.NewReader("abcdef"), errors.New("a grain out of order")},
+		"truncated": &failAfter{strings.NewReader("abcdef"), fmt.Errorf("the disk is truncated: %w", io.EOF)}} {
 		if _, err := read(r, 6); err == nil {
 			t.Errorf("%s: no error", name)
 		}

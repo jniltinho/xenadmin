@@ -87,8 +87,7 @@ func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file, srUUID, net
 	im := &applianceImport{c: c, policy: policy, pkg: p, sr: sr, srRec: srRec, network: network}
 	first, err := im.run(a)
 	if err != nil {
-		im.cleanUp()
-		return "", err
+		return "", errors.Join(err, im.cleanUp())
 	}
 	if start { // StartApplianceAction
 		appUUID, _ := xenapi.VMAppliance.GetUUID(s, im.app)
@@ -130,18 +129,49 @@ type applianceImport struct {
 	vdi     xenapi.VDIRef // a disk not attached yet
 }
 
-// cleanUp is Process' CleanUpVm for every VM made (and its disks), the loose disk and the appliance.
-func (im *applianceImport) cleanUp() {
+// cleanUp is Process' CleanUpVm for every VM made (and its disks), the loose disk and the appliance; a VM that cannot
+// be removed after a few tries (and its vApp) is reported, never silently left behind.
+func (im *applianceImport) cleanUp() error {
 	s := im.c.Session
+	var left []string
+	var disks []xenapi.VDIRef // the VMs' disks, checked after: destroyVM gives up on one quietly
 	for _, vm := range im.vms {
-		destroyVM(s, vm)
+		if vbds, err := xenapi.VM.GetVBDs(s, vm); err == nil {
+			for _, b := range vbds {
+				if v, err := xenapi.VBD.GetVDI(s, b); err == nil && v != nullRef {
+					disks = append(disks, v)
+				}
+			}
+		}
+		gone := false
+		for i := 0; i < 3 && !gone; i++ {
+			if gone = destroyVM(s, vm); !gone {
+				time.Sleep(time.Second)
+			}
+		}
+		if !gone {
+			name, _ := xenapi.VM.GetNameLabel(s, vm)
+			left = append(left, "VM '"+name+"'")
+		}
 	}
 	if im.vdi != "" {
+		disks = append(disks, im.vdi)
 		destroyVDI(s, im.vdi)
 	}
-	if im.app != "" {
-		_ = xenapi.VMAppliance.Destroy(s, im.app)
+	for _, v := range disks {
+		if name, err := xenapi.VDI.GetNameLabel(s, v); err == nil { // still there
+			left = append(left, "disk '"+name+"'")
+		}
 	}
+	if im.app != "" && len(left) == 0 {
+		if err := xenapi.VMAppliance.Destroy(s, im.app); err != nil {
+			left = append(left, "the vApp")
+		}
+	}
+	if len(left) > 0 {
+		return errors.New("not removed after the failed import: " + strings.Join(left, ", "))
+	}
+	return nil
 }
 
 // destroyVDI destroys a disk the import made, waiting for the import task to let it go.

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	xenapi "go/xenapi"
@@ -262,8 +263,9 @@ func ImportVM(c *xapi.Connection, policy *trust.Policy, file, hostUUID, srUUID s
 }
 
 // storageHost is SR.GetStorageHost: the server a transfer to the SR goes to, a local SR's own server or the coordinator.
+// A connection on another port than 443 (a forwarded one) keeps its own address: the server's is not reachable there.
 func storageHost(c *xapi.Connection, sr xenapi.SRRecord) (string, int) {
-	if !sr.Shared && len(sr.PBDs) == 1 {
+	if !sr.Shared && len(sr.PBDs) == 1 && c.Port == 443 {
 		if h, err := xenapi.PBD.GetHost(c.Session, sr.PBDs[0]); err == nil {
 			if a, err := xenapi.Host.GetAddress(c.Session, h); err == nil && a != "" {
 				return a, 443
@@ -288,9 +290,15 @@ func upload(s *xenapi.Session, policy *trust.Policy, host string, port int, path
 
 // exactReader gives left bytes of r and, with the last of them, fails unless r ends there: a stream that has more
 // (or a decoder that finds an error past them, as a VMDK grain out of order) fails the transfer instead of being cut.
+// The transport closes it when it is done with the body (Close); put waits for that, then checks the stream ended
+// cleanly (a server may answer before the body is all sent).
 type exactReader struct {
-	r    io.Reader
-	left int64
+	r      io.Reader
+	left   int64
+	done   bool  // every byte read and the stream ended there
+	failed error // the error a read returned
+	closed chan struct{}
+	once   sync.Once
 }
 
 func (e *exactReader) Read(p []byte) (int, error) {
@@ -302,21 +310,30 @@ func (e *exactReader) Read(p []byte) (int, error) {
 	}
 	n, err := e.r.Read(p)
 	if e.left -= int64(n); e.left == 0 {
-		if extra, perr := e.r.Read(make([]byte, 1)); extra > 0 || perr != nil && !errors.Is(perr, io.EOF) {
-			return n, cmp.Or(perr, errors.New("the data is longer than its size"))
+		// only the plain io.EOF ends a stream: a decoder's "truncated: %w" of io.EOF is a failure
+		if extra, perr := e.r.Read(make([]byte, 1)); extra > 0 || perr != nil && perr != io.EOF {
+			e.failed = cmp.Or(perr, errors.New("the data is longer than its size"))
+			return n, e.failed
 		}
+		e.done = true
 		return n, io.EOF
 	}
-	if errors.Is(err, io.EOF) {
-		return n, io.ErrUnexpectedEOF
+	if err == io.EOF {
+		err = io.ErrUnexpectedEOF
+	}
+	if err != nil {
+		e.failed = err
 	}
 	return n, err
 }
 
+func (e *exactReader) Close() error { e.once.Do(func() { close(e.closed) }); return nil }
+
 // put is HTTPHelper.PUT: length bytes of body to the path, the session in a cookie.
 func put(s *xenapi.Session, policy *trust.Policy, host string, port int, path string, body io.Reader, length int64) error {
 	client, base := xvaClient(s, policy, host, port)
-	req, err := http.NewRequest(http.MethodPut, base+path, &exactReader{r: body, left: length})
+	er := &exactReader{r: body, left: length, closed: make(chan struct{})}
+	req, err := http.NewRequest(http.MethodPut, base+path, er)
 	if err != nil {
 		return err
 	}
@@ -331,9 +348,23 @@ func put(s *xenapi.Session, policy *trust.Policy, host string, port int, path st
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	_, derr := io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("the import failed: %s", resp.Status)
+	}
+	// a body cut by a failed last write is the import task's failure (the callers' finishTask), not seen here
+	select { // the transport closes the body once it stopped sending it
+	case <-er.closed:
+	case <-time.After(time.Minute):
+		return errors.New("the upload did not finish")
+	}
+	switch {
+	case er.failed != nil:
+		return er.failed
+	case !er.done:
+		return errors.New("the server answered before the data was all sent")
+	case derr != nil:
+		return derr
 	}
 	return nil
 }
