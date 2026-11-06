@@ -45,6 +45,18 @@ migration, the GPU/USB/NICs tabs, Objects/Organization Views/Saved Searches, Per
 Tools > Options. It also has an MCP server for AI agents (`xcp-ng-center mcp`). Downloads are the `linux-v*` releases; build with `make appimage` / `make macos` / `make windows`
 (only Docker and make needed).
 
+XCP-ng Center in Go (preview)
+-----------------------------
+
+[`desktop-go`](desktop-go/README.md) is a second cross-platform client: one Go binary for the desktop app (Wails v3,
+Vue and Tailwind), the command line and an MCP server, following the Windows app's screens, texts, icons and rules.
+It connects to pools with certificate pinning and follows them live, and has the VM life cycle (New VM, Copy, Delete,
+migration, Pause), the Console, Memory, Storage, Networking, Performance and Snapshots tabs, servers and maintenance
+mode, New Pool, New Storage (NFS, SMB, iSCSI, ISO libraries, reattach), the SR commands, Organization Views, Saved
+Searches and Notifications. Downloads are the `go-v*` releases (Linux AppImage, Windows `.exe`, macOS app, CLI);
+build with `make appimage` / `make windows` / `make macos` in `desktop-go`, or natively on a Mac with
+`desktop-go/build/darwin/build-on-mac.sh`.
+
 Contributions
 -------------
 

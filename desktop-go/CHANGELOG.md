@@ -4,7 +4,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+—
+
+## [0.1.0] — 2026-11-05
+
+**The first release of the Go app: the desktop window for Linux, Windows and macOS (amd64), the CLI and the MCP
+server, following the Windows app's screens, checked on XCP-ng 8.3.**
+
 ### Added
+- macOS: `build/darwin/build-on-mac.sh` builds the app natively on a Mac (arm64 or amd64), signs it with the hardened
+  runtime and notarizes it when the Apple credentials are given; `make icons` copies the C# icons without a container.
 - The toolbar's Pause button pauses a running VM and becomes Unpause on a paused one (PauseVMCommand / UnPauseVMCommand,
   no question); a paused VM has the C# icon. The MCP server keeps the seven C# operations.
 - Organization Views (Tags, Folders with the empty ones, Custom Fields, vApps) and Saved Searches (the seven C#

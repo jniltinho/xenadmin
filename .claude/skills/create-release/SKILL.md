@@ -1,6 +1,6 @@
 ---
 name: create-release
-description: Cut a release of the XCP-ng Center desktop app (Linux, macOS and Windows) on GitHub with the gh CLI — CHANGELOG, checks, the linux-v* tag, the release workflow (tarball, AppImage, macOS universal zip, Windows zip, SHA256SUMS) and its verification. Use when asked to release, tag or publish a version of the desktop app.
+description: Cut a release of the XCP-ng Center desktop app (Linux, macOS and Windows) on GitHub with the gh CLI — CHANGELOG, checks, the linux-v* tag, the release workflow (tarball, AppImage, macOS universal zip, Windows zip, SHA256SUMS) and its verification; and of the Go app (desktop-go, go-v* tags, built locally). Use when asked to release, tag or publish a version of the desktop app.
 ---
 
 # Releasing the XCP-ng Center desktop app (GitHub, gh CLI)
@@ -134,6 +134,27 @@ the previous tag.
 
 Write it to a file in the scratchpad and apply: `gh release edit linux-vX.Y.Z --repo "$REPO" --notes-file <file>`
 (never commit it).
+
+## The Go app (`desktop-go`, `go-v*` tags)
+
+The Go app has its own versions (`desktop-go/CHANGELOG.md`, tags `go-v0.1.0`...; the Makefile reads the version from
+the tag) and no release workflow yet (the token cannot change `.github/workflows`): build and publish from the
+machine.
+
+```bash
+cd desktop-go
+# CHANGELOG: move [Unreleased] into ## [X.Y.Z] — YYYY-MM-DD; README: the features of the release
+make check && git add -A && git commit -m "desktop-go: release go-vX.Y.Z" && git push origin "$BRANCH"
+git tag -a go-vX.Y.Z -m "Release go-vX.Y.Z"           # before the build: the binaries take the version from it
+make cli appimage windows macos                         # dist/: CLI x3, AppImage, Windows .exe, macOS zip
+(cd dist && sha256sum xcp-ng-center-go-X.Y.Z-* xcp-ng-center-go-X.Y.Z_* > SHA256SUMS)
+git push origin go-vX.Y.Z
+gh release create go-vX.Y.Z --repo "$REPO" --prerelease --title "XCP-ng Center (Go) X.Y.Z" --notes-file <notes> \
+  dist/xcp-ng-center-go-X.Y.Z-* dist/xcp-ng-center-go-X.Y.Z_* dist/SHA256SUMS
+```
+
+The notes follow 6b (rustXterm style) with the Go assets in Downloads. A native, signed Mac build comes from
+`desktop-go/build/darwin/build-on-mac.sh` on a Mac; upload its zip to the same release with `gh release upload`.
 
 ## Guardrails
 

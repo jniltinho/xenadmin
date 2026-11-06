@@ -17,7 +17,7 @@ ICONS    := ../branding-xcp-ng/Images/Logo.png $(addprefix ../XenAdmin/Images/,0
             $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_Paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_24.png) \
             $(foreach i,001_PowerOn 001_ShutDown 001_Reboot 000_paused 000_Resumed 001_ForceShutDown 001_ForceReboot,$(i)_h32bit_16.png))
 
-.PHONY: test check cli frontend linux appimage windows macos dist clean
+.PHONY: test check cli icons frontend linux appimage windows macos dist clean
 
 test:            ## unit tests of the app and the vendored SDK
 	$(RUN) sh -c 'go test -tags nogui ./... && cd sdk/xenapi && go test ./...'
@@ -30,14 +30,16 @@ cli:             ## static CLI/MCP binaries (no desktop window) for Linux, macOS
 	  os=$${t%/*}; arch=$${t#*/}; ext=; [ $$os = windows ] && ext=.exe; \
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -tags nogui -trimpath -ldflags "$(LDFLAGS)" -o dist/xcp-ng-center-go-$(VERSION)-$$os-$$arch$$ext . || exit 1; done'
 
-frontend:        ## the window's Vue/Tailwind assets into internal/gui/dist (embedded by the GUI build)
+icons:           ## the C# app's icons into frontend/public/icons (no container: also used on a Mac)
 	mkdir -p frontend/public/icons && cp $(ICONS) frontend/public/icons/ && cp ../branding-xcp-ng/Images/xcp-ng-logo1glossy-1.png frontend/public/icons/home-logo.png && cp ../XenAdmin.Desktop/packaging/xcp-ng-center.png frontend/public/icons/app.png
+
+frontend: icons  ## the window's Vue/Tailwind assets into internal/gui/dist (embedded by the GUI build)
 	$(DOCKER) -v $(CURDIR):/src -w /src/frontend $(NODE_IMAGE) sh -c 'npm ci --no-audit --no-fund && npm run build'
 
 linux: frontend  ## the desktop app for Linux (amd64) in dist/
 	docker build -q -t xcpng-center-go-linux -f build/linux.Dockerfile build
 	$(DOCKER) -v $(CURDIR):/src -w /src $(GO_ENV) xcpng-center-go-linux \
-	  go build -trimpath -ldflags "$(LDFLAGS)" -o dist/xcp-ng-center-go-$(VERSION)-linux-amd64-desktop .
+	  go build -tags production -trimpath -ldflags "$(LDFLAGS)" -o dist/xcp-ng-center-go-$(VERSION)-linux-amd64-desktop .
 
 # The AppImage holds the binary, its .desktop and icon; GTK 4 and WebKitGTK 6.0 come from the system (Ubuntu 24.04+,
 # Fedora 39+, Debian 13+), as for any WebKitGTK app.
@@ -53,18 +55,19 @@ appimage: linux ## the desktop app for Linux as an x86_64 AppImage in dist/
 	    $$app dist/xcp-ng-center-go-$(VERSION)-x86_64.AppImage'
 
 windows: frontend ## the desktop app for Windows (amd64; WebView2, no CGO) in dist/
-	$(RUN) sh -c 'CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS) -H windowsgui" \
+	$(RUN) sh -c 'CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags production -trimpath -ldflags "$(LDFLAGS) -H windowsgui" \
 	  -o dist/xcp-ng-center-go-$(VERSION)-windows-amd64-desktop.exe .'
 
 # "XCP-ng Center (Go).app" for Intel Macs (amd64; Apple Silicon runs it with Rosetta 2).
-# Cross-built from Linux with Wails' CGO-free backend (-tags purego, experimental in Wails 3.1).
+# Every desktop build has -tags production: no developer tools, and never a FRONTEND_DEVSERVER_URL in place of the
+# embedded window. Cross-built from Linux with Wails' CGO-free backend (-tags purego, experimental in Wails 3.1).
 # shortcut: unverified on a Mac and unsigned (`xattr -dr com.apple.quarantine` after download); on a Mac, build
 # natively with CGO (`CGO_ENABLED=1 go build`) and sign/notarize before a release that claims macOS support.
 macos: frontend ## the desktop app for macOS (amd64) as a zip in dist/
 	docker build -q -t xcpng-center-go-linux -f build/linux.Dockerfile build
 	$(DOCKER) -v $(CURDIR):/src -v $(CURDIR)/../XenAdmin.Desktop/packaging/macos:/macos:ro -w /src $(GO_ENV) xcpng-center-go-linux sh -c '\
 	  out=dist/macos; app="$$out/XCP-ng Center (Go).app"; rm -rf $$out; mkdir -p "$$app/Contents/Resources"; \
-	  CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags purego -trimpath \
+	  CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags production,purego -trimpath \
 	    -ldflags "$(LDFLAGS)" -o "$$app/Contents/MacOS/xcp-ng-center-go" . || exit 1; \
 	  cp /macos/xcp-ng-center.icns "$$app/Contents/Resources/"; \
 	  v=$(VERSION); sed -e "s/@VERSION@/$$v/" -e "s/@SHORT_VERSION@/$${v%%-*}/" build/darwin/Info.plist > "$$app/Contents/Info.plist"; \
