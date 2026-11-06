@@ -31,6 +31,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   the VMs using them).
 - Pool menu: Add Server and Remove Server (submenus), Disconnect, Rotate Pool Secret and Make into standalone server,
   with the C# questions and warnings (supplemental packs and CPU levelling, also in New Pool).
+- VM Properties, General: the folder and tags (Change Folder, Edit Tags), as for the other objects.
 - Properties of servers, pools, SRs and networks (General: name, description, folder, tags, a server's iSCSI IQN;
   Custom Fields), with Change Folder and Edit Tags; a folder left empty is kept (EMPTY_FOLDERS).
 - VM > Manage vTPMs (VtpmManagementDialog): add and remove a UEFI VM's vTPMs, with Protected and Unique.

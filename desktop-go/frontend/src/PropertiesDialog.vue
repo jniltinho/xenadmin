@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// The VM's Properties dialog (PropertiesDialog): General, Custom Fields, CPU, Boot Options, Start Options, Home Server
-// and (HVM) Advanced Options
-// pages on the left, OK and Cancel.
-// shortcut: General has name and description only; no Alerts, GPU or USB pages yet.
+// The VM's Properties dialog (PropertiesDialog): General (name, description, folder, tags), Custom Fields, CPU, Boot
+// Options, Start Options, Home Server and (HVM) Advanced Options pages on the left, OK and Cancel.
+// shortcut: no Alerts, GPU or USB pages yet (not ported in the C# cross-platform app either).
 import { computed, onMounted, reactive, ref } from "vue";
-import { api, type VMProperties } from "./api/workspace";
+import { api, type ObjectProps, type VMProperties } from "./api/workspace";
+import FolderTags from "./FolderTags.vue";
 
 const props = defineProps<{ server: string; vm: string }>();
 const emit = defineEmits<{ (e: "close", saved: boolean): void }>();
@@ -17,6 +17,9 @@ const f = reactive({ name: "", description: "", vcpus: 1, atStartup: 1, cores: 1
   shadowMode: "general" as "general" | "apps" | "manual", order: 0, delay: 0, haPriority: "" });
 const error = ref("");
 const busy = ref(false);
+// GeneralEditPage's Folder and Tags (the same pages as a server's or an SR's, ObjectPropertiesDialog)
+const org = ref<ObjectProps | null>(null);
+const ft = reactive({ folder: "", tags: [] as string[] });
 
 // Custom Fields (CustomFieldsPage): the pool's fields with the VM's values; a Date in the local time of a
 // datetime-local input, stored as RFC 3339 universal time
@@ -67,6 +70,8 @@ onMounted(async () => {
       // BootOptionsEditPage: the boot order first, checked, then the devices it leaves out
       devices: [...p.boot_order.split(""), ..."CDN".split("").filter((c) => !p.boot_order.includes(c))].map((code) => ({ code, on: p.boot_order.includes(code) })) });
     await loadFields();
+    org.value = await api.objectProperties(props.server, "vms", props.vm);
+    Object.assign(ft, { folder: org.value.folder, tags: [...org.value.tags] });
   } catch (e) { error.value = String(e); }
 });
 
@@ -135,11 +140,15 @@ async function save() {
   if (!f.name.trim()) { error.value = "Enter a name for the VM."; page.value = "general"; return; }
   const fc = fieldChanges();
   if (!fc) { error.value = "Enter a valid date."; page.value = "fields"; return; }
-  if (!Object.keys(ch).length && !Object.keys(fc).length) { emit("close", false); return; }
+  const og: Record<string, unknown> = {};
+  if (org.value && ft.folder !== org.value.folder) og.folder = ft.folder;
+  if (org.value && ft.tags.join("\n") !== [...org.value.tags].sort().join("\n")) { og.tags = ft.tags; og.tags_set = true; }
+  if (!Object.keys(ch).length && !Object.keys(fc).length && !Object.keys(og).length) { emit("close", false); return; }
   busy.value = true;
   try {
     if (Object.keys(ch).length) await api.saveProperties(props.server, props.vm, ch);
     if (Object.keys(fc).length) await api.saveCustomFields(props.server, props.vm, fc);
+    if (Object.keys(og).length) await api.saveObjectProperties(props.server, "vms", props.vm, og);
     emit("close", true);
   } catch (e) { error.value = String(e); }
   busy.value = false;
@@ -161,6 +170,9 @@ async function save() {
           <template v-if="page === 'general'">
             <label class="mb-2 grid grid-cols-[7rem_1fr] items-center gap-2">Name:<input v-model="f.name" class="border border-line px-1 py-0.5" /></label>
             <label class="grid grid-cols-[7rem_1fr] items-start gap-2">Description:<textarea v-model="f.description" rows="4" class="border border-line px-1 py-0.5" /></label>
+            <div v-if="org" class="mt-2 grid grid-cols-[7rem_1fr] items-start gap-2">
+              <FolderTags v-model:folder="ft.folder" v-model:tags="ft.tags" :folders="org.folders" :all-tags="org.all_tags" />
+            </div>
           </template>
           <template v-else-if="page === 'cpu'">
             <p class="mb-3">Specify the number of vCPUs, their topology, and the priority to assign them over other vCPUs.</p>
