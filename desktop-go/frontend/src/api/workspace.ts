@@ -37,6 +37,8 @@ export interface VappVM { uuid: string; name: string; power_state: string; vapp:
 export interface Vapp { uuid: string; name: string; description: string; vms: VappVM[]; can_start: boolean; can_shutdown: boolean }
 export interface Vapps { pool: string; is_pool: boolean; vapps: Vapp[]; candidates: VappVM[] }
 export interface Vtpms { name: string; blocker: string; add_blocker: string; vtpms: { uuid: string; protected: boolean; unique: boolean; remove_blocker: string }[] }
+export interface MemoryBars { used: number; dynamic_min: number; dynamic_max: number; used_text: string;
+  hosts: { name: string; segments: { name: string; bytes: number; text: string }[] }[] }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
@@ -132,6 +134,7 @@ export const api = {
   vtpmRemoveWarning: () => call<string>("VtpmRemoveWarning"),
   removeVtpm: (key: string, vm: string, vtpm: string) => call<void>("RemoveVtpm", key, vm, vtpm),
   exportAlerts: (rows: { title: string; priority: number; description: string; applies_to: string; time: string }[]) => call<string>("ExportAlerts", rows),
+  memoryBars: (key: string, kind: string, uuid: string) => call<MemoryBars>("MemoryBars", key, kind, uuid),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

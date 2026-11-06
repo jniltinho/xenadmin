@@ -2076,3 +2076,30 @@ func TestLabHA(t *testing.T) {
 		t.Fatal("HA still on")
 	}
 }
+
+func TestLabMemoryBars(t *testing.T) {
+	c := labConnection(t)
+	pools, _ := xenapi.Pool.GetAllRecords(c.Session)
+	for _, p := range pools {
+		b, err := ReadMemoryBars(c, "pools", p.UUID)
+		if err != nil || len(b.Hosts) == 0 {
+			t.Fatal(b, err)
+		}
+		for _, h := range b.Hosts {
+			// Xen and the control domain first, free memory last, each with a size
+			if n := len(h.Segments); n < 2 || h.Segments[0].Bytes <= 0 || h.Segments[n-1].Name != "Free" {
+				t.Fatalf("%s: %+v", h.Name, h.Segments)
+			}
+			t.Logf("%s: %+v", h.Name, h.Segments)
+		}
+	}
+	if name := os.Getenv("XCP_LAB_VM"); name != "" {
+		refs, _ := xenapi.VM.GetByNameLabel(c.Session, name)
+		uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+		b, err := ReadMemoryBars(c, "vms", uuid)
+		if err != nil || b.DynamicMax <= 0 || b.DynamicMax > 1 || b.UsedText == "" {
+			t.Fatal(b, err)
+		}
+		t.Logf("%s: %+v", name, b)
+	}
+}

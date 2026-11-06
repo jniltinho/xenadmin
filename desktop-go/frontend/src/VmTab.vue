@@ -5,6 +5,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { api, type Confirm, type NewDisk, type Table, type VIF, type VIFSettings, type VMNetworking, type VMStorage } from "./api/workspace";
 import DetailsTable from "./DetailsTable.vue";
 import MemoryDialog from "./MemoryDialog.vue";
+import MemoryBars from "./MemoryBars.vue";
 import VifDialog from "./VifDialog.vue";
 import { serial } from "./serial";
 
@@ -156,6 +157,7 @@ watch(() => props.tick, load);
       <a class="cursor-pointer font-semibold underline" @click="!busy && createDvd()">Click here to create a DVD drive</a>
     </p>
     <p v-if="notice" class="mx-3 mt-2 border border-amber-300 bg-amber-50 px-2 py-1">{{ notice }}</p>
+    <MemoryBars v-if="kind === 'memory'" :server="server" kind="vms" :uuid="vm" :tick="tick" />
     <DetailsTable v-if="table" :table="table" :selected="picked" :plain="kind === 'memory'" @select="picked = $event" />
     <div v-if="kind === 'networking' && network" class="flex gap-2 px-3">
       <button class="btn" :disabled="busy || !network.can_add" @click="addVif">Add Interface...</button>

@@ -5,6 +5,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api, type HostNetworking, type HostNics, type Table } from "./api/workspace";
 import DetailsTable from "./DetailsTable.vue";
+import MemoryBars from "./MemoryBars.vue";
 import NetworkPropertiesDialog from "./NetworkPropertiesDialog.vue";
 import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import NewNetworkWizard from "./NewNetworkWizard.vue";
@@ -71,6 +72,7 @@ function edit() { if (network.value?.can_edit) props_.value = network.value.uuid
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col overflow-auto">
+    <MemoryBars v-if="tab === 'memory'" :server="server" :kind="kind" :uuid="uuid" :tick="tick" />
     <div v-if="table" @dblclick="tab === 'networking' && !busy && edit()"><!-- NetworkList: a double click is Properties -->
       <DetailsTable :table="table" :selected="picked" :plain="tab === 'memory'" @select="picked = $event" />
     </div>
