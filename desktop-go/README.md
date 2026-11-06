@@ -37,7 +37,7 @@ the Home and Search tabs (the overview with live CPU, memory, disk, network, add
 Export to an XVA file and Import (File > Import...); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
-(General, CPU, Boot Options, Start Options, Home Server, Advanced); the General (the C# sections: General, Boot
+(General, Custom Fields, CPU, Boot Options, Start Options, Alerts, Home Server, Advanced); the General (the C# sections: General, Boot
 Options, CPUs, Read Caching; for servers, pools and SRs Certificates, Version Details, Management Interfaces, Memory,
 CPUs, Status, Multipathing), Memory (Memory Settings: fixed, range or static
 maximum), Storage (add, attach, activate, detach and delete disks; the DVD drive and its ISO), Networking (add,
@@ -55,7 +55,8 @@ metadata on SRs attached to the pool, with the prechecks and the clean-up of a t
 (External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU) and
 Remove Network; on NICs Create Bond (active-active, active-passive, LACP), Delete Bond and Rescan, with the C#
 management interface and HA warnings; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
-question, `pool.join`).
+question, `pool.join`); a server's Properties with Alerts (the perfmon thresholds), Multipathing and Log
+Destination, an SR's with Alerts.
 
 **Storage.** The New Storage wizard: NFS, SMB, iSCSI (Scan Target Host, IQN, LUN, Reattach or Format), NFS and SMB
 ISO libraries, Scan and Reattach of an existing SR; the SR's Storage tab (its disks: Rescan, Add, Move to another SR
@@ -65,10 +66,13 @@ Repair, Set as Default, Detach, Forget and Destroy, with the C# icons of a defau
 **Views and notifications.** Organization Views (Tags, Folders, Custom Fields, vApps), the default Saved Searches
 and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;
 the Search tab's New Search, Edit Search (types, a text filter, a grouping; Save to a pool, Delete), Export... and
-Import... of `.xensearch` files the Windows app reads; Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
+Import... of `.xensearch` files the Windows app reads; searches by name, type, power state, OS, tags, folder, custom
+fields, dates, IP addresses and the pool, server, vApp or network of an object; Notifications > Alerts with the
+severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
 Not there yet: the other Properties pages (a VM's GPU and USB, a network's Network Settings), the Performance graph editor, SR-IOV networks, changing a network's NIC, VLAN or bond mode, OVF/OVA appliances, and saved searches
-with the rarer XenSearch filters (dates, IP addresses, object references; listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.
+that filter on a related object's properties (XenSearch Recursive queries; listed, not run). The Windows app has
+those.
 
 ## Command line and MCP
 
