@@ -42,12 +42,12 @@ maximum), Storage (add, attach, activate, detach and delete disks; the DVD drive
 change, remove, activate and deactivate interfaces), Console (noVNC), Performance and Snapshots (take, revert,
 delete) tabs.
 
-**Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), the Console
-and Performance tabs; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
+**Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), the Memory,
+Storage, Networking, NICs, Console and Performance tabs; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
 question, `pool.join`).
 
 **Storage.** The New Storage wizard: NFS, SMB, iSCSI (Scan Target Host, IQN, LUN, Reattach or Format), NFS and SMB
-ISO libraries, Scan and Reattach of an existing SR; Repair, Set as Default, Detach, Forget and Destroy, with the C#
+ISO libraries, Scan and Reattach of an existing SR; the SR's Storage tab (its disks); Repair, Set as Default, Detach, Forget and Destroy, with the C#
 icons of a default, broken or detached SR.
 
 **Views and notifications.** Organization Views (Tags, Folders, Custom Fields, vApps), the default Saved Searches

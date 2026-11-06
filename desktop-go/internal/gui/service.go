@@ -207,6 +207,12 @@ func (w *Workspace) RemoveCustomField(key, name string) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.RemoveCustomField(c, name) })
 }
 
+// HostTab is the Memory, Storage, Networking or NICs tab of a server or pool ("hosts", "pools"), or an SR's Storage tab.
+func (w *Workspace) HostTab(key, kind, uuid, tab string) (out app.Table, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.HostTab(c, kind, uuid, tab); return err })
+	return out, err
+}
+
 // Disconnect logs out of a server. In-flight calls on it finish first, so no console ticket is issued after the
 // revocation.
 func (w *Workspace) Disconnect(key string) {

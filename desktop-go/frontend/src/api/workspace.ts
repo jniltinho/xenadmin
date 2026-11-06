@@ -78,6 +78,7 @@ export const api = {
   deleteVif: (key: string, vif: string) => call<void>("DeleteVIF", key, vif),
   setVifActive: (key: string, vif: string, active: boolean) => call<void>("SetVIFActive", key, vif, active),
   memory: (key: string, vm: string) => call<Table>("Memory", key, vm),
+  hostTab: (key: string, kind: string, uuid: string, tab: string) => call<Table>("HostTab", key, kind, uuid, tab),
   memoryEdit: (key: string, vm: string) => call<MemoryEdit>("MemoryEdit", key, vm),
   memoryQuestion: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<string>("MemoryQuestion", key, vm, dynMin, dynMax, staticMax),
   changeMemory: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<void>("ChangeMemory", key, vm, dynMin, dynMax, staticMax),

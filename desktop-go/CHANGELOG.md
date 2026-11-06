@@ -13,6 +13,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 - VM Properties: Start Options (the start order and the delay before the next VM starts; read-only on an HA pool).
 - Memory tab: Edit... opens Memory Settings (a fixed memory or a range, or the dynamic minimum, maximum and static
   maximum with ballooning), with the C# limits and questions; a new static maximum restarts a running VM on its server.
+- Servers and pools: the Memory, Storage, Networking and NICs (a server) tabs; SRs: the Storage tab (its disks and
+  the VMs using them).
 - Networking tab: Add Interface, Properties, Remove Interface and Activate/Deactivate (network, generated or typed MAC
   with the duplicate MAC question, QoS limit), plugged live when the server allows it.
 

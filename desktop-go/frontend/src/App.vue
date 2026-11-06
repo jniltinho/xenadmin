@@ -10,6 +10,7 @@ import { serial } from "./serial";
 import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
+import HostTab from "./HostTab.vue";
 import PerformanceView from "./PerformanceView.vue";
 import NewVmWizard from "./NewVmWizard.vue";
 import NewSrWizard from "./NewSrWizard.vue";
@@ -239,7 +240,7 @@ const hostCanRun = (c: HostCommand, n: Node | null) =>
 function closeMenus() { menu.value = null; openMenu.value = ""; viewMenu.value = null; }
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
-type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "console" | "performance" | "snapshots";
+type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "nics" | "console" | "performance" | "snapshots";
 const tab = ref<Tab>("general");
 const consoleVm = computed(() => {
   const o = selected.value?.object;
@@ -254,6 +255,7 @@ const tabInfo = {
   memory: { label: "Memory", icon: "000_GetMemoryInfo_h32bit_16" },
   storage: { label: "Storage", icon: "000_VirtualStorage_h32bit_16" },
   networking: { label: "Networking", icon: "000_Network_h32bit_16" },
+  nics: { label: "NICs", icon: "000_Network_h32bit_16" },
   console: { label: "Console", icon: "console_16" },
   performance: { label: "Performance", icon: "001_PerformanceGraph_h32bit_16" },
   snapshots: { label: "Snapshots", icon: "000_VMSnapShotDiskOnly_h32bit_16" },
@@ -264,9 +266,12 @@ const tabs = computed<Tab[]>(() => {
   if (!n || n.id === "root") return view.value === "organization" || view.value === "saved" ? ["search"] : ["home", "search"]; // MainWindow: the root shows Home and Search; a view's root, its Search
   if (n.id.startsWith("g:")) return ["search"]; // a group of a view: the Search tab of its objects
   if (n.disconnected) return ["general"]; // GeneralTabPage.GenerateDisconnectedHostBox
-  // the C# order: General, Memory, Storage, Networking, Console, Snapshots
+  // Details.Tabs: General, Memory, Storage, Networking, NICs (a server), Console, Performance, Snapshots (a VM)
   const t: Tab[] = ["general"];
-  if (selected.value?.object?.kind === "vms") t.push("memory", "storage", "networking");
+  const kind = selected.value?.object?.kind;
+  if (kind === "vms" || kind === "hosts" || kind === "pools") t.push("memory", "storage", "networking");
+  if (kind === "hosts") t.push("nics");
+  if (kind === "srs") t.push("storage");
   if (consoleVm.value) t.push("console");
   if (selected.value?.object?.kind === "vms" || selected.value?.object?.kind === "hosts") t.push("performance");
   if (selected.value?.object?.kind === "vms") t.push("snapshots");
@@ -805,6 +810,9 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         <ConsoleView v-else-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
         <PerformanceView v-else-if="tab === 'performance' && selected?.object && selected.server" :key="`perf/${selected.id}`"
                          :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" />
+        <HostTab v-else-if="['memory', 'storage', 'networking', 'nics'].includes(tab) && selected?.object && selected.object.kind !== 'vms' && selected.server"
+                 :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :kind="selected.object.kind" :uuid="selected.object.uuid"
+                 :tab="tab" :tick="tick" @status="onTabStatus" />
         <VmTab v-else-if="(tab === 'memory' || tab === 'storage' || tab === 'networking') && selected?.object && selected.server"
                :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :vm="selected.object.uuid" :kind="tab" :tick="tick"
                @status="onTabStatus" />
