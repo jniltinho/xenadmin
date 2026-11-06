@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+—
+
+## [0.2.0] — 2026-11-06
+
+**Close to the Windows app's feature set: VM, server, pool, SR and network Properties and tabs, HA, disaster
+recovery, vApps, XVA and OVF/OVA import, the search editor and its filters, the Performance graph editor, alert
+filters and export, and Tools > Options.**
+
 ### Added
 
 - Searches by address (XenSearch IPAddressQuery: a VM's guest addresses, a server's interfaces, full or partial such

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	xenapi "go/xenapi"
 
@@ -79,7 +80,7 @@ func TestLabVMTabs(t *testing.T) {
 }
 
 // TestLabChangeISO inserts and ejects an ISO in the DVD drive of the lab's throwaway VM (XCP_LAB_VM, writes only
-// with XCP_ALLOW_WRITE=1).
+// with XCP_ALLOW_WRITE=1), then puts its own ISO back.
 func TestLabChangeISO(t *testing.T) {
 	c := labConnection(t)
 	name := os.Getenv("XCP_LAB_VM")
@@ -95,6 +96,12 @@ func TestLabChangeISO(t *testing.T) {
 		if err != nil || st.DVD == "" || len(st.ISOs) < 2 {
 			t.Fatalf("no DVD drive or ISO: %+v %v", st, err)
 		}
+		was := st.ISO // the lab VM boots from its ISO: put it back
+		t.Cleanup(func() {
+			if err := ops.ChangeISO(c, st.DVD, was); err != nil {
+				t.Errorf("ISO not put back: %v", err)
+			}
+		})
 		iso := st.ISOs[len(st.ISOs)-1]
 		if err := ops.ChangeISO(c, st.DVD, iso.VDI); err != nil {
 			t.Fatal(err)
@@ -1532,6 +1539,19 @@ func TestLabServerAndTemplateCommands(t *testing.T) {
 		}
 		if err := ops.RestartToolstack(c, h.UUID); err != nil {
 			t.Fatal(err)
+		}
+		// the next tests need the member back: a call the coordinator forwards to it answers again
+		time.Sleep(5 * time.Second)
+		deadline := time.Now().Add(5 * time.Minute)
+		for ok := 0; ok < 3; time.Sleep(3 * time.Second) {
+			if _, err := xenapi.Host.GetServertime(s, r); err != nil {
+				ok = 0
+			} else {
+				ok++
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s did not come back after the toolstack restart", h.NameLabel)
+			}
 		}
 	}
 }
