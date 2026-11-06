@@ -669,9 +669,14 @@ const poolItems = (key: string | null): MenuItem[] => [
   { label: "", sep: true },
   { label: "Rotate Pool Secret", enabled: !!selectedConnection.value, run: () => rotateSecret(selectedConnection.value!) },
   { label: "", sep: true },
-  { label: "Make into standalone server", enabled: !!key && (data[key]?.hosts ?? []).length === 1, run: () => makeStandalone(key!) },
+  // High Availability (MainWindow's _haConfigure and _haDisable, HaRules.CanConfigure / CanDisable)
+  { label: "High Availability", enabled: !!key, sub: async () => [
+    { label: "Configure...", enabled: true, run: () => { closeMenus(); haOn.value = { key: key!, disable: false }; } },
+    { label: "Disable", enabled: !!data[key!]?.pools?.some((p) => p.ha_enabled), run: () => { closeMenus(); haOn.value = { key: key!, disable: true }; } }] },
   { label: "", sep: true },
   { label: "Manage vApps...", icon: "000_VirtualAppliance_h32bit_16", enabled: !!selectedConnection.value, run: () => { closeMenus(); vappsOn.value = selectedConnection.value!; } },
+  { label: "", sep: true },
+  { label: "Make into standalone server", enabled: !!key && (data[key]?.hosts ?? []).length === 1, run: () => makeStandalone(key!) },
   { label: "", sep: true },
   { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!key, run: () => openObjProps(key!, "pools", data[key!]?.pools?.[0]?.uuid) },
 ];
@@ -771,11 +776,7 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     ? { label: b.label, enabled: true, sub: () => viewItems(b.v as "organization" | "saved") }
     : { label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } }) },
   { label: "Pool", items: [{ label: "New Pool...", icon: "000_PoolNew_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); newPool.value = true; } },
-    { label: "", sep: true }, ...poolItems(selectedPool.value),
-    // Pool > High Availability (MainWindow's _haConfigure and _haDisable, HaRules.CanConfigure / CanDisable)
-    { label: "", sep: true }, { label: "High Availability", enabled: !!selectedPool.value, sub: async () => [
-      { label: "Configure...", enabled: true, run: () => { closeMenus(); haOn.value = { key: selectedPool.value!, disable: false }; } },
-      { label: "Disable", enabled: !!data[selectedPool.value!]?.pools?.some((p) => p.ha_enabled), run: () => { closeMenus(); haOn.value = { key: selectedPool.value!, disable: true }; } }] }] },
+    { label: "", sep: true }, ...poolItems(selectedPool.value)] },
   { label: "Server", items: [
     { label: "Add...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
     { label: "Connect", enabled: !!serverNode.value?.disconnected, run: () => { closeMenus(); connectTo(serverNode.value!); } },
