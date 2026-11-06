@@ -28,6 +28,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   with the C# questions and warnings (supplemental packs and CPU levelling, also in New Pool).
 - Properties of servers, pools, SRs and networks (General: name, description, folder, tags, a server's iSCSI IQN;
   Custom Fields), with Change Folder and Edit Tags; a folder left empty is kept (EMPTY_FOLDERS).
+- VM > Manage vTPMs (VtpmManagementDialog): add and remove a UEFI VM's vTPMs, with Protected and Unique.
 - Pool and Server menus: Change Server Password (the local root; the connection keeps the new password) and Pool >
   Reconnect As.
 - vApps: Pool > Manage vApps... (New vApp wizard, Delete, Properties with the VMs and their startup sequence, Start,

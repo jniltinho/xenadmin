@@ -22,6 +22,7 @@ import OptionsDialog from "./OptionsDialog.vue";
 import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import VappsDialog from "./VappsDialog.vue";
 import ChangePasswordDialog from "./ChangePasswordDialog.vue";
+import VtpmDialog from "./VtpmDialog.vue";
 import VappEditor from "./VappEditor.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
@@ -308,6 +309,7 @@ async function objPropsClosed(saved: boolean) {
 // Change Server Password (ChangeHostPasswordCommand: the local root only) and Reconnect As (PoolReconnectAsCommand: log
 // in again from the Add Server dialog for the same server, with another user)
 const passwordOn = ref("");
+const vtpmOf = ref<Node | null>(null); // VM > Manage vTPMs
 async function changePassword(key: string) {
   closeMenus();
   if (!(await api.canChangePassword(key))) { await choose({ title: "Change Server Password", text: "Only the local root account can change the server password." }, ["OK"]); return; }
@@ -750,6 +752,7 @@ const vmItems = (n: Node | null): MenuItem[] => [
     run: () => { closeMenus(); if (n) { reselect(n.id); tab.value = "snapshots"; snapshotAsk.value = true; } } },
   { label: "Convert to Template...", enabled: !!n?.object?.allowed?.includes("make_into_template"), run: () => convertToTemplate(n) },
   { label: "Assign to vApp", enabled: !!n?.object && !!n.server, sub: () => vappItems(n!) },
+  { label: "Manage vTPMs...", enabled: !!n?.object, run: () => { closeMenus(); vtpmOf.value = n; } },
   { label: "", sep: true },
   { label: "Export...", icon: "000_ExportVirtualAppliance_h32bit_16", enabled: !!n?.object?.allowed?.includes("export"), run: () => exportVm(n) },
   { label: "Delete VM...", enabled: !!n?.object?.allowed?.includes("destroy"), run: () => { closeMenus(); deleteOf.value = n; } },
@@ -1069,6 +1072,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <NewVmWizard v-if="newVmOn" :server="newVmOn" :template="newVmTemplate" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
     <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
+    <VtpmDialog v-if="vtpmOf?.server && vtpmOf.object" :server="vtpmOf.server" :vm="vtpmOf.object.uuid" @close="vtpmOf = null" />
     <ChangePasswordDialog v-if="passwordOn" :server="passwordOn" @close="(done) => { passwordOn = ''; if (done) status = 'Ready'; }" />
     <VappsDialog v-if="vappsOn" :server="vappsOn" @close="vappsOn = ''; selected?.server && load(selected.server)" />
     <VappEditor v-if="newVappFor" :server="newVappFor.server" :data="newVappFor.data" :vapp="null" :preselect="newVappFor.vm"

@@ -36,6 +36,7 @@ export interface ObjectProps { name: string; description: string; folder: string
 export interface VappVM { uuid: string; name: string; power_state: string; vapp: string; order: number; delay: number }
 export interface Vapp { uuid: string; name: string; description: string; vms: VappVM[]; can_start: boolean; can_shutdown: boolean }
 export interface Vapps { pool: string; is_pool: boolean; vapps: Vapp[]; candidates: VappVM[] }
+export interface Vtpms { name: string; blocker: string; add_blocker: string; vtpms: { uuid: string; protected: boolean; unique: boolean; remove_blocker: string }[] }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
@@ -126,6 +127,10 @@ export const api = {
   canChangePassword: (key: string) => call<boolean>("CanChangePassword", key),
   changePasswordTitle: (key: string) => call<string>("ChangePasswordTitle", key),
   changePassword: (key: string, current: string, next: string, confirm: string) => call<void>("ChangePassword", key, current, next, confirm),
+  vtpms: (key: string, vm: string) => call<Vtpms>("Vtpms", key, vm),
+  addVtpm: (key: string, vm: string) => call<void>("AddVtpm", key, vm),
+  vtpmRemoveWarning: () => call<string>("VtpmRemoveWarning"),
+  removeVtpm: (key: string, vm: string, vtpm: string) => call<void>("RemoveVtpm", key, vm, vtpm),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

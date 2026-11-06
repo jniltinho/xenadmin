@@ -1861,3 +1861,62 @@ func mustVapp(t *testing.T, c *xapi.Connection, uuid string) xenapi.VMApplianceR
 	}
 	return ref
 }
+
+// TestLabVtpm makes a small UEFI VM, adds a vTPM, removes it and deletes the VM; the lab VM (BIOS) is refused
+// (XCP_ALLOW_WRITE=1).
+func TestLabVtpm(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	opts, err := ReadNewVMOptions(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tpl string
+	for _, x := range opts.Templates {
+		if x.Name == "Other install media" {
+			tpl = x.UUID
+		}
+	}
+	created, err := ops.CreateVM(c, ops.NewVM{Template: tpl, Name: "xcpng-center-go-test-vtpm", Install: "cd", BootMode: "uefi", VCPUs: 1, Cores: 1,
+		Memory: 256 << 20, Disks: []ops.NewDisk{{Position: "0", Name: "xcpng-center-go-test-vtpm 0", Size: 64 << 20, SR: opts.DefaultSR}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		del, _ := ReadVMDelete(c, created.UUID)
+		var vbds []string
+		for _, x := range del.Disks {
+			vbds = append(vbds, x.UUID)
+		}
+		if err := ops.DeleteVM(c, created.UUID, vbds, nil); err != nil {
+			t.Errorf("not deleted: %v", err)
+		}
+	})
+	v, err := ops.ReadVtpms(c, created.UUID)
+	if err != nil || v.Blocker != "" || v.AddBlocker != "" || len(v.Vtpms) != 0 {
+		t.Fatalf("%+v %v", v, err)
+	}
+	if err := ops.AddVtpm(c, created.UUID); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = ops.ReadVtpms(c, created.UUID)
+	if len(v.Vtpms) != 1 || v.Vtpms[0].RemoveBlocker != "" {
+		t.Fatalf("%+v", v)
+	}
+	if err := ops.RemoveVtpm(c, created.UUID, v.Vtpms[0].UUID); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ = ops.ReadVtpms(c, created.UUID); len(v.Vtpms) != 0 {
+		t.Fatalf("not removed: %+v", v)
+	}
+	if name := os.Getenv("XCP_LAB_VM"); name != "" {
+		refs, _ := xenapi.VM.GetByNameLabel(s, name)
+		uuid, _ := xenapi.VM.GetUUID(s, refs[0])
+		if v, _ := ops.ReadVtpms(c, uuid); v.Blocker == "" {
+			t.Error("a BIOS VM may have vTPMs")
+		}
+	}
+}
