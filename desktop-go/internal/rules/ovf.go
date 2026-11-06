@@ -121,16 +121,16 @@ type ovfCollection struct {
 }
 
 type ovfEnvelope struct {
-	XMLName    xml.Name       `xml:"Envelope"`
-	Version    string         `xml:"version,attr"`
-	Files      []ovfFile      `xml:"References>File"`
-	Disks      []ovfDisk      `xml:"DiskSection>Disk"`
-	Networks   []struct{}     `xml:"NetworkSection>Network"`
-	System     *ovfSystem     `xml:"VirtualSystem"`
-	Collection *ovfCollection `xml:"VirtualSystemCollection"`
-	Eulas      []ovfEula      `xml:"EulaSection"`
-	Startup    []ovfStartup   `xml:"StartupSection"`
-	Encryption []struct{}     `xml:"SecuritySection"`
+	XMLName    xml.Name             `xml:"Envelope"`
+	Version    string               `xml:"version,attr"`
+	Files      []ovfFile            `xml:"References>File"`
+	Disks      []ovfDisk            `xml:"DiskSection>Disk"`
+	Networks   []struct{}           `xml:"NetworkSection>Network"`
+	System     *ovfSystem           `xml:"VirtualSystem"`
+	Collection *ovfCollection       `xml:"VirtualSystemCollection"`
+	Eulas      []ovfEula            `xml:"EulaSection"`
+	Startup    []ovfStartup         `xml:"StartupSection"`
+	Security   []ovfSecuritySection `xml:"SecuritySection"`
 	Strings    []struct {
 		Lang string   `xml:"lang,attr"`
 		Msgs []ovfMsg `xml:"Msg"`
@@ -214,6 +214,7 @@ type ApplianceDisk struct {
 	Device      string `json:"device"`      // the wanted userdevice ("" for the first free one)
 	Bootable    bool   `json:"bootable"`
 	ReadOnly    bool   `json:"read_only"`
+	Encrypted   bool   `json:"encrypted"` // its file is encrypted (IsThisEncrypted)
 }
 
 // ApplianceVM is the VM ImportApplianceAction.CreateVm makes for a VirtualSystem, with its disks, interfaces and DVD drive.
@@ -604,7 +605,7 @@ func (e *ovfEnvelope) vmSpec(vs ovfSystem, pkg string) (ApplianceVM, error) {
 				return vm, fmt.Errorf("the compression method %s is not supported", f.Compression)
 			}
 			disk := ApplianceDisk{Name: strings.TrimSpace(r.ElementName), Description: strings.TrimSpace(r.Description), Href: f.Href,
-				Compression: comp, Device: dict["device"], Bootable: e.bootable(r, conns[i], dict), ReadOnly: dict["mode"] == "r"}
+				Compression: comp, Device: dict["device"], Bootable: e.bootable(r, conns[i], dict), ReadOnly: dict["mode"] == "r", Encrypted: e.encrypted(f.ID)}
 			if c := ovfUint(d.Capacity); c > 0 {
 				m, _ := ovfUnits(d.Units)
 				disk.Capacity = clampInt64(float64(c) * m)
@@ -627,6 +628,7 @@ type Appliance struct {
 	Interfaces    int           `json:"interfaces"`
 	Eulas         []string      `json:"eulas"`
 	HasManifest   bool          `json:"has_manifest"`
+	Encrypted     bool          `json:"encrypted"`      // a SecuritySection: the import asks for the password
 	RequiredSpace int64         `json:"required_space"` // the disks' capacities (OvfRules.RequiredSpace)
 	// a signed package (a "<name>.cert"): its signer's certificate, or why it cannot be read
 	HasSignature     bool             `json:"has_signature"`
@@ -643,7 +645,7 @@ var knownSystemTypes = []string{"xen-3.0-unknown", "xen-3.0-x32", "xen-3.0-x86",
 var knownFileExts = []string{".vhd", ".pvp", ".vmdk", ".mf", ".cert", ".xva", ".ovf", ".wim", ".vdi", ".sdi", ".iso", ".gz"}
 
 // describeAppliance is OvfRules.Load past the package reading: OVF.Validate (shortcut: no XML schema check), the
-// encryption refusal, the VMs, the EULAs and the space the disks need. has tells whether the package holds a file.
+// encryption, the VMs, the EULAs and the space the disks need. has tells whether the package holds a file.
 func describeAppliance(env *ovfEnvelope, name string, has func(string) bool, hasManifest bool) (*Appliance, error) {
 	a := &Appliance{Name: name, HasManifest: hasManifest, Warnings: []string{}, Eulas: []string{}}
 	switch {
@@ -667,8 +669,11 @@ func describeAppliance(env *ovfEnvelope, name string, has func(string) bool, has
 			a.Warnings = append(a.Warnings, fmt.Sprintf("The file %s has an extension that is not supported.", f.Href))
 		}
 	}
-	if len(env.Encryption) > 0 {
-		return nil, errors.New("Encrypted appliances cannot be imported in this version.")
+	if len(env.Security) > 0 { // ImportSourcePage's HasEncryption: the password is asked for (ImportSecurityPage)
+		if err := env.checkEncryption(); err != nil {
+			return nil, err
+		}
+		a.Encrypted = true
 	}
 	systems := env.systems()
 	if len(systems) == 0 {

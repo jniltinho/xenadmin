@@ -20,8 +20,8 @@ import (
 
 // OVF/OVA appliance import: ImportApplianceAction (ImportApplianceAction.cs and Import.cs) with the import wizard's
 // VmMappings: a server, the SR of each disk and the network of each interface per VM (rules.ApplianceMapping).
-// shortcut: no OS fixup (see rules/ovfmap.go) and no encrypted packages (XenOvf's Security.cs ciphers); no vGPU, no
-// PVS proxy, no InstallSection run, and the DVD drive stays empty.
+// shortcut: no OS fixup (see rules/ovfmap.go); no vGPU, no PVS proxy, no InstallSection run, and the DVD drive stays
+// empty.
 // shortcut: no progress bar or Cancel yet (as the XVA import).
 
 // applianceState reads what rules.CheckApplianceMappings checks against: the servers, the SRs that can take new disks
@@ -109,9 +109,10 @@ func ApplianceMappingsError(c *xapi.Connection, a *rules.Appliance, maps []rules
 }
 
 // ImportAppliance imports the appliance file with a mapping per VM (its server, the SR of each disk and the network of
-// each interface), after verifying its signature (a signed package) and its manifest when asked, and starts it when
-// asked. It returns the first VM's uuid.
-func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file string, maps []rules.ApplianceMapping, verify, start bool) (string, error) {
+// each interface), after verifying its signature (a signed package) and its manifest when asked, decrypting an
+// encrypted package's disks with its password ("" for a package that is not), and starts it when asked. It returns
+// the first VM's uuid.
+func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file string, maps []rules.ApplianceMapping, verify, start bool, password string) (string, error) {
 	s := c.Session
 	if err := permitted(s, "vm_appliance.create", "vm_appliance.destroy", "vm.create", "vm.destroy", "vm.remove_from_other_config",
 		"vdi.create", "vdi.destroy", "vbd.create", "vif.create"); err != nil { // ApplianceAction.StaticRBACDependencies
@@ -119,6 +120,9 @@ func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file string, maps
 	}
 	p, err := rules.OpenPackage(file)
 	if err != nil {
+		return "", err
+	}
+	if err := p.Unlock(password); err != nil { // ImportSecurityPage's password, checked (OVF.CheckPassword)
 		return "", err
 	}
 	a := p.Appliance

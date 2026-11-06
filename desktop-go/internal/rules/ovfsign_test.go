@@ -176,30 +176,17 @@ func TestSignedPackage(t *testing.T) {
 }
 
 // TestSignedChain: a signer under an intermediate CA (in its .pfx) verifies against the root alone, the intermediate
-// written after the signer's certificate.
+// written after the signer's certificate, as long as the CRLs of the intermediate and the signer say they are not
+// revoked.
 func TestSignedChain(t *testing.T) {
 	dir := t.TempDir()
-	issue := func(cn string, ca bool, parent *x509.Certificate, parentKey *rsa.PrivateKey) (*x509.Certificate, *rsa.PrivateKey) {
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn},
-			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: ca, BasicConstraintsValid: true,
-			KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign}
-		if parent == nil {
-			parent, parentKey = tmpl, key
-		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &key.PublicKey, parentKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		c, _ := x509.ParseCertificate(der)
-		return c, key
-	}
-	root, rootKey := issue("root", true, nil, nil)
-	inter, interKey := issue("intermediate", true, root, rootKey)
-	leaf, leafKey := issue("signer", false, inter, interKey)
+	srv := newCRLServer(t)
+	rootCA := newTestCert(t, "root", true, nil)
+	interCA := newTestCert(t, "intermediate", true, rootCA, srv.URL+"/root.crl")
+	signer := newTestCert(t, "signer", false, interCA, srv.URL+"/inter.crl")
+	root, inter, leaf, leafKey := rootCA.cert, interCA.cert, signer.cert, signer.key
+	srv.put("/root.crl", rootCA.crl(t, time.Now().Add(time.Hour)))
+	srv.put("/inter.crl", interCA.crl(t, time.Now().Add(time.Hour)))
 	pfx, err := pkcs12.Modern.Encode(leafKey, leaf, []*x509.Certificate{inter}, "pw")
 	if err != nil {
 		t.Fatal(err)
@@ -228,6 +215,22 @@ func TestSignedChain(t *testing.T) {
 	}
 	if err := p.VerifySignature(x509.NewCertPool()); err == nil { // the intermediate in the file is not a root
 		t.Error("no trusted root")
+	}
+	// the intermediate revoked by the root: the import refuses the package, the export the certificate
+	srv.put("/root.crl", rootCA.crl(t, time.Now().Add(time.Hour), inter))
+	if err := p.VerifySignature(roots); err == nil || err.Error() != "Certificate is invalid." {
+		t.Errorf("a revoked intermediate: %v", err)
+	}
+	if _, err := LoadSigner(filepath.Join(dir, "s.pfx"), "pw", roots); err == nil || err.Error() != messages.Get("EXPORT_SECURITY_PAGE_ERROR_CERTIFICATE_INVALID") {
+		t.Errorf("signing with a revoked intermediate: %v", err)
+	}
+	// the signer's CRL out of reach: its revocation cannot be told (OfflineRevocation), which Verify refuses
+	srv.put("/root.crl", rootCA.crl(t, time.Now().Add(time.Hour)))
+	srv.mu.Lock()
+	delete(srv.files, "/inter.crl")
+	srv.mu.Unlock()
+	if err := p.VerifySignature(roots); err == nil {
+		t.Error("a signer whose CRL cannot be read")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,7 +18,7 @@ import (
 // disk, as it comes: each compressed grain is preceded by a marker with its sector, so the disk is written in order
 // with zeros between the grains, one grain in memory at a time. The hosted sparse VMDK (HostedSparseExtentFile: the
 // monolithicSparse disk qemu-img and VMware Workstation write) is read through random access (sparseVMDK), and a
-// monolithic flat VMDK is its descriptor's one flat extent (vmdkFlatExtent).
+// monolithic flat or split (twoGbMaxExtent) VMDK is its descriptor's extents one after the other (vmdkExtents).
 // shortcut: the unallocated grains are sent as zeros (import_raw_vdi takes raw or VHD), convert to VHD when large
 // sparse disks are too slow.
 
@@ -324,30 +325,66 @@ func (v *sparseVMDK) Read(p []byte) (int, error) {
 
 const vmdkMaxDescriptor = 64 << 10
 
+var vmdkExtentStart = regexp.MustCompile(`^(RW|RDONLY|NOACCESS)(\s|$)`)
+
 var vmdkExtentLine = regexp.MustCompile(`^(RW|RDONLY|NOACCESS)\s+(\d+)\s+(\w+)(?:\s+"([^"]*)"(?:\s+(\d+))?)?\s*$`)
 
-// vmdkFlatExtent is a monolithic flat VMDK's descriptor (DiscUtils.Vmdk's DescriptorFile) read for its one extent:
-// the file with the raw disk (relative to the descriptor), where the disk starts in it and its size, in bytes.
-// shortcut: one FLAT (or ESX VMFS) extent only, not the split twoGbMaxExtent kinds nor a descriptor of sparse extents;
-// add them when such packages show up.
-func vmdkFlatExtent(desc []byte) (file string, offset, size int64, err error) {
-	var found [][]string
+// vmdkExtent is an extent of a VMDK descriptor: its file (relative to the descriptor), a flat file of raw data (where
+// the data starts in it) or a hosted sparse extent, and its size in bytes.
+type vmdkExtent struct {
+	file         string
+	sparse       bool
+	offset, size int64
+}
+
+const vmdkMaxExtents = 1 << 14 // of 2 GB each: 32 TB, past the largest VDI
+
+// vmdkExtents is a VMDK descriptor (DiscUtils.Vmdk's DescriptorFile) read for its extents, the disk being their data
+// one after the other: the monolithic flat kind (one FLAT or ESX VMFS extent) and the split twoGbMaxExtentFlat and
+// twoGbMaxExtentSparse kinds (FLAT or SPARSE extents of up to 2 GB each), as DiscUtils.Vmdk.DiskImageFile opens them.
+// The descriptor is untrusted: each extent names its own file, and a snapshot's descriptor (a parent) is refused.
+// shortcut: no ZERO or NOACCESS extents nor the other ESX kinds (VMFSSPARSE, SESPARSE), which neither qemu-img nor
+// VMware's OVF export writes; add them when such packages show up.
+func vmdkExtents(desc []byte) ([]vmdkExtent, error) {
+	unsupported := errors.New("only stream-optimized, hosted sparse, monolithic flat and split (twoGbMaxExtent) VMDK disks can be imported in this version")
+	var out []vmdkExtent
+	var total int64 // sectors
+	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.ReplaceAll(string(desc), "\r", ""), "\n") {
-		if m := vmdkExtentLine.FindStringSubmatch(strings.TrimSpace(strings.Trim(line, "\x00"))); m != nil {
-			found = append(found, m)
+		line = strings.TrimSpace(strings.Trim(line, "\x00"))
+		m := vmdkExtentLine.FindStringSubmatch(line)
+		if m == nil {
+			if vmdkExtentStart.MatchString(line) { // an extent that cannot be read: the others would be out of place
+				return nil, errors.New("the VMDK descriptor's extent is not valid")
+			}
+			continue
 		}
+		sparse := m[3] == "SPARSE"
+		if m[1] == "NOACCESS" || m[4] == "" || !sparse && m[3] != "FLAT" && m[3] != "VMFS" || len(out) == vmdkMaxExtents {
+			return nil, unsupported
+		}
+		sectors, err1 := strconv.ParseInt(m[2], 10, 64)
+		start, err2 := int64(0), error(nil)
+		if m[5] != "" {
+			start, err2 = strconv.ParseInt(m[5], 10, 64)
+		}
+		if err1 != nil || err2 != nil || sectors <= 0 || sectors > math.MaxInt64/sector-total || start > math.MaxInt64/sector-sectors ||
+			sparse && start != 0 { // a sparse extent has its own header, not an offset
+			return nil, errors.New("the VMDK descriptor's extent is not valid")
+		}
+		name := path.Clean(m[4])
+		if seen[name] {
+			return nil, fmt.Errorf("the VMDK descriptor names the extent %s twice", m[4])
+		}
+		seen[name] = true
+		total += sectors
+		out = append(out, vmdkExtent{file: m[4], sparse: sparse, offset: start * sector, size: sectors * sector})
 	}
-	if len(found) != 1 || found[0][1] == "NOACCESS" || found[0][3] != "FLAT" && found[0][3] != "VMFS" || found[0][4] == "" {
-		return "", 0, 0, errors.New("only stream-optimized, hosted sparse and monolithic flat VMDK disks can be imported in this version")
+	if len(out) == 0 {
+		return nil, unsupported
 	}
-	m := found[0]
-	sectors, err1 := strconv.ParseInt(m[2], 10, 64)
-	start, err2 := int64(0), error(nil)
-	if m[5] != "" {
-		start, err2 = strconv.ParseInt(m[5], 10, 64)
+	if m := vmdkParentCID.FindSubmatch(desc); m != nil && !strings.EqualFold(string(m[1]), "ffffffff") {
+		return nil, errors.New("the VMDK disk is a snapshot of another disk, which cannot be imported on its own")
 	}
-	if err1 != nil || err2 != nil || sectors <= 0 || sectors > math.MaxInt64/sector || start > math.MaxInt64/sector-sectors {
-		return "", 0, 0, errors.New("the VMDK descriptor's extent is not valid")
-	}
-	return m[4], start * sector, sectors * sector, nil
+	return out, nil
 }

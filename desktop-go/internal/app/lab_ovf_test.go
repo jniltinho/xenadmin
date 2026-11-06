@@ -171,7 +171,7 @@ func TestLabImportAppliance(t *testing.T) {
 
 	// a broken VMDK: the import fails and removes what it made
 	bad, _ := labOVA(t, name, true, 1, 3)
-	if _, err := ops.ImportAppliance(c, labPolicy(t), bad, defaults(bad, srUUID, opts.Networks[0].UUID), false, false); err == nil {
+	if _, err := ops.ImportAppliance(c, labPolicy(t), bad, defaults(bad, srUUID, opts.Networks[0].UUID), false, false, ""); err == nil {
 		t.Fatal("the broken appliance was imported")
 	} else {
 		t.Logf("broken: %v", err)
@@ -183,7 +183,7 @@ func TestLabImportAppliance(t *testing.T) {
 	t.Run("mappings", func(t *testing.T) { testLabApplianceMappings(t, c, mapped, srUUID, clean) })
 
 	file, sizes := labOVA(t, name, false, 1, 3)
-	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, defaults(file, srUUID, opts.Networks[0].UUID), true, false)
+	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, defaults(file, srUUID, opts.Networks[0].UUID), true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,14 +299,14 @@ func testLabApplianceMappings(t *testing.T, c *xapi.Connection, name, srUUID str
 	}
 	maps := rules.DefaultApplianceMappings(p.Appliance, srUUID, net0)
 	maps[0].Host, maps[0].SRs[1], maps[0].Networks[1] = coordinator, local, net1
-	if _, err := ops.ImportAppliance(c, labPolicy(t), file, maps, false, false); err == nil || !strings.Contains(err.Error(), "cannot be seen") {
+	if _, err := ops.ImportAppliance(c, labPolicy(t), file, maps, false, false, ""); err == nil || !strings.Contains(err.Error(), "cannot be seen") {
 		t.Fatalf("the member's local SR from the coordinator: %v", err)
 	}
 	if vms, _ := xenapi.VM.GetByNameLabel(s, name); len(vms) != 0 {
 		t.Fatal("a refused import made a VM")
 	}
 	maps[0].Host = member
-	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, maps, false, false)
+	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, maps, false, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,20 +1,24 @@
 package rules
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1" //nolint:gosec // a certificate's thumbprint, and the C# app's SHA-1 signatures
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,8 +37,7 @@ import (
 // writes the DER certificate (what the C# comment says it writes, which X509Certificate2 and other tools read) and
 // reads both. go-pkcs12 reads the .pfx: golang.org/x/crypto/pkcs12 cannot open the AES (PBES2) files that OpenSSL 3
 // and current Windows write.
-// shortcut: no revocation check (X509Certificate2.Verify asks the CRLs online) and RSA keys only (as the C# app's
-// RSACryptoServiceProvider); add OCSP/CRL checks if a signer is ever revoked.
+// shortcut: RSA keys only (as the C# app's RSACryptoServiceProvider).
 
 // CertificateInfo is what View Certificate shows of the signer (X509Certificate2UI's General page, and the thumbprint).
 type CertificateInfo struct {
@@ -89,14 +92,120 @@ func packageChain(raw []byte) []*x509.Certificate {
 	return out
 }
 
-// trusted is X509Certificate2.Verify: a chain to a trusted root (roots, nil for the system's) valid now, for any use.
-func trusted(c *x509.Certificate, chain []*x509.Certificate, roots *x509.CertPool) bool {
+// trusted is X509Certificate2.Verify: a chain to a trusted root (roots, nil for the system's) valid now, for any use,
+// whose certificates are not revoked (checkRevocation).
+func trusted(c *x509.Certificate, chain []*x509.Certificate, roots *x509.CertPool) error {
 	inter := x509.NewCertPool()
 	for _, ca := range chain {
 		inter.AddCert(ca)
 	}
-	_, err := c.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
-	return err == nil
+	chains, err := c.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
+	if err != nil {
+		return err
+	}
+	for _, ch := range chains { // X509Chain builds one chain: any of these that passes
+		if err = checkRevocation(ch, time.Now()); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// CRLFetcher gets the CRL at a certificate's CRL distribution point.
+type CRLFetcher interface {
+	FetchCRL(url string) ([]byte, error)
+}
+
+const crlMaxSize = 16 << 20 // a large public CA's CRL is a few MB
+
+type httpCRLFetcher struct{ client *http.Client }
+
+func (f httpCRLFetcher) FetchCRL(url string) ([]byte, error) {
+	resp, err := f.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the CRL at %s cannot be read: %s", url, resp.Status)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, crlMaxSize+1))
+	if err == nil && len(b) > crlMaxSize {
+		err = fmt.Errorf("the CRL at %s is too large", url)
+	}
+	return b, err
+}
+
+// crls fetches the CRLs (a test may put another fetcher here).
+var crls CRLFetcher = httpCRLFetcher{&http.Client{Timeout: 10 * time.Second}}
+
+// checkRevocation is X509Certificate2.Verify's revocation check. Its chain policy is X509RevocationMode.Online,
+// X509RevocationFlag.ExcludeRoot and X509VerificationFlags.NoFlag, so every certificate of the chain but the root must
+// be found not revoked in a current CRL of one of its distribution points, signed by its issuer: a revoked certificate
+// fails, and so does one whose revocation cannot be told (RevocationStatusUnknown or OfflineRevocation: no
+// distribution point, none reachable, no valid CRL there). The CRLs are untrusted: HTTP(S) only, with a timeout and a
+// size cap, and the issuer's signature checked.
+// shortcut: CRLs only, no OCSP (Windows also asks the OCSP responder in a certificate's AIA, so a certificate with an
+// OCSP responder and no CRL distribution point passes there and fails here); add OCSP if such a signer shows up.
+// shortcut: complete CRLs only: a delta CRL, a partitioned one (an issuing distribution point), one that names delta
+// CRLs (Freshest CRL) or one with another critical extension is not used, so a CA that publishes delta CRLs fails
+// here (Windows reads them); add the delta CRLs if such a signer shows up.
+func checkRevocation(chain []*x509.Certificate, now time.Time) error {
+	for i := 0; i+1 < len(chain); i++ {
+		if err := notRevoked(chain[i], chain[i+1], now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// partialCRL tells whether a CRL's extension makes it list only some revocations: the delta CRL indicator, the issuing
+// distribution point, the Freshest CRL (delta CRLs to read with it), or any critical extension Go does not read (it
+// reads the authority key id and CRL number).
+func partialCRL(e pkix.Extension) bool {
+	id := e.Id.String()
+	return id == "2.5.29.27" || id == "2.5.29.28" || id == "2.5.29.46" || e.Critical && id != "2.5.29.35" && id != "2.5.29.20"
+}
+
+func notRevoked(c, issuer *x509.Certificate, now time.Time) error {
+	for _, e := range c.Extensions {
+		if e.Id.String() == "2.5.29.46" { // Freshest CRL: its delta CRLs would be needed too (see checkRevocation)
+			return fmt.Errorf("the revocation of the certificate %s cannot be checked: it names delta CRLs", c.Subject)
+		}
+	}
+	err := fmt.Errorf("the revocation of the certificate %s cannot be checked: it has no HTTP CRL distribution point", c.Subject)
+	for _, url := range c.CRLDistributionPoints {
+		if u := strings.ToLower(url); !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			continue
+		}
+		der, ferr := crls.FetchCRL(url)
+		if ferr != nil {
+			err = ferr
+			continue
+		}
+		if b, _ := pem.Decode(der); b != nil && b.Type == "X509 CRL" {
+			der = b.Bytes
+		}
+		crl, perr := x509.ParseRevocationList(der)
+		switch {
+		case perr != nil:
+			err = fmt.Errorf("the CRL at %s is not valid: %w", url, perr)
+		case slices.ContainsFunc(crl.Extensions, partialCRL):
+			err = fmt.Errorf("the CRL at %s is a delta or partitioned CRL, which cannot be checked", url)
+		case !bytes.Equal(crl.RawIssuer, c.RawIssuer) || crl.CheckSignatureFrom(issuer) != nil:
+			err = fmt.Errorf("the CRL at %s is not signed by the issuer of %s", url, c.Subject)
+		case now.Before(crl.ThisUpdate) || !crl.NextUpdate.IsZero() && now.After(crl.NextUpdate):
+			err = fmt.Errorf("the CRL at %s is not current", url)
+		default:
+			for _, r := range crl.RevokedCertificateEntries {
+				if r.SerialNumber != nil && r.SerialNumber.Cmp(c.SerialNumber) == 0 {
+					return fmt.Errorf("the certificate %s is revoked", c.Subject)
+				}
+			}
+			return nil
+		}
+	}
+	return err
 }
 
 func signatureHash(algorithm string) (crypto.Hash, error) {
@@ -121,7 +230,7 @@ func (p *Package) VerifySignature(roots *x509.CertPool) error {
 	if err != nil {
 		return errors.New(messages.Get("IMPORT_SECURITY_PAGE_ERROR_MISSING_CERTIFICATE"))
 	}
-	if !trusted(c, packageChain(p.certificate), roots) {
+	if trusted(c, packageChain(p.certificate), roots) != nil {
 		return errors.New("Certificate is invalid.") // XenOvf's CERTIFICATE_IS_INVALID
 	}
 	if p.manifest == nil {
@@ -190,7 +299,7 @@ func LoadSigner(file, password string, roots *x509.CertPool) (*Signer, error) {
 	if !ok || !k.PublicKey.Equal(cert.PublicKey) {
 		return nil, invalid
 	}
-	if !trusted(cert, chain, roots) { // CheckCertificateValid
+	if trusted(cert, chain, roots) != nil { // CheckCertificateValid: Certificate.Verify(), revocation included
 		return nil, errors.New(messages.Get("EXPORT_SECURITY_PAGE_ERROR_CERTIFICATE_INVALID"))
 	}
 	s := &Signer{cert: cert, key: k, chain: chain}

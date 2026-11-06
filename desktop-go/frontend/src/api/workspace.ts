@@ -80,7 +80,7 @@ export interface IQN { index: number; iqn: string; address: string; port: number
 export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
 export interface Appliance { name: string; warnings: string[] | null; disks: number; interfaces: number;
   vms: { sys_id: string; name: string; disks: { name: string; capacity: number }[] | null; macs: string[] | null }[] | null;
-  eulas: string[] | null; has_manifest: boolean; required_space: number; has_signature: boolean;
+  eulas: string[] | null; has_manifest: boolean; required_space: number; has_signature: boolean; encrypted: boolean;
   certificate?: { subject: string; issuer: string; valid_from: string; valid_to: string; thumbprint: string }; certificate_error?: string }
 // a VM's server ("" for the pool), the SR of each of its disks and the network of each of its interfaces
 export interface ApplianceMapping { sys_id: string; host: string; srs: string[]; networks: string[] }
@@ -206,8 +206,9 @@ export const api = {
   isAppliance: (file: string) => call<boolean>("IsAppliance", file),
   applianceInfo: (file: string) => call<Appliance>("ApplianceInfo", file),
   applianceMappingsError: (key: string, a: Appliance, maps: ApplianceMapping[]) => call<string>("ApplianceMappingsError", key, a, maps),
-  importAppliance: (key: string, file: string, maps: ApplianceMapping[], verify: boolean, start: boolean) =>
-    call<string>("ImportAppliance", key, file, maps, verify, start),
+  applianceUnlockError: (file: string, password: string) => call<string>("ApplianceUnlockError", file, password),
+  importAppliance: (key: string, file: string, maps: ApplianceMapping[], verify: boolean, start: boolean, password: string) =>
+    call<string>("ImportAppliance", key, file, maps, verify, start, password),
   // the Export wizard's OVF/OVA path (internal/gui/ovfexport.go)
   exportChoices: (key: string, vm: string, vapp: string) => call<ExportChoices>("ExportChoices", key, vm, vapp),
   exportFolder: () => call<string>("ExportFolder"),

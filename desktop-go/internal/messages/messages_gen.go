@@ -359,6 +359,7 @@ var texts = map[string]string{
 	"ENTER_VALID_QOS":                                                "The QoS limit value should be an integer greater than zero",
 	"ERROR_DESTINATION_DIR_NON_EXIST":                                "Destination directory does not exist.",
 	"ERROR_FILE_NOT_FOUND":                                           "File {0} not found",
+	"ERROR_NO_PASSWORD":                                              "A password was not provided to decrypt the OVF package.",
 	"ERROR_VM_NOT_HALTED":                                            "Please shut down or suspend VM '{0}' before exporting.",
 	"EVACUATE_HOST_DIALOG_TITLE":                                     "Enter Maintenance Mode - {0}",
 	"EXIT_MAINTENANCE_MODE":                                          "Exit &Maintenance Mode",

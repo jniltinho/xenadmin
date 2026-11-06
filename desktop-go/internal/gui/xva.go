@@ -46,11 +46,25 @@ func (w *Workspace) ApplianceMappingsError(key string, a rules.Appliance, maps [
 	return out, err
 }
 
+// ApplianceUnlockError is the dialog's check of an encrypted appliance's password (ImportSecurityPage): "" when it
+// decrypts the package. The password is not kept.
+func (w *Workspace) ApplianceUnlockError(file, password string) string {
+	p, err := rules.OpenPackage(file)
+	if err == nil {
+		err = p.Unlock(password)
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // ImportAppliance imports an OVF/OVA appliance with a mapping per VM (server, SR per disk, network per interface),
-// verifying its manifest and starting it when asked; the first VM's uuid.
-func (w *Workspace) ImportAppliance(key, file string, maps []rules.ApplianceMapping, verify, start bool) (out string, err error) {
+// verifying its manifest, decrypting it with its password ("" when it is not encrypted) and starting it when asked;
+// the first VM's uuid.
+func (w *Workspace) ImportAppliance(key, file string, maps []rules.ApplianceMapping, verify, start bool, password string) (out string, err error) {
 	err = w.with(key, func(c *xapi.Connection) error {
-		out, err = ops.ImportAppliance(c, w.policy, file, maps, verify, start)
+		out, err = ops.ImportAppliance(c, w.policy, file, maps, verify, start, password)
 		return err
 	})
 	return out, err

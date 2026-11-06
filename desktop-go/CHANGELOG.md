@@ -4,7 +4,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
-—
+### Added
+
+- OVF/OVA import of split VMDKs (twoGbMaxExtentSparse and twoGbMaxExtentFlat: a descriptor and extents of up to
+  2 GB), read one extent after the other as the raw disk, as DiscUtils does in the Windows app. Every extent must be
+  a disk file of the package, listed in its manifest when it has one, and as large as the descriptor says.
+- The certificate revocation check of a signed package (X509Certificate2.Verify's online check): every certificate
+  of the signer's chain but the root is checked against the CRLs of its distribution points (HTTP or HTTPS), and the
+  package is refused when one is revoked or its revocation cannot be told (no CRL reachable), as on Windows. The
+  Export wizard's signing certificate is checked the same way. Complete CRLs only: no OCSP and no delta CRLs.
+- Encrypted OVF/OVA packages made by older XenCenters (XenOvf's Security.cs: AES-256-CBC, the key and IV from the
+  password's SHA-384): the import dialog asks for the password, checks it against the package and decrypts the disks
+  as they are read; the password is never kept. The Windows app refuses these packages, and neither app exports them.
 
 ## [0.3.1] — 2026-11-06
 

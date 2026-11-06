@@ -37,6 +37,9 @@ type Package struct {
 	manifest    []byte
 	certificate []byte   // "<name>.cert": the manifest's signature and the signer's certificate
 	hrefs       []string // the descriptor and the files it names (a folder's manifest must list them)
+	security    []ovfSecuritySection
+	password    string          // an encrypted package's, once Unlock has checked it
+	packed      map[string]bool // the files the descriptor says are encrypted (IsThisIdEncrypted) or compressed
 	Appliance   *Appliance
 }
 
@@ -126,6 +129,11 @@ func OpenPackage(file string) (*Package, error) {
 		} else {
 			p.Appliance.Certificate = describeCertificate(c)
 		}
+	}
+	p.security, p.packed = env.Security, map[string]bool{}
+	for _, f := range env.Files {
+		c := strings.ToLower(strings.TrimSpace(f.Compression))
+		p.packed[f.Href] = p.packed[f.Href] || env.encrypted(f.ID) || c != "" && c != "identity"
 	}
 	p.hrefs = []string{p.descriptor}
 	for _, f := range env.Files {
@@ -439,9 +447,9 @@ type DiskStream struct {
 }
 
 // OpenDisk is ImportApplianceAction.ImportFile's "open disk" part: a VHD goes as VHD (its size from its footer), a
-// VMDK (stream-optimized, hosted sparse, or a descriptor of one flat extent) as its raw disk, a .raw or .img file as
-// raw (DiscUtils' disk classes there); a gzip-compressed file is uncompressed as it is
-// read (shortcut: its size is found by reading it once more, where the C# app uncompresses it to a temporary file).
+// VMDK (stream-optimized, hosted sparse, or a descriptor of flat or sparse extents) as its raw disk, a .raw or .img
+// file as raw (DiscUtils' disk classes there); an encrypted file is decrypted and a gzip-compressed one uncompressed
+// as it is read (shortcut: its size is found by reading it once more, where the C# app writes a temporary file).
 func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 	ext := strings.ToLower(d.Href)
 	if d.Compression == "gzip" {
@@ -453,10 +461,18 @@ func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		if d.Compression != "gzip" {
-			return rc, rc, n, nil
+		var r io.Reader = rc
+		if d.Encrypted { // DecryptToTempFile, before the uncompression
+			if p.password == "" {
+				rc.Close()
+				return nil, nil, 0, errors.New(messages.Get("ERROR_NO_PASSWORD"))
+			}
+			r, n = newOVFDecrypter(rc, p.password), -1 // its size without the padding is known at its end
 		}
-		z, err := gzip.NewReader(bufio.NewReaderSize(rc, 1<<20))
+		if d.Compression != "gzip" {
+			return r, rc, n, nil
+		}
+		z, err := gzip.NewReader(bufio.NewReaderSize(r, 1<<20))
 		if err != nil {
 			rc.Close()
 			return nil, nil, 0, fmt.Errorf("the disk %s is not a valid gzip file: %w", d.Href, err)
@@ -472,8 +488,10 @@ func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 	fail := func(err error) (*DiskStream, error) { c.Close(); return nil, err }
 	if IsVMDK(head) && !isStreamVMDK(head) { // a hosted sparse VMDK: read again with random access
 		c.Close()
-		if d.Compression != "" {
-			return nil, fmt.Errorf("the disk %s is a hosted sparse VMDK, which cannot be read compressed", d.Href)
+		// shortcut: not decrypted either (CBC can be read at random, a block and the one before it; the C# app decrypts
+		// to a temporary file); decrypt such a disk by hand if one shows up
+		if d.Compression != "" || d.Encrypted {
+			return nil, fmt.Errorf("the disk %s is a hosted sparse VMDK, which cannot be read compressed or encrypted", d.Href)
 		}
 		ra, size, rc, err := p.openAt(d.Href)
 		if err != nil {
@@ -491,49 +509,30 @@ func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 		if err != nil {
 			return fail(err)
 		}
-		return &DiskStream{Reader: v, Closer: c, Length: v.Size(), VirtualSize: v.Size(), Format: "raw"}, nil
+		// the file read to its end after the disk's end marker, so that its decryption checks the padding (and gzip its
+		// checksum)
+		return &DiskStream{Reader: drainAtEOF{v, br}, Closer: c, Length: v.Size(), VirtualSize: v.Size(), Format: "raw"}, nil
 	}
 	switch ext {
 	case ".vhd", ".raw", ".img":
-	case ".vmdk": // a descriptor: its flat extent, another file of the package, is the raw disk
+	case ".vmdk": // a descriptor: its extents, other files of the package, are the raw disk
 		desc, err := io.ReadAll(io.LimitReader(br, vmdkMaxDescriptor+1))
 		c.Close()
 		if err != nil {
 			return nil, err
 		}
 		if len(desc) > vmdkMaxDescriptor {
-			return nil, errors.New("only stream-optimized, hosted sparse and monolithic flat VMDK disks can be imported in this version")
+			desc = nil // not a descriptor: vmdkExtents says which kinds are read
 		}
-		file, offset, size, err := vmdkFlatExtent(desc)
+		extents, err := vmdkExtents(desc)
 		if err != nil {
 			return nil, err
 		}
-		extent := path.Join(path.Dir(d.Href), file)
-		// the OVF does not name the extent: the manifest must, so that its check covers the disk's data (and the check
-		// skips a .mf or .cert file)
-		if ext := strings.ToLower(path.Ext(extent)); ext == ".mf" || ext == ".cert" || ext == ".ovf" {
-			return nil, fmt.Errorf("the extent %s of the disk %s is not a disk file", extent, d.Href)
-		}
-		if p.manifest != nil {
-			// a folder's check opens the manifest's name exactly; an OVA's matches its members' names in any case
-			same := func(x fileDigest) bool { return x.name == extent || p.archive() && strings.EqualFold(x.name, extent) }
-			if ds, err := p.digests(); err != nil || !slices.ContainsFunc(ds, same) {
-				return nil, fmt.Errorf("the extent %s of the disk %s is not listed in the appliance's manifest", extent, d.Href)
-			}
-		}
-		rc, n, err := p.Open(extent)
+		x, err := p.openExtents(d.Href, extents)
 		if err != nil {
 			return nil, err
 		}
-		if offset > n || size > n-offset {
-			rc.Close()
-			return nil, fmt.Errorf("the extent %s of the disk %s is truncated", extent, d.Href)
-		}
-		if _, err := io.CopyN(io.Discard, rc, offset); err != nil {
-			rc.Close()
-			return nil, err
-		}
-		return &DiskStream{Reader: io.LimitReader(rc, size), Closer: rc, Length: size, VirtualSize: size, Format: "raw"}, nil
+		return &DiskStream{Reader: x, Closer: x, Length: x.size, VirtualSize: x.size, Format: "raw"}, nil
 	default:
 		return fail(errors.New(messages.Format(messages.Get("UNSUPPORTED_FILE_TYPE"), ext)))
 	}
@@ -563,4 +562,161 @@ func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 		return fail(fmt.Errorf("the disk %s is empty", d.Href))
 	}
 	return s, nil
+}
+
+// drainAtEOF is a disk read from a file that goes on after it: at the disk's end, the rest of the file is read.
+type drainAtEOF struct {
+	io.Reader
+	rest io.Reader
+}
+
+func (d drainAtEOF) Read(p []byte) (int, error) {
+	n, err := d.Reader.Read(p)
+	if errors.Is(err, io.EOF) {
+		if _, derr := io.Copy(io.Discard, d.rest); derr != nil {
+			return n, derr
+		}
+	}
+	return n, err
+}
+
+// fileSize is the size of a file of the package, without reading it.
+func (p *Package) fileSize(href string) (int64, error) {
+	if SafeHref(href) {
+		if n, ok := p.entries[href]; ok && p.archive() {
+			return n, nil
+		}
+		if f, st, err := p.openInDir(href); err == nil && !p.archive() {
+			f.Close()
+			return st.Size(), nil
+		}
+	}
+	return 0, errors.New(messages.Format(messages.Get("ERROR_FILE_NOT_FOUND"), href))
+}
+
+// extentsReader is a VMDK descriptor's extents read one after the other as the raw disk, each opened when the one
+// before it is done: one file open at a time, one grain table or read buffer in memory.
+type extentsReader struct {
+	p       *Package
+	extents []vmdkExtent // those not read yet, their files named as in the package
+	r       io.Reader
+	c       io.Closer
+	left    int64 // bytes the current extent has still to give
+	size    int64 // the disk's
+}
+
+// openExtents checks a descriptor's extents before the disk is read: each one a disk file of the package (not the
+// descriptor, nor a file the manifest check skips), listed in the manifest when there is one, as large as the
+// descriptor says (a sparse extent's header capacity is its size).
+func (p *Package) openExtents(disk string, extents []vmdkExtent) (*extentsReader, error) {
+	var ds []fileDigest
+	if p.manifest != nil {
+		var err error
+		if ds, err = p.digests(); err != nil {
+			return nil, err
+		}
+	}
+	x := &extentsReader{p: p}
+	for _, e := range extents {
+		e.file = path.Join(path.Dir(disk), e.file)
+		// the OVF does not name the extents: the manifest must, so that its check covers the disk's data (and the check
+		// skips a .mf or .cert file)
+		if ext := strings.ToLower(path.Ext(e.file)); ext == ".mf" || ext == ".cert" || ext == ".ovf" || e.file == disk {
+			return nil, fmt.Errorf("the extent %s of the disk %s is not a disk file", e.file, disk)
+		}
+		// shortcut: an extent the package lists as encrypted or compressed is refused, not decrypted nor uncompressed (no
+		// XenCenter nor VMware wrote one)
+		if p.packed[e.file] {
+			return nil, fmt.Errorf("the extent %s of the disk %s is encrypted or compressed, which cannot be read in this version", e.file, disk)
+		}
+		// a folder's check opens the manifest's name exactly; an OVA's matches its members' names in any case
+		same := func(d fileDigest) bool { return d.name == e.file || p.archive() && strings.EqualFold(d.name, e.file) }
+		if p.manifest != nil && !slices.ContainsFunc(ds, same) {
+			return nil, fmt.Errorf("the extent %s of the disk %s is not listed in the appliance's manifest", e.file, disk)
+		}
+		if e.sparse { // its header, read now (an OVA member is found at random, without reading the archive through)
+			_, c, err := x.open(e)
+			if err != nil {
+				return nil, err
+			}
+			c.Close()
+		} else if n, err := p.fileSize(e.file); err != nil {
+			return nil, err
+		} else if e.offset > n || e.size > n-e.offset {
+			return nil, fmt.Errorf("the extent %s of the disk %s is truncated", e.file, disk)
+		}
+		x.size += e.size // vmdkExtents keeps the sum an int64
+		x.extents = append(x.extents, e)
+	}
+	return x, nil
+}
+
+// open is an extent's data and the file to close after it.
+func (x *extentsReader) open(e vmdkExtent) (io.Reader, io.Closer, error) {
+	if e.sparse {
+		ra, n, c, err := x.p.openAt(e.file)
+		if err != nil {
+			return nil, nil, err
+		}
+		v, err := NewSparseVMDKReader(ra, n)
+		if err == nil && v.Size() != e.size {
+			err = fmt.Errorf("the extent %s is not the size its VMDK descriptor says", e.file)
+		}
+		if err != nil {
+			c.Close()
+			return nil, nil, err
+		}
+		return v, c, nil
+	}
+	rc, n, err := x.p.Open(e.file)
+	if err != nil {
+		return nil, nil, err
+	}
+	if e.offset > n || e.size > n-e.offset {
+		rc.Close()
+		return nil, nil, fmt.Errorf("the extent %s is truncated", e.file)
+	}
+	if _, err := io.CopyN(io.Discard, rc, e.offset); err != nil {
+		rc.Close()
+		return nil, nil, err
+	}
+	return io.LimitReader(rc, e.size), rc, nil
+}
+
+func (x *extentsReader) Read(b []byte) (int, error) {
+	for {
+		if x.r == nil {
+			if len(x.extents) == 0 {
+				return 0, io.EOF
+			}
+			r, c, err := x.open(x.extents[0])
+			if err != nil {
+				return 0, err
+			}
+			x.r, x.c, x.left, x.extents = r, c, x.extents[0].size, x.extents[1:]
+		}
+		n, err := x.r.Read(b)
+		x.left -= int64(n)
+		if !errors.Is(err, io.EOF) {
+			return n, err
+		}
+		x.c.Close()
+		x.r, x.c = nil, nil
+		if x.left != 0 {
+			return n, errors.New("an extent of the VMDK disk is truncated")
+		}
+		if n > 0 {
+			return n, nil
+		}
+	}
+}
+
+func (x *extentsReader) Close() error {
+	x.extents = nil
+	if x.c == nil {
+		return nil
+	}
+	c := x.c
+	x.r, x.c = nil, nil
+	return c.Close()
 }

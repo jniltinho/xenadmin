@@ -108,23 +108,37 @@ func TestSparseVMDK(t *testing.T) {
 	}
 }
 
-func TestVMDKFlatExtent(t *testing.T) {
+func TestVMDKExtents(t *testing.T) {
 	for desc, want := range map[string]string{
-		"# Disk DescriptorFile\ncreateType=\"monolithicFlat\"\nRW 5860 FLAT \"d-flat.vmdk\" 0\n\x00\x00": "d-flat.vmdk 0 3000320",
-		"RW 8 VMFS \"d.raw\"\r\n":                       "d.raw 0 4096",
-		"RDONLY 8 FLAT \"d.raw\" 2\n":                   "d.raw 1024 4096",
-		"RW 8 FLAT \"a\" 0\nRW 8 FLAT \"b\" 0\n":        "",
-		"RW 8 SPARSE \"d-s001.vmdk\"\n":                 "",
-		"NOACCESS 8 FLAT \"d.raw\" 0\n":                 "",
-		"RW 8 ZERO\n":                                   "",
-		"RW 99999999999999999 FLAT \"d.raw\" 0\n":       "",
-		"RW 8 FLAT \"d.raw\" 99999999999999999999999\n": "",
-		"# Disk DescriptorFile\n":                       "",
+		"# Disk DescriptorFile\ncreateType=\"monolithicFlat\"\nRW 5860 FLAT \"d-flat.vmdk\" 0\n\x00\x00": "[{d-flat.vmdk false 0 3000320}]",
+		"RW 8 VMFS \"d.raw\"\r\n":                                              "[{d.raw false 0 4096}]",
+		"RDONLY 8 FLAT \"d.raw\" 2\n":                                          "[{d.raw false 1024 4096}]",
+		"parentCID=ffffffff\nRW 8 FLAT \"a\" 0\nRW 4 FLAT \"b\" 0\n":           "[{a false 0 4096} {b false 0 2048}]",
+		"RW 8 SPARSE \"d-s001.vmdk\"\nRW 8 SPARSE \"d-s002.vmdk\"\n":           "[{d-s001.vmdk true 0 4096} {d-s002.vmdk true 0 4096}]",
+		"RW 8 SPARSE \"d-s001.vmdk\" 2\n":                                      "", // a sparse extent has no offset
+		"RW 8 FLAT \"a\" 0\nRW 8 FLAT \"./a\" 0\n":                             "", // one file twice
+		"parentCID=1234abcd\nRW 8 FLAT \"a\" 0\n":                              "", // a snapshot
+		"NOACCESS 8 FLAT \"d.raw\" 0\n":                                        "",
+		"RW 8 FLAT \"a\" 0\nRW 8 FLAT \"b\" -1\nRW 8 FLAT \"c\" 0\n":           "", // an extent that cannot be read
+		"RW 8 FLAT \"a\" 0\nRW\n":                                              "",
+		"RW 8 ZERO\n":                                                          "",
+		"RW 8 VMFSSPARSE \"d.vmdk\"\n":                                         "",
+		"RW 99999999999999999 FLAT \"d.raw\" 0\n":                              "",
+		"RW 9000000000000000 FLAT \"a\" 0\nRW 9100000000000000 FLAT \"b\" 0\n": "", // the sum overflows
+		"RW 8 FLAT \"d.raw\" 99999999999999999999999\n":                        "",
+		"# Disk DescriptorFile\n":                                              "",
 	} {
-		file, off, size, err := vmdkFlatExtent([]byte(desc))
-		if got := fmt.Sprintf("%s %d %d", file, off, size); want == "" && err == nil || want != "" && (err != nil || got != want) {
-			t.Errorf("%q: %s, %v", desc, got, err)
+		got, err := vmdkExtents([]byte(desc))
+		if s := fmt.Sprint(got); want == "" && err == nil || want != "" && (err != nil || s != want) {
+			t.Errorf("%q: %s, %v", desc, s, err)
 		}
+	}
+	var b strings.Builder // one extent more than vmdkMaxExtents
+	for i := 0; i <= vmdkMaxExtents; i++ {
+		fmt.Fprintf(&b, "RW 8 FLAT \"x%d\" 0\n", i)
+	}
+	if _, err := vmdkExtents([]byte(b.String())); err == nil {
+		t.Error("too many extents accepted")
 	}
 }
 

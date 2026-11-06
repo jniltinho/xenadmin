@@ -3,7 +3,7 @@
 // package's VMs, its EULA to accept, the pool or server, then the wizard's VmMappings: the server of each VM
 // (ImportSelectHostPage, only to put its disks on local storage), all the disks on one SR or each on its own
 // (ImportSelectStoragePage), the network of each interface (ImportSelectNetworkPage); the signature or manifest check
-// with View Certificate (ImportSecurityPage) and Start, then ImportApplianceAction. The defaults (the target's server, its default SR, the first network) keep it one click.
+// with View Certificate and an encrypted package's password (ImportSecurityPage) and Start, then ImportApplianceAction. The defaults (the target's server, its default SR, the first network) keep it one click.
 // shortcut: no OS fixup page (ImportOptionsPage): see rules/ovfmap.go.
 import { computed, onMounted, ref, watch } from "vue";
 import { api, type Appliance, type ApplianceMapping, type ServerRow } from "./api/workspace";
@@ -28,6 +28,7 @@ const accept = ref(false);
 const verify = ref(false);
 const showCert = ref(false);
 const start = ref(false);
+const password = ref(""); // an encrypted package's: only handed to the import, never kept
 const error = ref("");
 const pending = ref(false);
 
@@ -107,11 +108,16 @@ async function ok() {
   else if (!t) error.value = "Select the pool or server to import to.";
   else if (maps.some((m) => m.srs.includes(""))) error.value = "Select a storage repository.";
   else if (maps.some((m) => m.networks.includes(""))) error.value = "Select a network.";
+  if (!error.value && a.encrypted) {
+    try { error.value = await api.applianceUnlockError(props.file, password.value); } catch (e) { error.value = String(e); }
+  }
   if (!error.value) {
     try { error.value = await api.applianceMappingsError(t.key, a, maps); } catch (e) { error.value = String(e); }
   }
   if (error.value) { pending.value = false; return; }
-  emit("run", `Importing '${a.name}'`, t.key, () => api.importAppliance(t.key, props.file, maps, check, run));
+  const pw = a.encrypted ? password.value : "";
+  password.value = "";
+  emit("run", `Importing '${a.name}'`, t.key, () => api.importAppliance(t.key, props.file, maps, check, run, pw));
   emit("close");
 }
 </script>
@@ -191,6 +197,10 @@ async function ok() {
           <span>Issued by:</span><span class="break-all">{{ info.certificate.issuer }}</span>
           <span>Valid from:</span><span>{{ new Date(info.certificate.valid_from).toLocaleString() }} to {{ new Date(info.certificate.valid_to).toLocaleString() }}</span>
           <span>Thumbprint:</span><span class="break-all font-mono">{{ info.certificate.thumbprint }}</span>
+        </div>
+        <div v-if="info.encrypted" class="flex items-center gap-2">
+          <label for="apppassword">The appliance is encrypted. Password:</label>
+          <input id="apppassword" v-model="password" type="password" autocomplete="off" class="flex-1 border border-line px-1 py-0.5" />
         </div>
         <label class="flex items-center gap-2"><input v-model="start" type="checkbox" />Start VM(s) after import</label>
         <p v-if="error" class="text-red-600">{{ error }}</p>

@@ -132,7 +132,7 @@ func TestLabExportAppliance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uuid, err := ops.ImportAppliance(c, labPolicy(t), ova, rules.DefaultApplianceMappings(pkg.Appliance, srUUID, net), true, false)
+	uuid, err := ops.ImportAppliance(c, labPolicy(t), ova, rules.DefaultApplianceMappings(pkg.Appliance, srUUID, net), true, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}

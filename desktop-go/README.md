@@ -34,7 +34,7 @@ icons; the navigation pane (Infrastructure, Objects, Organization Views, Saved S
 the Home and Search tabs (the overview with live CPU, memory, disk, network, address and uptime columns); XAPI errors in the Windows app's words (`FriendlyErrorNames`).
 
 **VMs.** Start, Shut Down, Reboot, Suspend, Resume, Pause, Unpause and the forced ones, with the C# questions;
-Export (VM > Export..., or a vApp from Manage vApps) to an XVA file or an OVF/OVA package (the halted or suspended VMs of the pool; VHD disks, compressed one by one or as an .ova.gz; EULAs, a SHA-256 manifest, signing with a .pfx certificate, verification), Import (File > Import...) of an XVA file or an OVF/OVA appliance (.ovf, .ova, .ova.gz, .ova.bz2; raw, VHD and stream-optimized, hosted sparse or flat VMDK disks; its EULA, signature and manifest verification, the server of each VM, the SR of each disk and the network of each interface); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
+Export (VM > Export..., or a vApp from Manage vApps) to an XVA file or an OVF/OVA package (the halted or suspended VMs of the pool; VHD disks, compressed one by one or as an .ova.gz; EULAs, a SHA-256 manifest, signing with a .pfx certificate, verification), Import (File > Import...) of an XVA file or an OVF/OVA appliance (.ovf, .ova, .ova.gz, .ova.bz2; raw, VHD and stream-optimized, hosted sparse, flat or split (twoGbMaxExtent) VMDK disks; its EULA, signature (with the certificate's revocation check) and manifest verification, the password of an encrypted package of an older XenCenter, the server of each VM, the SR of each disk and the network of each interface); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
 (General, Custom Fields, CPU, Boot Options, Start Options, Alerts, Home Server, GPU, USB, Advanced; GPU when the VM can
@@ -77,8 +77,8 @@ The vGPU, USB and SR-IOV writes (adding and removing vGPUs, attaching and detach
 network and a VLAN on one) were not run on hardware: the lab has no GPU that does vGPU, no USB device and no SR-IOV NIC, so only their
 rules (unit tests) and the read side (hidden pages, no SR-IOV offered) are checked.
 
-Not there yet: the OS fixup, encrypted packages and split (twoGbMaxExtent) VMDKs when
-importing an OVF/OVA appliance, and the certificate's revocation check of a signed package. The Windows app has those.
+Not there yet: the OS fixup when importing an OVF/OVA appliance (the Windows app has it), and the export of encrypted
+packages (the Windows app's export wizard has no encryption either).
 
 ## Command line and MCP
 
