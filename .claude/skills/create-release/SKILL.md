@@ -146,15 +146,20 @@ cd desktop-go
 # CHANGELOG: move [Unreleased] into ## [X.Y.Z] — YYYY-MM-DD; README: the features of the release
 make check && git add -A && git commit -m "desktop-go: release go-vX.Y.Z" && git push origin "$BRANCH"
 git tag -a go-vX.Y.Z -m "Release go-vX.Y.Z"           # before the build: the binaries take the version from it
-make cli appimage windows macos                         # dist/: CLI x3, AppImage, Windows .exe, macOS zip
+make cli appimage windows macos                         # dist/: CLI (Linux/Windows amd64, macOS universal), AppImage, Windows .exe, macOS universal zip
 (cd dist && sha256sum xcp-ng-center-go-X.Y.Z-* xcp-ng-center-go-X.Y.Z_* > SHA256SUMS)
 git push origin go-vX.Y.Z
 gh release create go-vX.Y.Z --repo "$REPO" --prerelease --title "XCP-ng Center (Go) X.Y.Z" --notes-file <notes> \
   dist/xcp-ng-center-go-X.Y.Z-* dist/xcp-ng-center-go-X.Y.Z_* dist/SHA256SUMS
 ```
 
-The notes follow 6b (rustXterm style) with the Go assets in Downloads. A native, signed Mac build comes from
-`desktop-go/build/darwin/build-on-mac.sh` on a Mac; upload its zip to the same release with `gh release upload`.
+The notes follow 6b (rustXterm style) with the Go assets in Downloads. Linux and Windows are amd64; macOS is
+universal (the app and the CLI). A native, signed Mac build comes from `desktop-go/build/darwin/build-on-mac.sh` on a
+Mac (universal by default); upload its zip to the same release with `gh release upload`.
+
+Both apps at once: `make release-all` at the repository's root builds the C# app (tar.gz, AppImage, macOS universal,
+Windows x64) and the Go app (`desktop-go` dist) into `dist/all` with one `SHA256SUMS`, each with the version of its
+own tags (`linux-v*`, `go-v*`).
 
 ## Guardrails
 

@@ -25,10 +25,13 @@ test:            ## unit tests of the app and the vendored SDK
 check:           ## gofmt, go vet (both modules) and the tests
 	$(RUN) sh -c 'test -z "$$(gofmt -l cmd internal main.go)" || { gofmt -l cmd internal main.go; exit 1; }; go vet -tags nogui ./... && (cd sdk/xenapi && go vet ./...) && go test -tags nogui ./...'
 
-cli:             ## static CLI/MCP binaries (no desktop window) for Linux, macOS and Windows, amd64, in dist/
-	$(RUN) sh -c 'for t in linux/amd64 darwin/amd64 windows/amd64; do \
+cli:             ## static CLI/MCP binaries (no desktop window): Linux and Windows amd64, macOS universal, in dist/
+	$(RUN) sh -c 'for t in linux/amd64 windows/amd64 darwin/amd64 darwin/arm64; do \
 	  os=$${t%/*}; arch=$${t#*/}; ext=; [ $$os = windows ] && ext=.exe; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -tags nogui -trimpath -ldflags "$(LDFLAGS)" -o dist/xcp-ng-center-go-$(VERSION)-$$os-$$arch$$ext . || exit 1; done'
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -tags nogui -trimpath -ldflags "$(LDFLAGS)" -o dist/xcp-ng-center-go-$(VERSION)-$$os-$$arch$$ext . || exit 1; done; \
+	  go run ./tools/machofat -o dist/xcp-ng-center-go-$(VERSION)-darwin-universal \
+	    dist/xcp-ng-center-go-$(VERSION)-darwin-amd64 dist/xcp-ng-center-go-$(VERSION)-darwin-arm64 && \
+	  rm dist/xcp-ng-center-go-$(VERSION)-darwin-amd64 dist/xcp-ng-center-go-$(VERSION)-darwin-arm64'
 
 icons:           ## the C# app's icons into frontend/public/icons (no container: also used on a Mac)
 	mkdir -p frontend/public/icons && cp $(ICONS) frontend/public/icons/ && cp ../branding-xcp-ng/Images/xcp-ng-logo1glossy-1.png frontend/public/icons/home-logo.png && cp ../XenAdmin.Desktop/packaging/xcp-ng-center.png frontend/public/icons/app.png
@@ -58,21 +61,23 @@ windows: frontend ## the desktop app for Windows (amd64; WebView2, no CGO) in di
 	$(RUN) sh -c 'CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags production -trimpath -ldflags "$(LDFLAGS) -H windowsgui" \
 	  -o dist/xcp-ng-center-go-$(VERSION)-windows-amd64-desktop.exe .'
 
-# "XCP-ng Center (Go).app" for Intel Macs (amd64; Apple Silicon runs it with Rosetta 2).
-# Every desktop build has -tags production: no developer tools, and never a FRONTEND_DEVSERVER_URL in place of the
-# embedded window. Cross-built from Linux with Wails' CGO-free backend (-tags purego, experimental in Wails 3.1).
-# shortcut: unverified on a Mac and unsigned (`xattr -dr com.apple.quarantine` after download); on a Mac, build
-# natively with CGO (`CGO_ENABLED=1 go build`) and sign/notarize before a release that claims macOS support.
-macos: frontend ## the desktop app for macOS (amd64) as a zip in dist/
+# "XCP-ng Center (Go).app", universal (Apple Silicon and Intel: tools/machofat joins the arm64 and amd64 builds as
+# lipo does). Every desktop build has -tags production: no developer tools, and never a FRONTEND_DEVSERVER_URL in place
+# of the embedded window. Cross-built from Linux with Wails' CGO-free backend (-tags purego, experimental in Wails 3.1);
+# unsigned (`xattr -dr com.apple.quarantine` after download). build/darwin/build-on-mac.sh builds it natively with CGO,
+# signs and notarizes it.
+macos: frontend ## the desktop app for macOS (universal) as a zip in dist/
 	docker build -q -t xcpng-center-go-linux -f build/linux.Dockerfile build
 	$(DOCKER) -v $(CURDIR):/src -v $(CURDIR)/../XenAdmin.Desktop/packaging/macos:/macos:ro -w /src $(GO_ENV) xcpng-center-go-linux sh -c '\
-	  out=dist/macos; app="$$out/XCP-ng Center (Go).app"; rm -rf $$out; mkdir -p "$$app/Contents/Resources"; \
-	  CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags production,purego -trimpath \
-	    -ldflags "$(LDFLAGS)" -o "$$app/Contents/MacOS/xcp-ng-center-go" . || exit 1; \
+	  out=dist/macos; app="$$out/XCP-ng Center (Go).app"; rm -rf $$out; mkdir -p "$$app/Contents/Resources" "$$app/Contents/MacOS"; \
+	  for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=darwin GOARCH=$$arch go build -tags production,purego -trimpath \
+	    -ldflags "$(LDFLAGS)" -o "$$out/xcp-ng-center-go-$$arch" . || exit 1; done; \
+	  go run ./tools/machofat -o "$$app/Contents/MacOS/xcp-ng-center-go" $$out/xcp-ng-center-go-amd64 $$out/xcp-ng-center-go-arm64 || exit 1; \
+	  rm $$out/xcp-ng-center-go-amd64 $$out/xcp-ng-center-go-arm64; \
 	  cp /macos/xcp-ng-center.icns "$$app/Contents/Resources/"; \
 	  v=$(VERSION); sed -e "s/@VERSION@/$$v/" -e "s/@SHORT_VERSION@/$${v%%-*}/" build/darwin/Info.plist > "$$app/Contents/Info.plist"; \
-	  rm -f dist/xcp-ng-center-go-$(VERSION)_macos_amd64.zip; \
-	  (cd $$out && zip -qry ../xcp-ng-center-go-$(VERSION)_macos_amd64.zip "XCP-ng Center (Go).app")'
+	  rm -f dist/xcp-ng-center-go-$(VERSION)_macos_universal.zip; \
+	  (cd $$out && zip -qry ../xcp-ng-center-go-$(VERSION)_macos_universal.zip "XCP-ng Center (Go).app")'
 
 dist: check cli appimage windows macos
 

@@ -4,6 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+### Changed
+
+- The macOS app and CLI are universal (Apple Silicon and Intel in one binary): `make macos` and `make cli` build arm64
+  and amd64 and join them with `tools/machofat` (a `lipo -create` in Go), `build/darwin/build-on-mac.sh` builds both
+  with CGO and joins them with `lipo`; the assets are `_macos_universal.zip` and `-darwin-universal`. Linux and
+  Windows stay amd64. Checked on macOS 15.8 (Intel).
+- `make release-all` at the repository's root builds both apps, the C# one and the Go one, into `dist/all` with one
+  `SHA256SUMS`.
+
 ### Fixed
 
 - `build/darwin/build-on-mac.sh` passes the minimum macOS (14.0) to clang and to the external link too, so `ld` no

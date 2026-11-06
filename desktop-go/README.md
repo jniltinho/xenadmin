@@ -11,14 +11,15 @@ they mirror. Every feature below was checked against XCP-ng 8.3 on a nested KVM 
 
 ## Download
 
-The [releases](https://github.com/jniltinho/xenadmin/releases) (`go-v*`) hold, for amd64:
+The [releases](https://github.com/jniltinho/xenadmin/releases) (`go-v*`) hold the Linux and Windows builds for amd64
+and the macOS builds universal (Apple Silicon and Intel in one binary):
 
 | File | What |
 | --- | --- |
 | `xcp-ng-center-go-X.Y.Z-x86_64.AppImage` | Linux desktop app; needs the system's GTK 4 and WebKitGTK 6.0 (tested on Ubuntu 24.04); `chmod +x` and run |
 | `xcp-ng-center-go-X.Y.Z-windows-amd64-desktop.exe` | Windows 10/11 desktop app (WebView2) |
-| `xcp-ng-center-go-X.Y.Z_macos_amd64.zip` | macOS app, cross-built and unsigned (see [macOS](#macos)) |
-| `xcp-ng-center-go-X.Y.Z-{linux,windows,darwin}-amd64` | the CLI and MCP server alone (no window), static |
+| `xcp-ng-center-go-X.Y.Z_macos_universal.zip` | macOS app, universal, cross-built and unsigned (see [macOS](#macos)) |
+| `xcp-ng-center-go-X.Y.Z-linux-amd64`, `-windows-amd64.exe`, `-darwin-universal` | the CLI and MCP server alone (no window), static |
 | `SHA256SUMS` | the checksums of the files above |
 
 ## What the window does
@@ -111,19 +112,22 @@ make macos     # "XCP-ng Center (Go).app" for macOS, cross-built, zipped
 make dist      # all of the above
 ```
 
-Every build is amd64. The version comes from the `go-v*` git tag.
+Linux and Windows builds are amd64; the macOS app and CLI are universal (`tools/machofat` joins the arm64 and amd64
+builds as `lipo -create` does). The version comes from the `go-v*` git tag. `make release-all` at the repository's root
+builds both apps, the C# one and this one, into `dist/all` with one `SHA256SUMS`.
 
 ### macOS
 
-`make macos` cross-builds the app on Linux with Wails' CGO-free backend (`-tags purego`, experimental in Wails 3.1).
-It is unsigned: after downloading, `xattr -dr com.apple.quarantine "XCP-ng Center (Go).app"`; Apple Silicon Macs run
-it with Rosetta 2.
+`make macos` cross-builds the app on Linux with Wails' CGO-free backend (`-tags purego`, experimental in Wails 3.1),
+universal: an arm64 and an amd64 build joined into one binary (the arm64 slice carries the linker's ad-hoc signature
+Apple Silicon needs). It is unsigned otherwise: after downloading, `xattr -dr com.apple.quarantine "XCP-ng Center
+(Go).app"`.
 
 For a Mac release, build natively on a Mac (macOS 14+, Go 1.27, Node 24, Xcode command line tools):
 
 ```bash
-build/darwin/build-on-mac.sh                                   # this Mac's architecture (arm64 or amd64)
-ARCH=amd64 build/darwin/build-on-mac.sh                        # the other one
+build/darwin/build-on-mac.sh                                   # universal: arm64 and amd64 joined by lipo
+ARCH=arm64 build/darwin/build-on-mac.sh                        # one CPU only (arm64 or amd64)
 SIGN_IDENTITY="Developer ID Application: ..." NOTARY_PROFILE=xcp-ng build/darwin/build-on-mac.sh
 ```
 
@@ -131,10 +135,11 @@ It builds the frontend, the app with the native (CGO) backend, the same `.app` b
 the XCP-ng icon) and its zip in `dist/`; with `SIGN_IDENTITY` it signs with the hardened runtime, and with
 `NOTARY_PROFILE` (`xcrun notarytool store-credentials`) it notarizes and staples.
 
-Checked on macOS 15.8 (Intel, x86_64, in a KVM virtual machine): the native build with this script (Go 1.27.3 and
-Node 24 from their official archives, the Xcode command line tools) and the published cross-built zip both run (the
-window, its menus and dialogs, the CLI). Not checked yet: an Apple Silicon Mac, signing and notarization (they need an
-Apple Developer ID), and connecting to a server from the Mac.
+Checked on macOS 15.8 (Intel, x86_64, in a KVM virtual machine): the universal native build with this script (Go
+1.27.3 and Node 24 from their official archives, the Xcode command line tools) and the universal cross-built zip and
+CLI both run (the window, its menus and dialogs, the CLI); `lipo` shows x86_64 and arm64 and the arm64 slice is
+signed ad hoc. Not checked yet: running the arm64 slice on an Apple Silicon Mac, signing and notarization (they need
+an Apple Developer ID), and connecting to a server from the Mac.
 
 ## More
 

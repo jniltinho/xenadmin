@@ -6,6 +6,8 @@
 #   make windows     Windows x64 app (Avalonia, not the WinForms XCP-ng Center) as a -win-x64.zip
 #   make test        unit tests (+ integration tests when .env defines XCP_*)
 #   make smoke       run the AppImage under Xvfb in a clean Ubuntu 22.04 container
+#   make release-all both apps at once, the C# one (this file) and the Go one (desktop-go): Linux and Windows amd64,
+#                    macOS universal, gathered in dist/all with one SHA256SUMS
 
 VERSION   ?= $(shell git describe --tags --match 'linux-v*' 2>/dev/null | sed 's/^linux-v//' | grep . || echo 0.1.0-dev)
 RID       ?= linux-x64
@@ -104,3 +106,24 @@ go-check:
 	$(MAKE) -C desktop-go check
 go-cli:
 	$(MAKE) -C desktop-go cli
+
+# ---------- both apps at once ----------
+# The C# app's Linux (tar.gz, AppImage), universal macOS and Windows x64 builds, then the Go app's (desktop-go dist:
+# Linux and Windows amd64, macOS universal, the CLI), each with its own version (linux-v* and go-v* tags).
+GO_VERSION ?= $(or $(shell git describe --tags --match 'go-v*' 2>/dev/null | sed 's/^go-v//'),dev)
+.PHONY: release-all
+release-all: # one after the other: the C# publishes share obj/project.assets.json (no make -j race)
+	$(MAKE) appimage
+	$(MAKE) macos
+	$(MAKE) windows
+	$(MAKE) -C desktop-go dist VERSION=$(GO_VERSION)
+	rm -rf $(DIST)/all && mkdir -p $(DIST)/all
+	cp $(DIST)/xcp-ng-center-$(VERSION)-linux-x64.tar.gz $(DIST)/xcp-ng-center-$(VERSION)-x86_64.AppImage \
+	  $(DIST)/xcp-ng-center-$(VERSION)_macos_universal.zip $(DIST)/xcp-ng-center-$(VERSION)-win-x64.zip $(DIST)/all/
+	cp desktop-go/dist/xcp-ng-center-go-$(GO_VERSION)-x86_64.AppImage \
+	  desktop-go/dist/xcp-ng-center-go-$(GO_VERSION)-windows-amd64-desktop.exe \
+	  desktop-go/dist/xcp-ng-center-go-$(GO_VERSION)_macos_universal.zip \
+	  desktop-go/dist/xcp-ng-center-go-$(GO_VERSION)-linux-amd64 desktop-go/dist/xcp-ng-center-go-$(GO_VERSION)-windows-amd64.exe \
+	  desktop-go/dist/xcp-ng-center-go-$(GO_VERSION)-darwin-universal $(DIST)/all/
+	cd $(DIST)/all && sha256sum * > SHA256SUMS
+	@echo "-> $(DIST)/all"
