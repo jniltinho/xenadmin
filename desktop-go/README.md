@@ -64,7 +64,8 @@ Repair, Set as Default, Detach, Forget and Destroy, with the C# icons of a defau
 
 **Views and notifications.** Organization Views (Tags, Folders, Custom Fields, vApps), the default Saved Searches
 and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;
-Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
+the Search tab's New Search, Edit Search (types, a text filter, a grouping; Save to a pool, Delete), Export... and
+Import... of `.xensearch` files the Windows app reads; Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
 
 Not there yet: the other Properties pages (a VM's GPU and USB, a network's Network Settings), the Performance graph editor, SR-IOV networks, changing a network's NIC, VLAN or bond mode, OVF/OVA appliances, and saved searches
 with the rarer XenSearch filters (dates, IP addresses, object references; listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.

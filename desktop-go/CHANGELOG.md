@@ -16,6 +16,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   control domain, each VM and free memory (MemoryView).
 - GPU tab of pools and servers (placement policy, GPUs by settings, allowed vGPU types and their editor) and USB tab of
   servers with USB devices (Enable / Disable pass-through), shown where the C# app shows them.
+- Search tab: New Search and Edit Search (name, the object types, a name/description text filter and a grouping, as
+  the C# Desktop editor; an edited search keeps its conditions, other types, nested grouping, columns and sorting),
+  Apply, Save to a pool (gui_config `xensearch.Search-<uuid>`, it joins Saved Searches), Delete (from every pool), and
+  Export... / Import... of `.xensearch` files in the SearchMarshalling format the Windows app loads.
 - General tab of VMs, templates, servers, pools, SRs and networks as in the C# app (Details.General): collapsible
   sections with Expand all / Collapse all and the Properties button; General (tags, folder, OS, virtualization mode and
   state, uptime, home server, pool coordinator, enabled, autoboot, certificate verification, iSCSI IQN, log

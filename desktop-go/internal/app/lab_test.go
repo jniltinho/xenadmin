@@ -1037,6 +1037,77 @@ func TestLabSavedSearch(t *testing.T) {
 	}
 }
 
+// TestLabSearchEditor builds a search with the editor (VMs named XCP_LAB_VM, by power state), saves it to the lab
+// pool, reads it back through the saved-search list, runs it, exports and imports it, and deletes it.
+func TestLabSearchEditor(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	const title = "xcpng-center-go-test-search"
+	text, err := BuildSearch(SearchEdit{Name: title, Types: []string{"VM"}, Text: name, Grouping: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := SearchUUID(text)
+	if err := ops.SaveSearch(c, uuid, text); err != nil {
+		t.Fatal(err)
+	}
+	deleted := false
+	t.Cleanup(func() {
+		if !deleted {
+			if err := ops.DeleteSearch(c, uuid); err != nil {
+				t.Errorf("not removed: %v", err)
+			}
+		}
+	})
+	list, err := PoolSearches(c)
+	if err != nil || !slices.ContainsFunc(list, func(v ViewInfo) bool { return v.ID == "saved:"+uuid && v.Name == title && v.Supported }) {
+		t.Fatalf("%+v %v", list, err)
+	}
+	saved, err := PoolSearch(c, uuid)
+	if err != nil || saved != text {
+		t.Fatalf("%q %v", saved, err)
+	}
+	nodes, err := RunSearch(c, "lab", saved)
+	found := false
+	for _, g := range nodes { // a power state group holds the VM (its name contains the filter text)
+		for _, n := range g.Children {
+			found = found || n.Name == name
+		}
+	}
+	if err != nil || !found {
+		t.Fatalf("%+v %v", nodes, err)
+	}
+	// editing the saved search keeps its uuid: saving replaces it
+	again, err := BuildSearch(SearchEdit{Name: title, Types: []string{"VM", "Server"}, Grouping: 5, Edited: saved, Saved: true})
+	if err != nil || SearchUUID(again) != uuid {
+		t.Fatalf("%v", err)
+	}
+	if err := ops.SaveSearch(c, uuid, again); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := PoolSearch(c, uuid); got != again {
+		t.Fatalf("not replaced: %q", got)
+	}
+	file, err := SearchFile(again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, err := ImportSearches([]byte(file))
+	if err != nil || len(imported) != 1 || SearchUUID(imported[0]) == uuid || SearchName(imported[0]) != title {
+		t.Fatalf("%v %v", imported, err)
+	}
+	if err := ops.DeleteSearch(c, uuid); err != nil {
+		t.Fatal(err)
+	}
+	deleted = true
+	if got, _ := PoolSearch(c, uuid); got != "" {
+		t.Fatalf("not deleted: %q", got)
+	}
+}
+
 // TestLabMemory reads the Memory Settings of XCP_LAB_VM (running, no guest tools: a fixed memory), refuses a value
 // over the limits, raises the memory by 64 MB (the VM restarts on its server) and restores it (XCP_ALLOW_WRITE=1).
 func TestLabMemory(t *testing.T) {

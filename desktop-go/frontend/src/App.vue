@@ -14,6 +14,7 @@ import HostTab from "./HostTab.vue";
 import HardwareTab from "./HardwareTab.vue";
 import GeneralTab from "./GeneralTab.vue";
 import SearchView from "./SearchView.vue";
+import SearchEditor, { type SearchResult } from "./SearchEditor.vue";
 import PerformanceView from "./PerformanceView.vue";
 import NewVmWizard from "./NewVmWizard.vue";
 import NewSrWizard from "./NewSrWizard.vue";
@@ -220,13 +221,67 @@ async function openView(kind: "organization" | "saved", v: ViewInfo) {
   view.value = kind;
   await readView(); // it puts the selection on the view (its root, for an object or group it lacks)
 }
+// The Search tab's commands (SearchView): New and Edit Search, Export, Import. The search the tab shows is the overview
+// (Infrastructure, an object), a saved search or one applied/imported but not saved (at a view's root); a group or
+// an organization view has none. shortcut: a default search is built in Go, not XML: it cannot be edited or exported.
+type ShownSearch = { xml: string; uuid: string; server: string }; // uuid: the pool's saved search it is (or was edited from)
+const applied = ref<ShownSearch>({ xml: "", uuid: "", server: "" });
+let appliedCount = 0;
+const shownSearch = computed<{ kind: "overview" | "applied" | "saved"; uuid?: string } | null>(() => {
+  const n = selected.value;
+  if (n?.id.startsWith("g:")) return null;
+  // an object's Search tab, and the Infrastructure and Objects roots, show the overview
+  if (n?.object || (view.value !== "organization" && view.value !== "saved")) return { kind: "overview" };
+  if (view.value !== "saved" || n?.id !== "root" || !chosen.value) return null;
+  const id = chosen.value.id;
+  if (id.startsWith("applied:")) return { kind: "applied" };
+  return id.startsWith("saved:") ? { kind: "saved", uuid: id.slice(6) } : null;
+});
+const searchEdit = ref<(ShownSearch & { isNew: boolean }) | null>(null);
+async function shownSearchXml(): Promise<ShownSearch | null> {
+  const s = shownSearch.value;
+  if (!s) return null;
+  if (s.kind === "overview") return { xml: await api.overviewSearch(), uuid: "", server: "" };
+  if (s.kind === "applied") return applied.value;
+  return { ...(await api.searchDefinition(s.uuid ?? "")), uuid: s.uuid ?? "" };
+}
+// a search shown anew starts at its root (readView keeps the selection only when it is the same view reread)
+function openSearch(id: string, name: string) {
+  selected.value = null;
+  void openView("saved", { id, name, icon: "000_Search_h32bit_16", supported: true });
+}
+function showApplied(s: ShownSearch, name: string) {
+  applied.value = s;
+  openSearch(`applied:${++appliedCount}`, name);
+}
+async function searchCommand(c: "new" | "edit" | "export" | "import") {
+  try {
+    if (c === "new") searchEdit.value = { xml: "", uuid: "", server: "", isNew: true };
+    else if (c === "edit") { const s = await shownSearchXml(); if (s) searchEdit.value = { ...s, isNew: false }; }
+    else if (c === "export") { const s = await shownSearchXml(); if (s) await api.exportSearch(s.xml); }
+    else { const r = await api.importSearch(); if (r.xml) showApplied({ xml: r.xml, uuid: "", server: "" }, r.name); }
+  } catch (e) {
+    const title = { new: "New Search", edit: "Edit Search", export: "Export Search", import: "Import Search" }[c];
+    await choose({ title, text: String(e) }, ["OK"]);
+  }
+}
+// the editor's result (SearchView.Apply): show the search, saved first, or after Delete go back to Infrastructure;
+// an applied edit of a saved search stays that search (Edit Search can then save over it or delete it)
+function searchDone(r: SearchResult | null) {
+  const edited = searchEdit.value;
+  searchEdit.value = null;
+  if (!r || !edited) return;
+  if (r.kind === "delete") void showView("infrastructure");
+  else if (r.kind === "save") openSearch(`saved:${r.uuid}`, r.name);
+  else showApplied({ xml: r.xml, uuid: edited.uuid, server: edited.server }, r.name);
+}
 // one view read at a time (serial): changes during a read read it once more; a failed read empties the view and says
 // why (never the previous view's objects under the new name)
 const readView = serial(async () => {
   if (!chosen.value) return;
   const id = chosen.value.id;
   try {
-    const nodes = (await api.view(id)) ?? [];
+    const nodes = (await (id.startsWith("applied:") ? api.runSearch(applied.value.xml) : api.view(id))) ?? [];
     if (chosen.value?.id === id) {
       viewNodes.value = nodes;
       // the selection follows the reread view: the same node if it is still there, else the view's root
@@ -1112,7 +1167,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
           <img src="/icons/home-logo.png" alt="" class="h-72 w-72" />
           <a class="cursor-pointer font-serif text-[15px] text-blue-700 underline" @click="openAdd()">Add a Server</a>
         </div>
-        <SearchView v-else-if="tab === 'search'" :title="overviewTitle" :rows="overview" @open="(r) => reselect(rowId(r))" />
+        <SearchView v-else-if="tab === 'search'" :title="overviewTitle" :rows="overview" :can-edit="!!shownSearch" @open="(r) => reselect(rowId(r))" @command="searchCommand" />
         <ConsoleView v-else-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
         <PerformanceView v-else-if="tab === 'performance' && selected?.object && selected.server" :key="`perf/${selected.id}`"
                          :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" :area="!!appOptions.area_graphs" />
@@ -1156,6 +1211,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <NewVmWizard v-if="newVmOn" :server="newVmOn" :template="newVmTemplate" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
     <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
+    <SearchEditor v-if="searchEdit" :xml="searchEdit.xml" :uuid="searchEdit.uuid" :server="searchEdit.server" :is-new="searchEdit.isNew" @close="searchDone" />
     <VtpmDialog v-if="vtpmOf?.server && vtpmOf.object" :server="vtpmOf.server" :vm="vtpmOf.object.uuid" @close="vtpmOf = null" />
     <ChangePasswordDialog v-if="passwordOn" :server="passwordOn" @close="(done) => { passwordOn = ''; if (done) status = 'Ready'; }" />
     <VappsDialog v-if="vappsOn" :server="vappsOn" @close="vappsOn = ''; selected?.server && load(selected.server)" />

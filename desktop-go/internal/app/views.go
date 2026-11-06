@@ -61,8 +61,8 @@ func DefaultSearches() []ViewInfo {
 	return out
 }
 
-// searchPrefix is Search.SearchPrefix: BrandManager.ExtensionSearch ("xensearch") + ".Search-<uuid>" in gui_config.
-const searchPrefix = "xensearch.Search-"
+// searchPrefix is Search.SearchPrefix (rules.SearchKeyPrefix).
+const searchPrefix = rules.SearchKeyPrefix
 
 // PoolSearches are the searches saved in the pool's gui_config (SearchMarshalling XML), by their name.
 func PoolSearches(c *xapi.Connection) ([]ViewInfo, error) {

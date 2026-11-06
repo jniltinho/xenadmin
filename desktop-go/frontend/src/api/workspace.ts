@@ -69,6 +69,10 @@ export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: 
 export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
 export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
 export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
+// the Search tab's editor (internal/gui/search.go)
+export interface SearchEditorForm { name: string; types: string[] | null; grouping: number; has_filter: boolean; type_list: { id: string; name: string }[];
+  groupings: { id: string; name: string }[]; pools: { key: string; name: string }[] }
+export interface SearchEdit { name: string; types: string[]; text: string; grouping: number; grouping_changed: boolean; edited: string; saved: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string; host: string }
 // server networks and bonds (internal/gui/network.go)
 export interface HostNetworking { table: Table; networks: { uuid: string; can_edit: boolean; can_remove: boolean; remove_tip?: string; bond: boolean }[]; can_add: boolean }
@@ -203,6 +207,15 @@ export const api = {
     call<{ created: boolean; error?: string }>("CreatePool", coordinator, members, name, description),
   views: () => call<[ViewInfo[], ViewInfo[]]>("Views"),
   view: (id: string) => call<ViewNode[] | null>("View", id),
+  editSearch: (xml: string) => call<SearchEditorForm>("EditSearch", xml),
+  buildSearch: (e: SearchEdit) => call<string>("BuildSearch", e),
+  overviewSearch: () => call<string>("OverviewSearch"),
+  searchDefinition: (uuid: string) => call<{ xml: string; server: string }>("SearchDefinition", uuid),
+  saveSearch: (key: string, xml: string) => call<string>("SaveSearch", key, xml),
+  deleteSearch: (uuid: string) => call<void>("DeleteSearch", uuid),
+  exportSearch: (xml: string) => call<string>("ExportSearch", xml),
+  importSearch: () => call<{ xml: string; name: string }>("ImportSearch"),
+  runSearch: (xml: string) => call<ViewNode[] | null>("RunSearch", xml),
   srQuestion: (command: string, name: string) => call<HostQuestion>("SRQuestion", command, name),
   srCommand: (key: string, uuid: string, command: string) => call<void>("SRCommand", key, uuid, command),
   srAttachWarning: (kind: string, uuid: string) => call<string>("SRAttachWarning", kind, uuid),

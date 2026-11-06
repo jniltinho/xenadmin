@@ -2,13 +2,16 @@
 // The Search tab's overview (SearchView / QueryPanel): the objects with their depth (pool, its servers, their VMs), a
 // +/- to fold a node, and the live columns of OverviewColumns (CPU and memory with a bar, disks, network, address,
 // uptime), read again every ten seconds while shown (MetricUpdater).
-// shortcut: no New/Edit Search, Saved Searches, Export/Import or Show Columns buttons yet.
+// The New Search, Edit Search, Export... and Import... buttons (SearchView) are handled by the window: it opens the
+// editor and shows the search. shortcut: no Saved Searches or Show Columns buttons yet (the navigation pane lists the
+// saved searches).
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api, type OverviewRow, type XenObject } from "./api/workspace";
 
 export type SearchRow = { o: XenObject; type: string; key: string; icon: string; id?: string; depth?: number };
-const props = defineProps<{ title: string; rows: SearchRow[] }>();
-const emit = defineEmits<{ (e: "open", r: SearchRow): void }>();
+// canEdit: false for a group, an organization view or a default search (Edit Search and Export need its definition)
+const props = defineProps<{ title: string; rows: SearchRow[]; canEdit: boolean }>();
+const emit = defineEmits<{ (e: "open", r: SearchRow): void; (e: "command", c: "new" | "edit" | "export" | "import"): void }>();
 
 const columns = ["CPU Usage", "Used Memory", "Disks\n(avg / max KBs)", "Network\n(avg / max KBs)", "Address", "Uptime"];
 const live = reactive<Record<string, Record<string, OverviewRow>>>({}); // server key -> uuid -> columns
@@ -58,6 +61,12 @@ const cells = (r: SearchRow) => {
 <template>
   <div class="min-h-0 flex-1 overflow-auto">
     <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">{{ title }}</div>
+    <div class="mx-3 mt-3 flex gap-2 border border-[#DCDCDC] px-2.5 py-2">
+      <button class="btn" @click="emit('command', 'new')">New Search</button>
+      <button class="btn" :disabled="!canEdit" @click="emit('command', 'edit')">Edit Search</button>
+      <button class="btn" :disabled="!canEdit" @click="emit('command', 'export')">Export...</button>
+      <button class="btn" @click="emit('command', 'import')">Import...</button>
+    </div>
     <table class="m-3 border-collapse text-sm" style="table-layout: fixed">
       <colgroup><col style="width: 250px" /><col style="width: 115px" /><col style="width: 125px" /><col style="width: 120px" />
         <col style="width: 120px" /><col style="width: 120px" /><col style="width: 170px" /></colgroup>
