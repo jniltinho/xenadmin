@@ -32,3 +32,14 @@ func (w *Workspace) USB(key, uuid string) (out app.USBTab, err error) {
 func (w *Workspace) SetUSBPassthrough(key, pusb string, wasEnabled bool) error {
 	return w.with(key, func(c *xapi.Connection) error { return ops.SetUSBPassthrough(c, pusb, wasEnabled) })
 }
+
+// Perfmon is the Alerts page of a VM's, server's or SR's Properties.
+func (w *Workspace) Perfmon(key, kind, uuid string) (out app.PerfmonPage, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadPerfmon(c, kind, uuid); return err })
+	return out, err
+}
+
+// SavePerfmon saves the alerts left on and the repeat interval.
+func (w *Workspace) SavePerfmon(key, kind, uuid string, on []ops.PerfmonChange, interval float64) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SavePerfmon(c, kind, uuid, on, interval) })
+}

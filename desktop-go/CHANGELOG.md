@@ -6,6 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ### Added
 
+- The Alerts page of a VM's, server's and SR's Properties (CPU, network, disk, free memory, control domain memory and
+  storage throughput alerts with their repeat interval, in the perfmon other_config key), then perfmon's refresh.
+
 - Server Properties: the Multipathing page (editable in maintenance mode; the SRs are unplugged and plugged again
   around the change) and the Log Destination page (a remote syslog server, then syslog_reconfigure).
 

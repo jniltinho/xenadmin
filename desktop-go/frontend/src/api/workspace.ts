@@ -44,6 +44,8 @@ export interface GPUTab { policy: string; policy_value: string; no_gpu: string; 
     pgpus: string[]; can_edit: boolean; edit: string; title: string; rubric: string }[] }
 export interface USBTab { title: string; table: Table;
   devices: { uuid: string; passthrough: boolean; button: string; can_toggle: boolean; question: string; yes: string }[] }
+export interface PerfmonPage { interval: number;
+  alerts: { name: string; enabled: boolean; level: number; period: number; min: number; max: number; sub: string }[] }
 export interface MemoryBars { used: number; dynamic_min: number; dynamic_max: number; used_text: string;
   hosts: { name: string; segments: { name: string; bytes: number; text: string }[] }[] }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
@@ -142,6 +144,10 @@ export const api = {
   removeVtpm: (key: string, vm: string, vtpm: string) => call<void>("RemoveVtpm", key, vm, vtpm),
   exportAlerts: (rows: { title: string; priority: number; description: string; applies_to: string; time: string }[]) => call<string>("ExportAlerts", rows),
   memoryBars: (key: string, kind: string, uuid: string) => call<MemoryBars>("MemoryBars", key, kind, uuid),
+  // the Alerts page of the Properties (internal/gui/hardware.go)
+  perfmon: (key: string, kind: string, uuid: string) => call<PerfmonPage>("Perfmon", key, kind, uuid),
+  savePerfmon: (key: string, kind: string, uuid: string, on: { name: string; level: number; period: number }[], interval: number) =>
+    call<void>("SavePerfmon", key, kind, uuid, on, interval),
   // the GPU and USB tabs (internal/gui/hardware.go)
   gpu: (key: string, kind: string, uuid: string) => call<GPUTab>("GPU", key, kind, uuid),
   setGpuPlacement: (key: string, algorithm: string) => call<void>("SetGPUPlacement", key, algorithm),

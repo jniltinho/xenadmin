@@ -185,11 +185,27 @@ func permitted(s *xenapi.Session, calls ...string) error {
 		return xapi.Sanitize(err)
 	}
 	for _, c := range calls {
-		if !slices.ContainsFunc(perms, func(p string) bool { return strings.EqualFold(p, c) }) {
+		if !slices.ContainsFunc(perms, func(p string) bool { return grants(p, c) }) {
 			return errors.New(rbacDenied(c))
 		}
 	}
 	return nil
+}
+
+// grants is Role.CanPerform for one permission: the call's method, or for a keyed call ("vm.add_to_other_config/key:
+// perfmon", RbacMethod.ToString) the whole name, or a "/key:Foo*" permission that it starts with.
+func grants(perm, call string) bool {
+	method, _, keyed := strings.Cut(call, "/key:")
+	lower := strings.ToLower
+	switch {
+	case strings.EqualFold(perm, method):
+		return true
+	case !keyed:
+		return false
+	case strings.HasSuffix(perm, "*"):
+		return strings.HasPrefix(lower(call), lower(strings.TrimSuffix(perm, "*")))
+	}
+	return strings.EqualFold(perm, call)
 }
 
 func rbacDenied(call string) string {

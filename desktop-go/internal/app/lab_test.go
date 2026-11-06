@@ -2524,3 +2524,86 @@ func TestLabDR(t *testing.T) {
 		t.Errorf("DR still on: %+v", off.SRs)
 	}
 }
+
+// TestLabPerfmonAlerts sets the Alerts page of the lab VM, lab-2 (with its control domain memory alert) and lab-nfs,
+// reads them back, and puts every perfmon key back as it was.
+func TestLabPerfmonAlerts(t *testing.T) {
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	c := labConnection(t)
+	s := c.Session
+	vms, _ := xenapi.VM.GetByNameLabel(s, name)
+	hosts, _ := xenapi.Host.GetByNameLabel(s, "xcp-lab-2")
+	srs, _ := xenapi.SR.GetByNameLabel(s, "lab-nfs")
+	if len(vms) == 0 || len(hosts) == 0 || len(srs) == 0 {
+		t.Fatal("lab objects missing")
+	}
+	dom0, _ := xenapi.Host.GetControlDomain(s, hosts[0])
+	restore := func(get func() (map[string]string, error), rm func() error, add func(string) error) {
+		other, err := get()
+		if err != nil {
+			t.Fatal(err)
+		}
+		was, had := other["perfmon"]
+		t.Cleanup(func() {
+			_ = rm()
+			if had {
+				if err := add(was); err != nil {
+					t.Error("restore:", err)
+				}
+			}
+		})
+	}
+	restore(func() (map[string]string, error) { return xenapi.VM.GetOtherConfig(s, vms[0]) },
+		func() error { return xenapi.VM.RemoveFromOtherConfig(s, vms[0], "perfmon") },
+		func(v string) error { return xenapi.VM.AddToOtherConfig(s, vms[0], "perfmon", v) })
+	restore(func() (map[string]string, error) { return xenapi.VM.GetOtherConfig(s, dom0) },
+		func() error { return xenapi.VM.RemoveFromOtherConfig(s, dom0, "perfmon") },
+		func(v string) error { return xenapi.VM.AddToOtherConfig(s, dom0, "perfmon", v) })
+	restore(func() (map[string]string, error) { return xenapi.Host.GetOtherConfig(s, hosts[0]) },
+		func() error { return xenapi.Host.RemoveFromOtherConfig(s, hosts[0], "perfmon") },
+		func(v string) error { return xenapi.Host.AddToOtherConfig(s, hosts[0], "perfmon", v) })
+	restore(func() (map[string]string, error) { return xenapi.SR.GetOtherConfig(s, srs[0]) },
+		func() error { return xenapi.SR.RemoveFromOtherConfig(s, srs[0], "perfmon") },
+		func(v string) error { return xenapi.SR.AddToOtherConfig(s, srs[0], "perfmon", v) })
+
+	vmUUID, _ := xenapi.VM.GetUUID(s, vms[0])
+	hostUUID, _ := xenapi.Host.GetUUID(s, hosts[0])
+	srUUID, _ := xenapi.SR.GetUUID(s, srs[0])
+	for _, c2 := range []struct {
+		kind, uuid string
+		on         []ops.PerfmonChange
+	}{
+		{"vms", vmUUID, []ops.PerfmonChange{{Name: "cpu_usage", Level: 80, Period: 2}, {Name: "disk_usage", Level: 2048, Period: 5}}},
+		{"hosts", hostUUID, []ops.PerfmonChange{{Name: "network_usage", Level: 500, Period: 3}, {Name: "mem_usage", Level: 90, Period: 4}}},
+		{"srs", srUUID, []ops.PerfmonChange{{Name: "sr_io_throughput_total_per_host", Level: 4096, Period: 1}}},
+	} {
+		if err := ops.SavePerfmon(c, c2.kind, c2.uuid, c2.on, 30); err != nil {
+			t.Fatal(c2.kind, err)
+		}
+		p, err := ReadPerfmon(c, c2.kind, c2.uuid)
+		if err != nil || p.Interval != 30 {
+			t.Fatal(c2.kind, p, err)
+		}
+		on := map[string]PerfmonSetting{}
+		for _, a := range p.Alerts {
+			if a.Enabled {
+				on[a.Name] = a
+			}
+		}
+		if len(on) != len(c2.on) {
+			t.Fatal(c2.kind, p.Alerts)
+		}
+		for _, w := range c2.on {
+			if a := on[w.Name]; a.Level != w.Level || a.Period != w.Period {
+				t.Fatalf("%s %s: %+v", c2.kind, w.Name, a)
+			}
+		}
+		t.Logf("%s: %+v", c2.kind, p)
+	}
+	if err := ops.SavePerfmon(c, "vms", vmUUID, nil, 7); err == nil {
+		t.Fatal("an interval that is not a multiple of 5 was taken")
+	}
+}

@@ -2,20 +2,24 @@
 // Properties of a server, pool, SR, network or virtual disk (PropertiesDialog.PagesFor): General (name, description, folder, tags; a
 // server's iSCSI IQN) and Custom Fields, with the Change Folder and Edit Tags dialogs (Dialogs.ChangeFolder/EditTags).
 // A server also has Multipathing (HostMultipathPage) and Log Destination (LogDestinationEditPage).
-// shortcut: the Alerts and Network Settings pages are not ported (as in the C# app).
+// A server and an SR have Alerts (PerfmonAlertsPage). shortcut: a network's Network Settings page is not ported here.
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type ObjectProps } from "./api/workspace";
 import FolderTags from "./FolderTags.vue";
+import PerfmonAlertsPage from "./PerfmonAlertsPage.vue";
 
 const props = defineProps<{ server: string; kind: string; uuid: string }>();
 const emit = defineEmits<{ (e: "close", saved: boolean): void }>();
 
 const orig = ref<ObjectProps | null>(null);
-type Page = "general" | "fields" | "multipath" | "log";
+type Page = "general" | "fields" | "alerts" | "multipath" | "log";
+const alerts = ref<InstanceType<typeof PerfmonAlertsPage> | null>(null);
+const hasAlerts = props.kind === "hosts" || props.kind === "srs";
 const page = ref<Page>("general");
 const f = reactive({ name: "", description: "", folder: "", tags: [] as string[], iqn: "", multipath: false, remote: false, server: "" });
 // the pages, with a server's own two (PropertiesDialog.PagesFor)
 const pages = computed(() => [{ id: "general", label: "General", icon: "000_Info3_h32bit_16" }, { id: "fields", label: "Custom Fields", icon: "000_Fields_h32bit_16" },
+  ...(hasAlerts ? [{ id: "alerts", label: "Alerts", icon: "000_Alert2_h32bit_16" }] : []),
   ...(orig.value?.multipath != null ? [{ id: "multipath", label: "Multipathing", icon: "000_Storage_h32bit_16" }] : []),
   ...(orig.value?.log_destination != null ? [{ id: "log", label: "Log Destination", icon: "log_destination_16" }] : [])]);
 // LogDestinationEditPage.regex: a host name or address
@@ -64,9 +68,15 @@ async function save() {
   }
   if (Object.keys(fields).length) ch.fields = fields;
   if (!f.name.trim()) { error.value = "Enter a name."; page.value = "general"; return; }
-  if (!Object.keys(ch).length) { emit("close", false); return; }
+  const pm = alerts.value?.changes() ?? null;
+  if (typeof pm === "string") { error.value = pm; page.value = "alerts"; return; }
+  if (!Object.keys(ch).length && !pm) { emit("close", false); return; }
   pending.value = true;
-  try { await api.saveObjectProperties(props.server, props.kind, props.uuid, ch); emit("close", true); }
+  try {
+    if (Object.keys(ch).length) await api.saveObjectProperties(props.server, props.kind, props.uuid, ch);
+    if (pm) await api.savePerfmon(props.server, props.kind, props.uuid, pm.on, pm.interval);
+    emit("close", true);
+  }
   catch (e) { error.value = String(e); } finally { pending.value = false; }
 }
 </script>
@@ -83,6 +93,7 @@ async function save() {
           </div>
         </div>
         <fieldset v-if="orig" :disabled="pending" class="min-w-0 flex-1 overflow-auto p-4">
+          <PerfmonAlertsPage v-if="hasAlerts" v-show="page === 'alerts'" ref="alerts" :server="server" :kind="kind" :uuid="uuid" />
           <template v-if="page === 'general'">
             <p class="mb-3">XCP-ng Center provides several methods for labelling and organizing your resources. By using features such as folders and tags you can quickly group and manage resources across your connected servers.</p>
             <div class="grid grid-cols-[7rem_1fr] items-start gap-2">
@@ -92,6 +103,7 @@ async function save() {
               <template v-if="orig.iqn != null"><label for="opiqn" class="pt-0.5">iSCSI IQN:</label><input id="opiqn" v-model="f.iqn" class="border border-line px-1 py-0.5" /></template>
             </div>
           </template>
+          <template v-else-if="page === 'alerts'" />
           <template v-else-if="page === 'multipath'">
             <p class="mb-3 whitespace-pre-line">Dynamic multipathing support is available for some types of storage repository.
 

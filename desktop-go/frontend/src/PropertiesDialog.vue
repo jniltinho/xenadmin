@@ -1,15 +1,17 @@
 <script setup lang="ts">
 // The VM's Properties dialog (PropertiesDialog): General (name, description, folder, tags), Custom Fields, CPU, Boot
-// Options, Start Options, Home Server and (HVM) Advanced Options pages on the left, OK and Cancel.
-// shortcut: no Alerts, GPU or USB pages yet (not ported in the C# cross-platform app either).
+// Options, Start Options, Alerts (PerfmonAlertsPage), Home Server and (HVM) Advanced Options pages on the left, OK and
+// Cancel. shortcut: no GPU or USB pages yet (not ported in the C# cross-platform app either).
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type ObjectProps, type VMProperties } from "./api/workspace";
 import FolderTags from "./FolderTags.vue";
+import PerfmonAlertsPage from "./PerfmonAlertsPage.vue";
 
 const props = defineProps<{ server: string; vm: string }>();
 const emit = defineEmits<{ (e: "close", saved: boolean): void }>();
 
-type Page = "general" | "fields" | "cpu" | "boot" | "start" | "home" | "advanced";
+type Page = "general" | "fields" | "cpu" | "boot" | "start" | "alerts" | "home" | "advanced";
+const alerts = ref<InstanceType<typeof PerfmonAlertsPage> | null>(null);
 const page = ref<Page>("general");
 const orig = ref<VMProperties | null>(null);
 const f = reactive({ name: "", description: "", vcpus: 1, atStartup: 1, cores: 1, priority: 4, home: "",
@@ -96,6 +98,7 @@ const pages = computed<{ id: Page; label: string; icon: string }[]>(() => [
   { id: "cpu", label: "CPU", icon: "000_CPU_h32bit_16" },
   { id: "boot", label: "Boot Options", icon: "001_PowerOn_h32bit_16" },
   { id: "start", label: "Start Options", icon: "000_RebootVM_h32bit_16" },
+  { id: "alerts", label: "Alerts", icon: "000_Alert2_h32bit_16" },
   { id: "home", label: "Home Server", icon: "000_ServerHome_h32bit_16" },
   ...(orig.value?.hvm ? [{ id: "advanced" as const, label: "Advanced", icon: "002_Configure_h32bit_16" }] : []), // VMAdvancedEditPage: HVM only
 ]);
@@ -143,12 +146,15 @@ async function save() {
   const og: Record<string, unknown> = {};
   if (org.value && ft.folder !== org.value.folder) og.folder = ft.folder;
   if (org.value && ft.tags.join("\n") !== [...org.value.tags].sort().join("\n")) { og.tags = ft.tags; og.tags_set = true; }
-  if (!Object.keys(ch).length && !Object.keys(fc).length && !Object.keys(og).length) { emit("close", false); return; }
+  const pm = alerts.value?.changes() ?? null;
+  if (typeof pm === "string") { error.value = pm; page.value = "alerts"; return; }
+  if (!Object.keys(ch).length && !Object.keys(fc).length && !Object.keys(og).length && !pm) { emit("close", false); return; }
   busy.value = true;
   try {
     if (Object.keys(ch).length) await api.saveProperties(props.server, props.vm, ch);
     if (Object.keys(fc).length) await api.saveCustomFields(props.server, props.vm, fc);
     if (Object.keys(og).length) await api.saveObjectProperties(props.server, "vms", props.vm, og);
+    if (pm) await api.savePerfmon(props.server, "vms", props.vm, pm.on, pm.interval);
     emit("close", true);
   } catch (e) { error.value = String(e); }
   busy.value = false;
@@ -167,7 +173,9 @@ async function save() {
           </div>
         </div>
         <div v-if="orig" class="min-w-0 flex-1 overflow-auto p-4">
-          <template v-if="page === 'general'">
+          <PerfmonAlertsPage v-show="page === 'alerts'" ref="alerts" :server="server" kind="vms" :uuid="vm" :disabled="busy" />
+          <template v-if="page === 'alerts'" />
+          <template v-else-if="page === 'general'">
             <label class="mb-2 grid grid-cols-[7rem_1fr] items-center gap-2">Name:<input v-model="f.name" class="border border-line px-1 py-0.5" /></label>
             <label class="grid grid-cols-[7rem_1fr] items-start gap-2">Description:<textarea v-model="f.description" rows="4" class="border border-line px-1 py-0.5" /></label>
             <div v-if="org" class="mt-2 grid grid-cols-[7rem_1fr] items-start gap-2">
