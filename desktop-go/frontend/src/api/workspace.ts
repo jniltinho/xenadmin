@@ -33,6 +33,9 @@ export interface AppOptions { no_new_certificate_warning?: boolean; no_rotate_se
   bypass_proxy_for_servers?: boolean; connection_timeout?: number; no_dismiss_confirmation?: boolean; area_graphs?: boolean; no_remember_last_tab?: boolean }
 export interface ObjectProps { name: string; description: string; folder: string; tags: string[]; all_tags: string[]; folders: string[]; iqn?: string;
   fields: { name: string; type: string; value: string }[] }
+export interface VappVM { uuid: string; name: string; power_state: string; vapp: string; order: number; delay: number }
+export interface Vapp { uuid: string; name: string; description: string; vms: VappVM[]; can_start: boolean; can_shutdown: boolean }
+export interface Vapps { pool: string; is_pool: boolean; vapps: Vapp[]; candidates: VappVM[] }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
@@ -111,6 +114,15 @@ export const api = {
   setOptions: (o: AppOptions) => call<void>("SetOptions", o),
   objectProperties: (key: string, kind: string, uuid: string) => call<ObjectProps>("ObjectProperties", key, kind, uuid),
   saveObjectProperties: (key: string, kind: string, uuid: string, ch: Record<string, unknown>) => call<void>("SaveObjectProperties", key, kind, uuid, ch),
+  vapps: (key: string) => call<Vapps>("Vapps", key),
+  vappDeleteQuestion: (name: string, vms: number) => call<string>("VappDeleteQuestion", name, vms),
+  vappChangeWarning: (moves: { vm: string; from: string }[], target: string) => call<string>("VappChangeWarning", moves, target),
+  vappSummary: (name: string, vms: string[]) => call<string>("VappSummary", name, vms),
+  createVapp: (key: string, spec: Record<string, unknown>) => call<string>("CreateVapp", key, spec),
+  saveVapp: (key: string, uuid: string, spec: Record<string, unknown>) => call<void>("SaveVapp", key, uuid, spec),
+  deleteVapp: (key: string, uuid: string) => call<void>("DeleteVapp", key, uuid),
+  vappPower: (key: string, uuid: string, op: string) => call<void>("VappPower", key, uuid, op),
+  assignVapp: (key: string, vapp: string, vm: string) => call<void>("AssignVapp", key, vapp, vm),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

@@ -44,7 +44,7 @@ delete) tabs.
 
 **Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), Restart
 Toolstack, Remove From Pool, the Pool menu (Add Server, Remove Server, Rotate Pool Secret, Make into standalone
-server), the Memory, Storage, Networking, NICs, Console and Performance tabs; on Networking the New Network wizard
+server, Manage vApps), the Memory, Storage, Networking, NICs, Console and Performance tabs; on Networking the New Network wizard
 (External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU) and
 Remove Network; on NICs Create Bond (active-active, active-passive, LACP), Delete Bond and Rescan, with the C#
 management interface and HA warnings; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling

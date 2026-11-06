@@ -7,6 +7,7 @@ import (
 	xenapi "go/xenapi"
 
 	"xcpng-center/internal/messages"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
@@ -118,11 +119,5 @@ func ConvertToTemplate(c *xapi.Connection, vmUUID string) error {
 	return xapi.Sanitize(xenapi.VM.SetIsATemplate(s, ref, true))
 }
 
-// Ellipsise is StringExtensions.Ellipsise: a string of n characters or more cut to n-3 and "...".
-func Ellipsise(s string, n int) string {
-	r := []rune(s)
-	if len(r) < n {
-		return s
-	}
-	return string(r[:n-3]) + "..."
-}
+// Ellipsise is StringExtensions.Ellipsise (rules.Ellipsise).
+func Ellipsise(s string, n int) string { return rules.Ellipsise(s, n) }

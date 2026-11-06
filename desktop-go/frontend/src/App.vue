@@ -4,7 +4,7 @@
 // (Home and Search for the root), Add New Server and the certificate question, a status bar.
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { Events } from "@wailsio/runtime";
-import { api, type AppOptions, type ViewInfo, type ViewNode, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
+import { api, type AppOptions, type Vapps, type ViewInfo, type ViewNode, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 import ConsoleView from "./ConsoleView.vue";
 import { serial } from "./serial";
 import SnapshotsView from "./SnapshotsView.vue";
@@ -20,6 +20,8 @@ import CopyVmDialog from "./CopyVmDialog.vue";
 import ImportVmDialog from "./ImportVmDialog.vue";
 import OptionsDialog from "./OptionsDialog.vue";
 import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
+import VappsDialog from "./VappsDialog.vue";
+import VappEditor from "./VappEditor.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
 
@@ -300,6 +302,30 @@ async function objPropsClosed(saved: boolean) {
   const o = objProps.value;
   objProps.value = null;
   if (saved && o) { await load(o.server); if (selected.value) reselect(selected.value.id); }
+}
+
+// vApps: Pool > Manage vApps and VM > Assign to vApp (AssignGroupToolStripMenuItem<VM_appliance>)
+const vappsOn = ref("");
+const newVappFor = ref<{ server: string; data: Vapps; vm: string } | null>(null);
+async function vappItems(n: Node): Promise<MenuItem[]> {
+  const d = await api.vapps(n.server!);
+  // the VM's vApp from the vApps' members (a hidden VM is not a candidate but may be in one)
+  const current = d.vapps.find((a) => a.vms.some((v) => v.uuid === n.object!.uuid))?.uuid ?? "";
+  const items: MenuItem[] = [{ label: "New vApp...", enabled: true, run: () => { closeMenus(); newVappFor.value = { server: n.server!, data: d, vm: n.object!.uuid }; } }];
+  if (d.vapps.length) items.push({ label: "", sep: true });
+  for (const a of d.vapps) items.push({ label: (current === a.uuid ? "✓ " : "") + a.name, enabled: true, run: () => assignVapp(n, a.uuid, a.name, current, d) });
+  return items;
+}
+async function assignVapp(n: Node, vapp: string, name: string, from: string, d: Vapps) {
+  closeMenus();
+  if (from && from !== vapp) {
+    const q = await api.vappChangeWarning([{ vm: n.object!.name, from: d.vapps.find((a) => a.uuid === from)?.name ?? "" }], name);
+    if (q && (await choose({ title: "Change vApp", text: q }, ["Yes", "No"])) !== 0) return;
+  }
+  let error = "";
+  try { await api.assignVapp(n.server!, vapp, n.object!.uuid); } catch (e) { error = `Assign to vApp: ${String(e)}`; }
+  await load(n.server!);
+  if (error) failure.value = error; // after the refresh, which clears it
 }
 
 // Tools > Options (read at start and after OK)
@@ -626,6 +652,8 @@ const poolItems = (key: string | null): MenuItem[] => [
   { label: "", sep: true },
   { label: "Make into standalone server", enabled: !!key && (data[key]?.hosts ?? []).length === 1, run: () => makeStandalone(key!) },
   { label: "", sep: true },
+  { label: "Manage vApps...", icon: "000_VirtualAppliance_h32bit_16", enabled: !!selectedConnection.value, run: () => { closeMenus(); vappsOn.value = selectedConnection.value!; } },
+  { label: "", sep: true },
   { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!key, run: () => openObjProps(key!, "pools", data[key!]?.pools?.[0]?.uuid) },
 ];
 
@@ -706,6 +734,7 @@ const vmItems = (n: Node | null): MenuItem[] => [
   { label: "Take a Snapshot...", icon: "000_VMSnapShotDiskOnly_h32bit_16", enabled: !!n?.object?.allowed?.some((a) => a === "snapshot" || a === "checkpoint"),
     run: () => { closeMenus(); if (n) { reselect(n.id); tab.value = "snapshots"; snapshotAsk.value = true; } } },
   { label: "Convert to Template...", enabled: !!n?.object?.allowed?.includes("make_into_template"), run: () => convertToTemplate(n) },
+  { label: "Assign to vApp", enabled: !!n?.object && !!n.server, sub: () => vappItems(n!) },
   { label: "", sep: true },
   { label: "Export...", icon: "000_ExportVirtualAppliance_h32bit_16", enabled: !!n?.object?.allowed?.includes("export"), run: () => exportVm(n) },
   { label: "Delete VM...", enabled: !!n?.object?.allowed?.includes("destroy"), run: () => { closeMenus(); deleteOf.value = n; } },
@@ -1024,6 +1053,9 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <NewVmWizard v-if="newVmOn" :server="newVmOn" :template="newVmTemplate" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
     <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
+    <VappsDialog v-if="vappsOn" :server="vappsOn" @close="vappsOn = ''; selected?.server && load(selected.server)" />
+    <VappEditor v-if="newVappFor" :server="newVappFor.server" :data="newVappFor.data" :vapp="null" :preselect="newVappFor.vm"
+                @close="newVappFor = null; selected?.server && load(selected.server)" />
     <ObjectPropertiesDialog v-if="objProps" :server="objProps.server" :kind="objProps.kind" :uuid="objProps.uuid" @close="objPropsClosed" />
     <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />

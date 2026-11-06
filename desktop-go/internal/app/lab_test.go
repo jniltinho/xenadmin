@@ -1794,3 +1794,70 @@ func TestLabObjectProperties(t *testing.T) {
 		}
 	}
 }
+
+// TestLabVapps creates a vApp with XCP_LAB_VM, renames it, takes the VM out and back with Assign to vApp, and deletes
+// the vApp (the VM stays, in no vApp) (XCP_ALLOW_WRITE=1).
+func TestLabVapps(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	refs, _ := xenapi.VM.GetByNameLabel(s, name)
+	if len(refs) != 1 {
+		t.Fatalf("%s not found", name)
+	}
+	vmUUID, _ := xenapi.VM.GetUUID(s, refs[0])
+	if a, _ := xenapi.VM.GetAppliance(s, refs[0]); a != "OpaqueRef:NULL" && a != "" {
+		t.Skip("the lab VM is already in a vApp")
+	}
+	uuid, err := ops.CreateVapp(c, ops.VappSpec{Name: "xcpng-center-go-test vApp", Description: "test", VMs: []string{vmUUID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := xenapi.VMAppliance.GetByUUID(s, uuid); err == nil {
+			if err := ops.DeleteVapp(c, uuid); err != nil {
+				t.Errorf("not deleted: %v", err)
+			}
+		}
+	})
+	d, err := ReadVapps(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(d.Vapps, func(a Vapp) bool { return a.UUID == uuid })
+	if i < 0 || len(d.Vapps[i].VMs) != 1 || d.Vapps[i].VMs[0].UUID != vmUUID {
+		t.Fatalf("%+v", d.Vapps)
+	}
+	if err := ops.SaveVapp(c, uuid, ops.VappSpec{Name: "xcpng-center-go-test vApp 2", VMs: []string{vmUUID}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.AssignVapp(c, uuid, vmUUID); err != nil { // already in it: leaves
+		t.Fatal(err)
+	}
+	if vms, _ := xenapi.VMAppliance.GetVMs(s, mustVapp(t, c, uuid)); len(vms) != 0 {
+		t.Fatal("the VM did not leave the vApp")
+	}
+	if err := ops.AssignVapp(c, uuid, vmUUID); err != nil { // joins again
+		t.Fatal(err)
+	}
+	if err := ops.SaveVapp(c, uuid, ops.VappSpec{Name: " "}); err == nil {
+		t.Fatal("a blank name is saved")
+	}
+	if err := ops.DeleteVapp(c, uuid); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := xenapi.VM.GetAppliance(s, refs[0]); a != "OpaqueRef:NULL" {
+		t.Fatalf("the VM is still in a vApp: %s", a)
+	}
+}
+
+func mustVapp(t *testing.T, c *xapi.Connection, uuid string) xenapi.VMApplianceRef {
+	ref, err := xenapi.VMAppliance.GetByUUID(c.Session, uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
