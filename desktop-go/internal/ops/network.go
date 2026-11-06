@@ -82,28 +82,45 @@ func (d *netState) sriov(p xenapi.PIFRecord) bool {
 	return p.VLAN >= 0 && ok && len(d.pifs[v.TaggedPIF].SriovLogicalPIFOf) > 0
 }
 
-// vlansInUse is NetworkRules.VlansInUse: the VLANs already used on a device (SR-IOV VLANs apart).
-func (d *netState) vlansInUse(device string) []int {
+// vlansInUse is NetWDetails.GetVLANList: the VLANs already used on a device, by its SR-IOV network (onSriov:
+// checkBoxSriov ticked) or by the other networks.
+func (d *netState) vlansInUse(device string, onSriov bool) []int {
 	out := []int{}
 	for _, p := range d.pifs {
-		if p.Device == device && !d.sriov(p) {
+		if p.Device == device && d.sriov(p) == onSriov {
 			out = append(out, p.VLAN)
 		}
 	}
 	return out
 }
 
-// VLANsInUse are the VLANs already used on each device, for the New Network wizard.
-func VLANsInUse(s *xenapi.Session) (map[string][]int, error) {
+// sriovLogicalPIF is NewNetworkWizard.CreateNonBonded's PIF for a VLAN on the SR-IOV network: the logical PIF of the
+// network_sriov the NIC is the physical PIF of (network_sriov.logical_PIF, read from its other side,
+// PIF.sriov_logical_PIF_of); "" when the NIC has no SR-IOV network or its logical PIF is gone.
+func (d *netState) sriovLogicalPIF(nic xenapi.PIFRecord) xenapi.PIFRef {
+	if len(nic.SriovPhysicalPIFOf) == 0 {
+		return ""
+	}
+	for r, p := range d.pifs {
+		if slices.Contains(p.SriovLogicalPIFOf, nic.SriovPhysicalPIFOf[0]) {
+			return r
+		}
+	}
+	return ""
+}
+
+// VLANsInUse are the VLANs already used on each device, for the New Network wizard: by the other networks, and by
+// the device's SR-IOV network.
+func VLANsInUse(s *xenapi.Session) (others, sriov map[string][]int, err error) {
 	d, err := readNet(s)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := map[string][]int{}
+	others, sriov = map[string][]int{}, map[string][]int{}
 	for _, p := range d.pifs {
-		out[p.Device] = d.vlansInUse(p.Device)
+		others[p.Device], sriov[p.Device] = d.vlansInUse(p.Device, false), d.vlansInUse(p.Device, true)
 	}
-	return out, nil
+	return others, sriov, nil
 }
 
 // Vswitch is Host.vSwitchNetworkBackend of the coordinator (bonds of 4 NICs, LACP, VLAN 0).
@@ -557,48 +574,67 @@ type NewNetwork struct {
 	NIC         string `json:"nic"`  // external: the PIF uuid of the NIC on that server
 	VLAN        string `json:"vlan"`
 	MTU         string `json:"mtu"`
+	Sriov       bool   `json:"sriov"` // external: on the NIC's SR-IOV network (NetWDetails.CreateVlanOnSriovNetwork)
+}
+
+// newNetwork is NetWDetails' checks and NewNetworkWizard.CreateNonBonded's choice on this state: the network, the PIF
+// its VLAN is made on (the NIC, or the logical PIF of its SR-IOV network; "" for a private network) and the calls.
+func (d *netState) newNetwork(spec NewNetwork) (rec xenapi.NetworkRecord, nic xenapi.PIFRef, vlan int, calls []string, err error) {
+	rec = xenapi.NetworkRecord{NameLabel: strings.TrimSpace(spec.Name), NameDescription: spec.Description, Managed: true, MTU: rules.MTUDefault,
+		OtherConfig: map[string]string{"automatic": map[bool]string{true: "true", false: "false"}[spec.Auto]}}
+	if rec.NameLabel == "" {
+		return rec, "", 0, nil, errors.New("enter a name for the new network")
+	}
+	if !spec.External {
+		return rec, "", 0, []string{"network.create"}, nil
+	}
+	for r, p := range d.pifs { // NetworkRules.WizardNics: the server's shown physical NICs, not bond members
+		if p.UUID == spec.NIC && d.hosts[p.Host].UUID == spec.Host && physical(p) && p.Managed && p.OtherConfig["HideFromXenCenter"] != "true" && !valid(p.BondSlaveOf) {
+			nic = r
+		}
+	}
+	if nic == "" {
+		return rec, "", 0, nil, errors.New("select a NIC")
+	}
+	p := d.pifs[nic]
+	// the wizard sends Sriov only when checkBoxSriov is shown (PIF.IsSriovPhysicalPIF) and ticked; CreateNonBonded
+	// stops when the NIC has no SR-IOV network any more
+	if spec.Sriov && len(p.SriovPhysicalPIFOf) == 0 {
+		return rec, "", 0, nil, errors.New("this NIC has no SR-IOV network")
+	}
+	var msg string
+	var ok bool
+	if vlan, msg, ok = rules.ValidateVLAN(spec.VLAN, rules.MinVLAN(d.vswitch()), d.vlansInUse(p.Device, spec.Sriov)); !ok {
+		return rec, "", 0, nil, errors.New(msg)
+	}
+	if rec.MTU, msg, ok = rules.ValidateMTU(spec.MTU, rules.MTUMin, max(rules.MTUMin, rules.NICMaxMTU(p.MTU))); !ok {
+		return rec, "", 0, nil, errors.New(msg)
+	}
+	if spec.Sriov {
+		if nic = d.sriovLogicalPIF(p); nic == "" {
+			return rec, "", 0, nil, errors.New("the SR-IOV network of this NIC is gone")
+		}
+	}
+	return rec, nic, vlan, []string{"network.create", "pool.create_VLAN_from_PIF"}, nil
 }
 
 // CreateNetwork is NetworkAction's create (NewNetworkWizard.Finish): network.create, then for an external network
-// pool.create_VLAN_from_PIF on the NIC.
+// pool.create_VLAN_from_PIF on the NIC, or on the logical PIF of its SR-IOV network.
 func CreateNetwork(c *xapi.Connection, spec NewNetwork) error {
 	s := c.Session
 	d, err := readNet(s)
 	if err != nil {
 		return err
 	}
-	rec := xenapi.NetworkRecord{NameLabel: strings.TrimSpace(spec.Name), NameDescription: spec.Description, Managed: true, MTU: rules.MTUDefault,
-		OtherConfig: map[string]string{"automatic": map[bool]string{true: "true", false: "false"}[spec.Auto]}}
-	if rec.NameLabel == "" {
-		return errors.New("enter a name for the new network")
-	}
-	calls := []string{"network.create"}
-	var nic xenapi.PIFRef
-	vlan := 0
-	if spec.External {
-		for r, p := range d.pifs { // NetworkRules.WizardNics: the server's shown physical NICs, not bond members
-			if p.UUID == spec.NIC && d.hosts[p.Host].UUID == spec.Host && physical(p) && p.Managed && p.OtherConfig["HideFromXenCenter"] != "true" && !valid(p.BondSlaveOf) {
-				nic = r
-			}
-		}
-		if nic == "" {
-			return errors.New("select a NIC")
-		}
-		var msg string
-		var ok bool
-		if vlan, msg, ok = rules.ValidateVLAN(spec.VLAN, rules.MinVLAN(d.vswitch()), d.vlansInUse(d.pifs[nic].Device)); !ok {
-			return errors.New(msg)
-		}
-		if rec.MTU, msg, ok = rules.ValidateMTU(spec.MTU, rules.MTUMin, max(rules.MTUMin, rules.NICMaxMTU(d.pifs[nic].MTU))); !ok {
-			return errors.New(msg)
-		}
-		calls = append(calls, "pool.create_VLAN_from_PIF")
+	rec, nic, vlan, calls, err := d.newNetwork(spec)
+	if err != nil {
+		return err
 	}
 	if err := permitted(s, calls...); err != nil {
 		return err
 	}
 	ref, err := xenapi.Network.Create(s, rec)
-	if err != nil || !spec.External {
+	if err != nil || nic == "" {
 		return xapi.Sanitize(err)
 	}
 	if _, err := xenapi.Pool.CreateVLANFromPIF(s, nic, ref, vlan); err != nil {

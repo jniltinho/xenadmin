@@ -2,8 +2,8 @@
 // The New Network wizard (XenAdmin.Desktop/NewNetworkWizard.cs): Select Type, Details (NetWName), Interface
 // (NetWDetails) for External and Single-Server Private networks, or Select Type, Bond Members (NetWBondDetails) for a
 // bonded network; with bond set it is Create Bond (BondProperties: the BondDetails control alone). An SR-IOV Network
-// (NetWTypeSelect, NetWSriovDetails) is Select Type, Details and its NIC, then a question (CreateSriovAction).
-// shortcut: no VLAN on an SR-IOV network (NetWDetails' checkBoxSriov); add it when a lab has an SR-IOV NIC.
+// (NetWTypeSelect, NetWSriovDetails) is Select Type, Details and its NIC, then a question (CreateSriovAction). An
+// External network on a NIC with an SR-IOV network can be a VLAN on that network (NetWDetails' checkBoxSriov).
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type BondSpec, type BondWarning, type NewNetworkChoices } from "./api/workspace";
 import BondEditor from "./BondEditor.vue";
@@ -16,7 +16,7 @@ const opts = ref<NewNetworkChoices | null>(null);
 const error = ref("");
 const type = ref<"external" | "private" | "bond" | "sriov">(props.bond ? "bond" : "external");
 const page = ref(props.bond ? 1 : 0);
-const f = reactive({ name: "", description: "", auto: true, nic: "", vlan: "0", mtu: String(MTU_MIN), sriovNic: "" });
+const f = reactive({ name: "", description: "", auto: true, nic: "", vlan: "0", mtu: String(MTU_MIN), sriovNic: "", onSriov: false });
 const bondSpec = ref<BondSpec>({ members: [], mode: "balance-slb", hashing: "", mtu: MTU_MIN, auto: true });
 const bondValid = ref(false);
 
@@ -35,15 +35,19 @@ watch(type, (t) => {
 });
 
 const nic = computed(() => opts.value?.nics.find((n) => n.uuid === f.nic) ?? null);
+// NetWDetails.CreateVlanOnSriovNetwork (checkBoxSriov shown and ticked) and GetVLANList: the VLANs of the NIC's SR-IOV
+// network, or those of the others; ticking it checks the VLAN again without moving it
+const onSriov = computed(() => !!nic.value?.sriov && f.onSriov);
+const inUse = computed(() => (nic.value ? (onSriov.value ? nic.value.sriov_vlans : nic.value.vlans) : []));
 // NetWDetails: a VLAN already used on the NIC moves to the first free one; the MTU stays inside the NIC's range
 function pickNic(uuid: string) {
   f.nic = uuid;
   const n = nic.value;
   if (!n) return;
-  f.vlan = String(vlanFor(Number(f.vlan) || opts.value!.min_vlan, n.vlans));
+  f.vlan = String(vlanFor(Number(f.vlan) || opts.value!.min_vlan, inUse.value));
   f.mtu = n.max_mtu > MTU_MIN ? clampMtu(f.mtu, n.max_mtu) : String(n.max_mtu);
 }
-const vlan = computed(() => (nic.value ? vlanCheck(f.vlan, opts.value!.min_vlan, nic.value.vlans) : { ok: false, text: "" }));
+const vlan = computed(() => (nic.value ? vlanCheck(f.vlan, opts.value!.min_vlan, inUse.value) : { ok: false, text: "" }));
 const mtu = computed(() => mtuCheck(f.mtu, MTU_MIN, nic.value?.max_mtu ?? MTU_MIN));
 
 const pages = computed(() => (props.bond ? [] : type.value === "bond" ? ["Select Type", "Bond Members"] : ["Select Type", "Details", "Interface"]));
@@ -75,7 +79,7 @@ async function finish() {
     return;
   }
   if (type.value !== "bond") {
-    const o = opts.value, spec = { external: type.value === "external", name: f.name.trim(), description: f.description, auto: f.auto, host: o.host, nic: f.nic, vlan: f.vlan, mtu: f.mtu };
+    const o = opts.value, spec = { external: type.value === "external", name: f.name.trim(), description: f.description, auto: f.auto, host: o.host, nic: f.nic, vlan: f.vlan, mtu: f.mtu, sriov: type.value === "external" && onSriov.value };
     emit("run", `Creating network '${spec.name}'`, () => api.createNetwork(props.server, spec));
     return;
   }
@@ -151,6 +155,7 @@ function createBond() {
               <label for="netmtu">MTU:</label><input id="netmtu" v-model="f.mtu" class="w-24 border border-line px-1 py-0.5" :disabled="(nic?.max_mtu ?? MTU_MIN) <= MTU_MIN" />
               <span :class="mtu.ok ? 'text-neutral-600' : 'text-red-600'">{{ mtu.text }}</span>
             </div>
+            <label v-if="nic?.sriov" class="flex items-center gap-2"><input v-model="f.onSriov" type="checkbox" />Create the VLAN on the SR-IOV network</label>
             <label class="flex items-center gap-2"><input v-model="f.auto" type="checkbox" />Automatically add this network to new virtual machines</label>
           </div>
         </div>

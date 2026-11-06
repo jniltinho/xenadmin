@@ -74,10 +74,10 @@ VMs on an SR, the servers running a VM); Notifications > Alerts with the
 severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
 The vGPU, USB and SR-IOV writes (adding and removing vGPUs, attaching and detaching USB devices, making an SR-IOV
-network) were not run on hardware: the lab has no GPU that does vGPU, no USB device and no SR-IOV NIC, so only their
+network and a VLAN on one) were not run on hardware: the lab has no GPU that does vGPU, no USB device and no SR-IOV NIC, so only their
 rules (unit tests) and the read side (hidden pages, no SR-IOV offered) are checked.
 
-Not there yet: a VLAN on an SR-IOV network, the OS fixup, encrypted packages and VMDKs that are not stream-optimized
+Not there yet: the OS fixup, encrypted packages and VMDKs that are not stream-optimized
 when importing an OVF/OVA appliance, and signed OVF/OVA packages. The Windows app has those.
 
 ## Command line and MCP
