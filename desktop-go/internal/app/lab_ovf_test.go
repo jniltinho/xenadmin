@@ -17,6 +17,8 @@ import (
 	xenapi "go/xenapi"
 
 	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
+	"xcpng-center/internal/xapi"
 )
 
 // labVMDK is a stream-optimized VMDK of size bytes whose first grain (64 KiB) is data.
@@ -40,9 +42,9 @@ func labVMDK(size int64) []byte {
 	return append(out, make([]byte, 512)...) // the end-of-stream marker
 }
 
-// labOVA writes an OVA of one VM (2 vCPUs, 512 MiB, an interface with a MAC) with a raw disk, a VMDK and, when qemu-img
-// is installed, a dynamic VHD; and its SHA-256 manifest. broken cuts the VMDK short.
-func labOVA(t *testing.T, name string, broken bool) (string, []int64) {
+// labOVA writes an OVA of one VM (2 vCPUs, 512 MiB, nics interfaces with a MAC) with at most disks disks: a raw disk,
+// a VMDK and, when qemu-img is installed, a dynamic VHD; and its SHA-256 manifest. broken cuts the VMDK short.
+func labOVA(t *testing.T, name string, broken bool, nics, disks int) (string, []int64) {
 	dir := t.TempDir()
 	type file struct {
 		name string
@@ -53,7 +55,7 @@ func labOVA(t *testing.T, name string, broken bool) (string, []int64) {
 	if broken {
 		files[1].data = files[1].data[:700]
 	}
-	if qemu, err := exec.LookPath("qemu-img"); err == nil {
+	if qemu, err := exec.LookPath("qemu-img"); err == nil && disks > 2 {
 		vhd := filepath.Join(dir, "d.vhd")
 		if out, err := exec.Command(qemu, "create", "-f", "vpc", "-o", "subformat=dynamic,force_size=on", vhd, "6M").CombinedOutput(); err != nil {
 			t.Fatalf("%v: %s", err, out)
@@ -64,10 +66,14 @@ func labOVA(t *testing.T, name string, broken bool) (string, []int64) {
 		}
 		files, sizes = append(files, file{"disk2.vhd", data}), append(sizes, 6<<20)
 	}
-	var refs, disks, items strings.Builder
+	files, sizes = files[:min(disks, len(files))], sizes[:min(disks, len(sizes))]
+	var refs, diskSection, items strings.Builder
+	for i := range nics {
+		fmt.Fprintf(&items, `<Item><rasd:ResourceType>10</rasd:ResourceType><rasd:InstanceID>%d</rasd:InstanceID><rasd:Address>02:16:3e:00:0a:%02x</rasd:Address></Item>`, 5+i, 1+i)
+	}
 	for i, f := range files {
 		fmt.Fprintf(&refs, `<File ovf:id="f%d" ovf:href="%s"/>`, i, f.name)
-		fmt.Fprintf(&disks, `<Disk ovf:diskId="d%d" ovf:fileRef="f%d" ovf:capacity="%d"/>`, i, i, sizes[i])
+		fmt.Fprintf(&diskSection, `<Disk ovf:diskId="d%d" ovf:fileRef="f%d" ovf:capacity="%d"/>`, i, i, sizes[i])
 		fmt.Fprintf(&items, `<Item><rasd:ResourceType>17</rasd:ResourceType><rasd:InstanceID>%d</rasd:InstanceID><rasd:ElementName>%s disk %d</rasd:ElementName>`+
 			`<rasd:HostResource>ovf:/disk/d%d</rasd:HostResource><rasd:Connection>device=%d</rasd:Connection></Item>`, 10+i, name, i, i, i)
 	}
@@ -78,10 +84,9 @@ func labOVA(t *testing.T, name string, broken bool) (string, []int64) {
   <VirtualSystem ovf:id="%s"><Name>%s</Name><VirtualHardwareSection>
     <Item><rasd:ResourceType>3</rasd:ResourceType><rasd:VirtualQuantity>2</rasd:VirtualQuantity></Item>
     <Item><rasd:ResourceType>4</rasd:ResourceType><rasd:AllocationUnits>byte * 2^20</rasd:AllocationUnits><rasd:VirtualQuantity>512</rasd:VirtualQuantity></Item>
-    <Item><rasd:ResourceType>10</rasd:ResourceType><rasd:InstanceID>5</rasd:InstanceID><rasd:Address>02:16:3e:00:0a:01</rasd:Address></Item>
     %s
   </VirtualHardwareSection></VirtualSystem>
-</Envelope>`, refs.String(), disks.String(), name, name, items.String())
+</Envelope>`, refs.String(), diskSection.String(), name, name, items.String())
 	files = append([]file{{name + ".ovf", []byte(desc)}}, files...)
 	var mf strings.Builder
 	for _, f := range files {
@@ -125,7 +130,8 @@ func TestLabImportAppliance(t *testing.T) {
 		t.Fatalf("no network: %v", err)
 	}
 	name := fmt.Sprintf("xcpng-center-go-test-ova-%d", os.Getpid())
-	leftovers := func() (vms []xenapi.VMRef, vdis []xenapi.VDIRef, apps []xenapi.VMApplianceRef) {
+	mapped := name + "-map" // the per-VM, disk and interface choices
+	leftovers := func(name string) (vms []xenapi.VMRef, vdis []xenapi.VDIRef, apps []xenapi.VMApplianceRef) {
 		vms, _ = xenapi.VM.GetByNameLabel(s, name)
 		for i := range 3 {
 			v, _ := xenapi.VDI.GetByNameLabel(s, fmt.Sprintf("%s disk %d", name, i))
@@ -134,8 +140,8 @@ func TestLabImportAppliance(t *testing.T) {
 		apps, _ = xenapi.VMAppliance.GetByNameLabel(s, name)
 		return
 	}
-	clean := func() { // whatever an import left: the VMs, their disks and the vApp
-		vms, vdis, apps := leftovers()
+	clean := func(name string) { // whatever an import left: the VMs, their disks and the vApp
+		vms, vdis, apps := leftovers(name)
 		for _, vm := range vms {
 			_ = xenapi.VM.HardShutdown(s, vm)
 			if err := xenapi.VM.Destroy(s, vm); err != nil {
@@ -153,21 +159,31 @@ func TestLabImportAppliance(t *testing.T) {
 			}
 		}
 	}
-	t.Cleanup(clean)
+	t.Cleanup(func() { clean(name); clean(mapped) })
+	// the package's mappings as the dialog's defaults: every disk on sr, every interface on network
+	defaults := func(file, sr, network string) []rules.ApplianceMapping {
+		p, err := rules.OpenPackage(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rules.DefaultApplianceMappings(p.Appliance, sr, network)
+	}
 
 	// a broken VMDK: the import fails and removes what it made
-	bad, _ := labOVA(t, name, true)
-	if _, err := ops.ImportAppliance(c, labPolicy(t), bad, srUUID, opts.Networks[0].UUID, false, false); err == nil {
+	bad, _ := labOVA(t, name, true, 1, 3)
+	if _, err := ops.ImportAppliance(c, labPolicy(t), bad, defaults(bad, srUUID, opts.Networks[0].UUID), false, false); err == nil {
 		t.Fatal("the broken appliance was imported")
 	} else {
 		t.Logf("broken: %v", err)
 	}
-	if vms, vdis, apps := leftovers(); len(vms)+len(vdis)+len(apps) != 0 {
+	if vms, vdis, apps := leftovers(name); len(vms)+len(vdis)+len(apps) != 0 {
 		t.Fatalf("a failed import left %d VMs, %d disks, %d vApps", len(vms), len(vdis), len(apps))
 	}
 
-	file, sizes := labOVA(t, name, false)
-	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, srUUID, opts.Networks[0].UUID, true, false)
+	t.Run("mappings", func(t *testing.T) { testLabApplianceMappings(t, c, mapped, srUUID, clean) })
+
+	file, sizes := labOVA(t, name, false, 1, 3)
+	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, defaults(file, srUUID, opts.Networks[0].UUID), true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,5 +228,126 @@ func TestLabImportAppliance(t *testing.T) {
 	}
 	if mac, _ := xenapi.VIF.GetMAC(s, rec.VIFs[0]); mac != "02:16:3e:00:0a:01" {
 		t.Errorf("MAC %q", mac)
+	}
+}
+
+// testLabApplianceMappings imports a two-disk, two-interface package with the pool member as the VM's server, disk 0 on
+// sr (shared), disk 1 on the member's local SR and each interface on its own network, and checks each VBD's SR and each
+// VIF's network; first, the member's local SR with the coordinator as the server is refused before anything is made.
+func testLabApplianceMappings(t *testing.T, c *xapi.Connection, name, srUUID string, clean func(string)) {
+	s := c.Session
+	pools, err := xenapi.Pool.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := xenapi.Host.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var coordinator, member string
+	for r, h := range hosts {
+		for _, p := range pools {
+			if p.Master == r {
+				coordinator = h.UUID
+			} else {
+				member = h.UUID
+			}
+		}
+	}
+	if member == "" {
+		t.Skip("the lab is not a pool of two servers")
+	}
+	opts, err := ReadImportOptions(c, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local string
+	for _, u := range opts.SRs {
+		if ref, err := xenapi.SR.GetByUUID(s, u.UUID); err == nil {
+			if shared, err := xenapi.SR.GetShared(s, ref); err == nil && !shared && local == "" {
+				local = u.UUID
+			}
+		}
+	}
+	if local == "" {
+		t.Fatal("no local SR on the pool member")
+	}
+	if len(opts.Networks) < 2 { // a private network of the test's own
+		net, err := xenapi.Network.Create(s, xenapi.NetworkRecord{NameLabel: name, OtherConfig: map[string]string{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := xenapi.Network.Destroy(s, net); err != nil {
+				t.Errorf("network not destroyed: %v", err)
+			}
+		})
+		if opts, err = ReadImportOptions(c, member); err != nil || len(opts.Networks) < 2 {
+			t.Fatalf("%d networks: %v", len(opts.Networks), err)
+		}
+	}
+	t.Cleanup(func() { clean(name) }) // before the network is destroyed
+	net0, net1 := opts.Networks[0].UUID, opts.Networks[1].UUID
+	t.Logf("mapped: disk 1 on %s, interfaces on %s and %s", local, opts.Networks[0].Name, opts.Networks[1].Name)
+	file, _ := labOVA(t, name, false, 2, 2)
+	p, err := rules.OpenPackage(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := p.Appliance; len(a.VMs) != 1 || len(a.VMs[0].Disks) != 2 || len(a.VMs[0].MACs) != 2 {
+		t.Fatalf("the package: %+v", a.VMs)
+	}
+	maps := rules.DefaultApplianceMappings(p.Appliance, srUUID, net0)
+	maps[0].Host, maps[0].SRs[1], maps[0].Networks[1] = coordinator, local, net1
+	if _, err := ops.ImportAppliance(c, labPolicy(t), file, maps, false, false); err == nil || !strings.Contains(err.Error(), "cannot be seen") {
+		t.Fatalf("the member's local SR from the coordinator: %v", err)
+	}
+	if vms, _ := xenapi.VM.GetByNameLabel(s, name); len(vms) != 0 {
+		t.Fatal("a refused import made a VM")
+	}
+	maps[0].Host = member
+	uuid, err := ops.ImportAppliance(c, labPolicy(t), file, maps, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := xenapi.VM.GetByUUID(s, uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := xenapi.VM.GetRecord(s, vm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSR := map[string]string{"0": srUUID, "1": local}
+	for _, b := range rec.VBDs {
+		vbd, err := xenapi.VBD.GetRecord(s, b)
+		if err != nil || vbd.Type != xenapi.VbdTypeDisk {
+			continue
+		}
+		sr, _ := xenapi.VDI.GetSR(s, vbd.VDI)
+		got, _ := xenapi.SR.GetUUID(s, sr)
+		if got != wantSR[vbd.Userdevice] {
+			t.Errorf("disk %s on SR %s, want %s", vbd.Userdevice, got, wantSR[vbd.Userdevice])
+		}
+		delete(wantSR, vbd.Userdevice)
+	}
+	if len(wantSR) != 0 {
+		t.Errorf("disks missing: %v", wantSR)
+	}
+	type nic struct{ network, mac string }
+	want := map[string]nic{"0": {net0, "02:16:3e:00:0a:01"}, "1": {net1, "02:16:3e:00:0a:02"}}
+	for _, v := range rec.VIFs {
+		vif, err := xenapi.VIF.GetRecord(s, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := xenapi.Network.GetUUID(s, vif.Network)
+		if w := want[vif.Device]; got != w.network || vif.MAC != w.mac {
+			t.Errorf("interface %s on %s (%s), want %v", vif.Device, got, vif.MAC, w)
+		}
+		delete(want, vif.Device)
+	}
+	if len(want) != 0 {
+		t.Errorf("interfaces missing: %v", want)
 	}
 }

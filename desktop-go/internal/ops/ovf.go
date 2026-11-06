@@ -18,74 +18,121 @@ import (
 	"xcpng-center/internal/xapi"
 )
 
-// OVF/OVA appliance import: OvfRules.ImportAction, i.e. ImportApplianceAction (ImportApplianceAction.cs and Import.cs)
-// with OvfRules.Mappings: every disk on one SR and every interface on one network.
-// shortcut: as the C# OvfRules, no per-VM/disk/interface choice, no OS fixup and no encrypted or signed-only checks
-// (the certificate is not verified); no vGPU, no PVS proxy, no InstallSection run, and the DVD drive stays empty.
+// OVF/OVA appliance import: ImportApplianceAction (ImportApplianceAction.cs and Import.cs) with the import wizard's
+// VmMappings: a server, the SR of each disk and the network of each interface per VM (rules.ApplianceMapping).
+// shortcut: no OS fixup (see rules/ovfmap.go) and no encrypted packages (XenOvf's Security.cs ciphers) or signature
+// checks (the certificate is not verified); no vGPU, no PVS proxy, no InstallSection run, and the DVD drive stays empty.
 // shortcut: no progress bar or Cancel yet (as the XVA import).
 
-// ApplianceSpaceError is OvfRules.SpaceError: "" when the SR has room for every disk (thin-provisioned SRs not checked).
-func ApplianceSpaceError(c *xapi.Connection, srUUID string, required int64) (string, error) {
-	s := c.Session
-	ref, err := xenapi.SR.GetByUUID(s, srUUID)
+// applianceState reads what rules.CheckApplianceMappings checks against: the servers, the SRs that can take new disks
+// (VDI_CREATE, not ISO) with the servers they are attached to, and the networks with the servers that see them.
+func applianceState(s *xenapi.Session) (*rules.ApplianceState, error) {
+	hosts, err := xenapi.Host.GetAllRecords(s)
 	if err != nil {
-		return "", xapi.Sanitize(err)
+		return nil, xapi.Sanitize(err)
 	}
-	sr, err := xenapi.SR.GetRecord(s, ref)
+	srs, err := xenapi.SR.GetAllRecords(s)
 	if err != nil {
-		return "", xapi.Sanitize(err)
+		return nil, xapi.Sanitize(err)
+	}
+	pbds, err := xenapi.PBD.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
 	}
 	sms, err := xenapi.SM.GetAllRecords(s)
 	if err != nil {
-		return "", xapi.Sanitize(err)
+		return nil, xapi.Sanitize(err)
 	}
+	nets, err := xenapi.Network.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	pifs, err := xenapi.PIF.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	caps := map[string][]string{}
 	for _, sm := range sms {
-		if sm.Type == sr.Type && slices.Contains(sm.Capabilities, "THIN_PROVISIONING") {
-			return "", nil
-		}
+		caps[sm.Type] = append(caps[sm.Type], sm.Capabilities...)
 	}
-	if free := int64(sr.PhysicalSize - sr.PhysicalUtilisation); free < required {
-		return fmt.Sprintf("'%s' has %s free; the appliance's disks need %s.", sr.NameLabel, rules.DiskSizeText(free), rules.DiskSizeText(required)), nil
+	names := map[string]string{}
+	st := &rules.ApplianceState{SRs: map[string]rules.ApplianceSR{}, Networks: map[string][]string{}, HostName: func(u string) string { return names[u] }}
+	for _, h := range hosts {
+		st.Hosts = append(st.Hosts, h.UUID)
+		names[h.UUID] = h.NameLabel
+	}
+	for _, sr := range srs {
+		if sr.ContentType == "iso" || !slices.Contains(caps[sr.Type], "VDI_CREATE") {
+			continue
+		}
+		out := rules.ApplianceSR{Name: sr.NameLabel, Free: int64(sr.PhysicalSize - sr.PhysicalUtilisation),
+			Full: rules.SRFull(sr.Type, sr.PhysicalSize, sr.PhysicalUtilisation),
+			Thin: slices.Contains(caps[sr.Type], "THIN_PROVISIONING"), LargeVDI: slices.Contains(caps[sr.Type], "LARGE_VDI")}
+		for _, p := range sr.PBDs {
+			if pbd, ok := pbds[p]; ok && pbd.CurrentlyAttached {
+				out.Hosts = append(out.Hosts, hosts[pbd.Host].UUID)
+			}
+		}
+		st.SRs[sr.UUID] = out
+	}
+nets:
+	for _, n := range nets {
+		if n.OtherConfig["is_guest_installer_network"] == "true" || n.OtherConfig["HideFromXenCenter"] == "true" { // Network.Show
+			continue
+		}
+		var seers []string // nil: no PIF, every server sees it
+		if len(n.PIFs) > 0 {
+			seers = []string{}
+		}
+		for _, p := range n.PIFs {
+			if pif := pifs[p]; !pif.Managed || pif.OtherConfig["HideFromXenCenter"] == "true" || // PIF.Show, IsMember, IsSriov
+				pif.BondSlaveOf != "" && pif.BondSlaveOf != nullRef || len(pif.SriovLogicalPIFOf) > 0 {
+				continue nets
+			}
+			seers = append(seers, hosts[pifs[p].Host].UUID)
+		}
+		st.Networks[n.UUID] = seers
+	}
+	return st, nil
+}
+
+// ApplianceMappingsError is why the mappings cannot be used for the appliance now ("" when they can).
+func ApplianceMappingsError(c *xapi.Connection, a *rules.Appliance, maps []rules.ApplianceMapping) (string, error) {
+	st, err := applianceState(c.Session)
+	if err != nil {
+		return "", err
+	}
+	if err := rules.CheckApplianceMappings(a, maps, st); err != nil {
+		return err.Error(), nil
 	}
 	return "", nil
 }
 
-// ImportAppliance imports the appliance file to the SR, its interfaces on the network (networkUUID may be "" when it
-// has none), after verifying its manifest when asked, and starts it when asked. It returns the first VM's uuid.
-func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file, srUUID, networkUUID string, verify, start bool) (string, error) {
+// ImportAppliance imports the appliance file with a mapping per VM (its server, the SR of each disk and the network of
+// each interface), after verifying its manifest when asked, and starts it when asked. It returns the first VM's uuid.
+func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file string, maps []rules.ApplianceMapping, verify, start bool) (string, error) {
+	s := c.Session
+	if err := permitted(s, "vm_appliance.create", "vm_appliance.destroy", "vm.create", "vm.destroy", "vm.remove_from_other_config",
+		"vdi.create", "vdi.destroy", "vbd.create", "vif.create"); err != nil { // ApplianceAction.StaticRBACDependencies
+		return "", err
+	}
 	p, err := rules.OpenPackage(file)
 	if err != nil {
 		return "", err
 	}
 	a := p.Appliance
+	if why, err := ApplianceMappingsError(c, a, maps); err != nil {
+		return "", err
+	} else if why != "" {
+		return "", errors.New(why)
+	}
 	if verify { // ImportApplianceAction.RunCore: VERIFYING_MANIFEST
 		if err := p.VerifyManifest(); err != nil {
 			return "", errors.New(messages.Format(messages.Get("VERIFYING_MANIFEST_ERROR"), err.Error()))
 		}
 	}
-	s := c.Session
-	sr, err := xenapi.SR.GetByUUID(s, srUUID)
-	if err != nil {
-		return "", xapi.Sanitize(err)
-	}
-	srRec, err := xenapi.SR.GetRecord(s, sr)
-	if err != nil {
-		return "", xapi.Sanitize(err)
-	}
-	if rules.SRFull(srRec.Type, srRec.PhysicalSize, srRec.PhysicalUtilisation) || srRec.ContentType == "iso" { // XvaRules.TargetError
-		return "", errors.New("the storage repository is no longer available or is full")
-	}
-	network := xenapi.NetworkRef(nullRef)
-	if a.Interfaces > 0 {
-		if networkUUID == "" {
-			return "", errors.New("Select a network.")
-		}
-		if network, err = xenapi.Network.GetByUUID(s, networkUUID); err != nil {
-			return "", xapi.Sanitize(err)
-		}
-	}
-	im := &applianceImport{c: c, policy: policy, pkg: p, sr: sr, srRec: srRec, network: network}
-	first, err := im.run(a)
+	im := &applianceImport{c: c, policy: policy, pkg: p}
+	first, err := im.run(a, maps)
 	if err != nil {
 		return "", errors.Join(err, im.cleanUp())
 	}
@@ -97,7 +144,7 @@ func ImportAppliance(c *xapi.Connection, policy *trust.Policy, file, srUUID, net
 }
 
 // run is Process: the appliance (IMPORT_CREATING_APPLIANCE), then each VM; the first VM's uuid.
-func (im *applianceImport) run(a *rules.Appliance) (string, error) {
+func (im *applianceImport) run(a *rules.Appliance, maps []rules.ApplianceMapping) (string, error) {
 	s := im.c.Session
 	app, err := xenapi.VMAppliance.Create(s, xenapi.VMApplianceRecord{NameLabel: a.Name, AllowedOperations: []xenapi.VMApplianceOperation{},
 		CurrentOperations: map[string]xenapi.VMApplianceOperation{}, VMs: []xenapi.VMRef{}})
@@ -106,8 +153,8 @@ func (im *applianceImport) run(a *rules.Appliance) (string, error) {
 	}
 	im.app = app
 	var first string
-	for _, spec := range a.VMs {
-		uuid, err := im.vm(spec)
+	for i, spec := range a.VMs {
+		uuid, err := im.vm(spec, maps[i])
 		if err != nil {
 			return "", err
 		}
@@ -118,15 +165,12 @@ func (im *applianceImport) run(a *rules.Appliance) (string, error) {
 
 // applianceImport is one import's state: what it made, removed when it fails.
 type applianceImport struct {
-	c       *xapi.Connection
-	policy  *trust.Policy
-	pkg     *rules.Package
-	sr      xenapi.SRRef
-	srRec   xenapi.SRRecord
-	network xenapi.NetworkRef
-	app     xenapi.VMApplianceRef
-	vms     []xenapi.VMRef
-	vdi     xenapi.VDIRef // a disk not attached yet
+	c      *xapi.Connection
+	policy *trust.Policy
+	pkg    *rules.Package
+	app    xenapi.VMApplianceRef
+	vms    []xenapi.VMRef
+	vdi    xenapi.VDIRef // a disk not attached yet
 }
 
 // cleanUp is Process' CleanUpVm for every VM made (and its disks), the loose disk and the appliance; a VM that cannot
@@ -186,8 +230,8 @@ func destroyVDI(s *xenapi.Session, vdi xenapi.VDIRef) {
 	}
 }
 
-// vm is CreateVm, AddResourceSettingData for each item, and the VM made visible.
-func (im *applianceImport) vm(spec rules.ApplianceVM) (string, error) {
+// vm is CreateVm, AddResourceSettingData for each item on the mapping's SRs and networks, and the VM made visible.
+func (im *applianceImport) vm(spec rules.ApplianceVM, m rules.ApplianceMapping) (string, error) {
 	s := im.c.Session
 	rec := xenapi.VMRecord{
 		NameLabel: cmp.Or(spec.Name, messages.Get("UNDEFINED_NAME_LABEL")), NameDescription: spec.Description, UserVersion: 1,
@@ -234,8 +278,8 @@ func (im *applianceImport) vm(spec rules.ApplianceVM) (string, error) {
 		return "", xapi.Sanitize(err)
 	}
 	im.vms = append(im.vms, vm)
-	for _, d := range spec.Disks {
-		if err := im.disk(vm, d); err != nil {
+	for i, d := range spec.Disks {
+		if err := im.disk(vm, d, m.SRs[i]); err != nil {
 			return "", err
 		}
 	}
@@ -246,7 +290,11 @@ func (im *applianceImport) vm(spec rules.ApplianceVM) (string, error) {
 		}
 	}
 	for i, mac := range spec.MACs { // Network: the device index in order, the MAC when the OVF has one
-		if _, err := xenapi.VIF.Create(s, xenapi.VIFRecord{Device: strconv.Itoa(i), Network: im.network, VM: vm, MAC: mac, MTU: 1500,
+		network, err := xenapi.Network.GetByUUID(s, m.Networks[i])
+		if err != nil {
+			return "", xapi.Sanitize(err)
+		}
+		if _, err := xenapi.VIF.Create(s, xenapi.VIFRecord{Device: strconv.Itoa(i), Network: network, VM: vm, MAC: mac, MTU: 1500,
 			LockingMode: xenapi.VifLockingModeNetworkDefault, OtherConfig: map[string]string{}, QosAlgorithmParams: map[string]string{}}); err != nil {
 			return "", xapi.Sanitize(err)
 		}
@@ -268,20 +316,28 @@ func freeDevice(s *xenapi.Session, vm xenapi.VMRef, want string) string {
 	return devices[0]
 }
 
-// disk is ImportFile and "connect VBD": a new VDI on the SR, the disk sent to import_raw_vdi, then attached to the VM.
-func (im *applianceImport) disk(vm xenapi.VMRef, d rules.ApplianceDisk) error {
+// disk is ImportFile and "connect VBD": a new VDI on its SR, the disk sent to import_raw_vdi, then attached to the VM.
+func (im *applianceImport) disk(vm xenapi.VMRef, d rules.ApplianceDisk, srUUID string) error {
 	s := im.c.Session
+	sr, err := xenapi.SR.GetByUUID(s, srUUID)
+	if err != nil {
+		return xapi.Sanitize(err)
+	}
+	srRec, err := xenapi.SR.GetRecord(s, sr)
+	if err != nil {
+		return xapi.Sanitize(err)
+	}
 	stream, err := im.pkg.OpenDisk(d)
 	if err != nil {
 		return err
 	}
 	defer stream.Close()
-	if free := int64(im.srRec.PhysicalSize - im.srRec.PhysicalUtilisation); free < stream.VirtualSize {
-		return errors.New(messages.Format(messages.Get("SR_NOT_ENOUGH_SPACE"), im.srRec.UUID, rules.DiskSizeText(stream.VirtualSize), d.Href))
+	if free := int64(srRec.PhysicalSize - srRec.PhysicalUtilisation); free < stream.VirtualSize {
+		return errors.New(messages.Format(messages.Get("SR_NOT_ENOUGH_SPACE"), srRec.UUID, rules.DiskSizeText(stream.VirtualSize), d.Href))
 	}
 	// shortcut: a VDI.create whose reply is lost leaves that disk behind (cleanUp only knows the disks it was told of);
 	// tag the disks with the import and reconcile, as removeLostClone, if that shows up.
-	vdi, err := xenapi.VDI.Create(s, xenapi.VDIRecord{NameLabel: d.Name, NameDescription: d.Description, SR: im.sr, VirtualSize: int(stream.VirtualSize),
+	vdi, err := xenapi.VDI.Create(s, xenapi.VDIRecord{NameLabel: d.Name, NameDescription: d.Description, SR: sr, VirtualSize: int(stream.VirtualSize),
 		Type: xenapi.VdiTypeUser, OtherConfig: map[string]string{}, XenstoreData: map[string]string{}, SmConfig: map[string]string{}})
 	if err != nil {
 		return xapi.Sanitize(err)
@@ -295,7 +351,7 @@ func (im *applianceImport) disk(vm xenapi.VMRef, d rules.ApplianceDisk) error {
 	if err != nil {
 		return xapi.Sanitize(err)
 	}
-	address, port := storageHost(im.c, im.srRec)
+	address, port := storageHost(im.c, srRec)
 	query := url.Values{"task_id": {string(task)}, "vdi": {uuid}, "format": {stream.Format}}
 	err = put(s, im.policy, address, port, "/import_raw_vdi?"+query.Encode(), stream, stream.Length)
 	if err = finishTask(s, task, err, nil); err != nil {

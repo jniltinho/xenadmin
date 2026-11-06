@@ -47,17 +47,18 @@ func (w *Workspace) ApplianceInfo(file string) (*rules.Appliance, error) {
 	return p.Appliance, nil
 }
 
-// ApplianceSpaceError is why the SR cannot hold the appliance's disks ("" when it can).
-func (w *Workspace) ApplianceSpaceError(key, srUUID string, required int64) (out string, err error) {
-	err = w.with(key, func(c *xapi.Connection) error { out, err = ops.ApplianceSpaceError(c, srUUID, required); return err })
+// ApplianceMappingsError is why the mappings cannot be used for the appliance ApplianceInfo read ("" when they can):
+// the dialog's check before it closes; ImportAppliance checks them again against the package itself.
+func (w *Workspace) ApplianceMappingsError(key string, a rules.Appliance, maps []rules.ApplianceMapping) (out string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = ops.ApplianceMappingsError(c, &a, maps); return err })
 	return out, err
 }
 
-// ImportAppliance imports an OVF/OVA appliance to an SR and a network, verifying its manifest and starting it when
-// asked; the first VM's uuid.
-func (w *Workspace) ImportAppliance(key, file, srUUID, networkUUID string, verify, start bool) (out string, err error) {
+// ImportAppliance imports an OVF/OVA appliance with a mapping per VM (server, SR per disk, network per interface),
+// verifying its manifest and starting it when asked; the first VM's uuid.
+func (w *Workspace) ImportAppliance(key, file string, maps []rules.ApplianceMapping, verify, start bool) (out string, err error) {
 	err = w.with(key, func(c *xapi.Connection) error {
-		out, err = ops.ImportAppliance(c, w.policy, file, srUUID, networkUUID, verify, start)
+		out, err = ops.ImportAppliance(c, w.policy, file, maps, verify, start)
 		return err
 	})
 	return out, err
