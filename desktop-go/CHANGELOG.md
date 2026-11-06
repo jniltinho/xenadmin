@@ -21,6 +21,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   start order and delay, a VM that is not agile only restarted if possible, and the failures to tolerate up to the
   maximum the pool computes for the priorities, then EnableHAAction; with HA on the restart priorities and the
   failures to tolerate, SetHaPrioritiesAction) and Disable, with the C# questions and an RBAC check first.
+- Pool > Disaster Recovery: Configure... (the SRs that can hold the pool's VM metadata, at most 8, with the C#
+  warnings; database replication on or off where the choice changed) and the Disaster Recovery Wizard (Failover,
+  Failback and Test Failover: the SRs with metadata, the pools, vApps and VMs found in it with the current pool
+  marked, the prechecks, the recovery and its start mode, and the clean-up of a test failover), an RBAC check first.
+  The wizard reads SRs already attached to the pool, as the C# Desktop app (no iSCSI/HBA probe of mirrored LUNs).
 - VM Properties: Start Options (the start order and the delay before the next VM starts; on an HA pool the restart
   priority too, saved with the pool's failures to tolerate).
 - VM Properties: Custom Fields (the pool's fields with the VM's values, dates as the C# app stores them) and Edit

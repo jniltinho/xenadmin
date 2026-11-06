@@ -13,5 +13,6 @@ Every change is marked `XCP-NG PATCH` in the code and kept as one diff from the 
 | `APIError` | `jsonrpc_client.go` | XAPI failures were flattened into a string. `*APIError` keeps the code (`HOST_IS_SLAVE`, `SESSION_AUTHENTICATION_FAILED`...) and its parameters for `errors.As`. |
 | `Session.Ref()` | `session.go` | The session reference for the HTTP calls of the console and of import/export. |
 | `Session.WithContext` | `session.go`, `jsonrpc_client.go` | A copy of the session whose calls end with a context: the window's `event.from` loop is cut at once on disconnect, before the session is logged out. |
+| `Session.WithRef` | `session.go` | A copy of the session calling with another session reference: the one `VDI.open_database` gives on a pool's metadata, for the disaster recovery reads, prechecks and recovery. |
 
 Not yet: `DecodeRecord` (exported record decoding for `event.from`), planned with the model cache (task 2.4).

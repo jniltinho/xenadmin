@@ -15,7 +15,9 @@
   `TestLabReattachSR` and `TestLabSRCommands` detach, forget, reattach, repair and destroy their own SRs only;
   New Pool is checked by hand on the lab: move the VMs off `xcp-lab-2`, `pool.eject` it (it restarts standalone),
   add it in the window and create the pool again with `xcp-lab-1` as coordinator.
-  `XCP_LAB_ISCSI=10.77.58.20` formats the lab target's LUN, reattaches the SR and destroys it (`TestLabISCSI`).
+  `XCP_LAB_ISCSI=10.77.58.20` formats the lab target's LUN, reattaches the SR and destroys it (`TestLabISCSI`); with
+  `XCP_LAB_VM` it also holds `TestLabDR`'s pool metadata (XAPI keeps it on block SRs only, not on NFS): DR on, the
+  metadata read back, a test failover's prechecks, DR off and the SR destroyed (nothing is recovered).
 - Tests use a fake JSON-RPC server over TLS (`internal/xapi/client_test.go`) and an in-memory MCP client
   (`internal/mcp/server_test.go`); none needs a real server.
 - Against a server: `XCP_HOST`, `XCP_USER`, `XCP_PASS` in the environment (never in files); the lab servers and rules

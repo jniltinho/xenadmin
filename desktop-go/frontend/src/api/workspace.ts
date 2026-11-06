@@ -208,6 +208,15 @@ export const api = {
   setHaPriorities: (key: string, plan: HAStartup[], ntol: number) => call<void>("SetHAPriorities", key, plan, ntol),
   haDisableQuestion: (key: string) => call<HostQuestion>("HADisableQuestion", key),
   disableHa: (key: string) => call<void>("DisableHA", key),
+  // Pool > Disaster Recovery (internal/gui/dr.go)
+  drSrs: (key: string) => call<DRSRs>("DRSRs", key),
+  drConfigureWarning: (originally: boolean, checked: number) => call<{ text: string; can_save: boolean }>("DRConfigureWarning", originally, checked),
+  configureDr: (key: string, srs: string[]) => call<void>("ConfigureDR", key, srs),
+  drMetadata: (key: string, srs: string[]) => call<DRPool[]>("DRMetadata", key, srs),
+  drPrechecks: (key: string, type: string, choices: DRChoice[]) => call<DRCheck[]>("DRPrechecks", key, type, choices),
+  drRecover: (key: string, type: string, choices: DRChoice[], start: string) => call<void>("DRRecover", key, type, choices, start),
+  drTestPending: (key: string) => call<number>("DRTestPending", key),
+  drTestCleanup: (key: string) => call<void>("DRTestCleanup", key),
 };
 export interface HAPriority { value: string; text: string }
 export interface HAConfig { pool: string; ha_enabled: boolean; blocker?: string; ntol: number; hosts: number; priorities: HAPriority[] | null;
@@ -218,3 +227,10 @@ export interface HAStartup { vm: string; priority: string; order: number; start_
 // a pool's HA state (app.Object) and the Start Options page's restart priority (app.VMProperties)
 export interface XenObject { ha_enabled?: boolean }
 export interface VMProperties { ha_restart_priority: string; ha_priorities: HAPriority[] }
+// Pool > Disaster Recovery (app.DRSRs, app.DRPool, ops.DRChoice, rules.DRCheck)
+export interface DRSR { uuid: string; name: string; type: string; free: string; enabled: boolean; has_metadata: boolean }
+export interface DRSRs { pool: string; title: string; action: string; max_srs: number; srs: DRSR[] }
+export interface DRObject { uuid: string; name: string; vms?: number }
+export interface DRPool { uuid: string; name: string; vdi: string; current: boolean; note?: string; vapps: DRObject[]; vms: DRObject[] }
+export interface DRChoice { vdi: string; vapps: string[]; vms: string[] }
+export interface DRCheck { text: string; error: boolean }
