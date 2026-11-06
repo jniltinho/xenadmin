@@ -39,7 +39,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   Reconnect As.
 - vApps: Pool > Manage vApps... (New vApp wizard, Delete, Properties with the VMs and their startup sequence, Start,
   Shut down) and VM > Assign to vApp, with the C# questions. Exporting and importing a vApp (OVF) are not ported.
-- The user templates in the tree and the Templates menu: Create VM From Selection, Delete Template, Properties.
+- The user templates in the tree and the Templates menu: Create VM From Selection, Copy, Delete Template, Properties;
+  Server > Remove (the server leaves the list).
 - Tools > Options: certificate warnings, the pool secret reminder, the proxy server and connection timeout, the
   dismiss alerts confirmation, area or line graphs, and the last tab of each resource.
 - File > Import... and VM > Export...: a VM as an XVA file (ExportVmAction, ImportVmAction), checked as it downloads

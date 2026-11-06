@@ -25,8 +25,15 @@ func CopyVM(c *xapi.Connection, vmUUID, name, description string, full bool, srU
 	if err != nil {
 		return "", xapi.Sanitize(err)
 	}
-	if rec.IsASnapshot || rec.IsATemplate || rec.IsControlDomain || rec.PowerState != xenapi.VMPowerStateHalted {
+	_, defaultTemplate := rec.OtherConfig["default_template"]
+	_, internal := rec.OtherConfig["xensource_internal"]
+	switch { // VmRules.CanCopy, or CanCopyTemplate for a user template
+	case rec.IsASnapshot || rec.IsControlDomain || rec.IsATemplate && (defaultTemplate || internal):
+		return "", errors.New("only a VM or a user template can be copied")
+	case !rec.IsATemplate && rec.PowerState != xenapi.VMPowerStateHalted:
 		return "", errors.New("only a shut down VM can be copied")
+	case !contains(rec.AllowedOperations, xenapi.VMOperationsClone) && !contains(rec.AllowedOperations, xenapi.VMOperationsCopy):
+		return "", errors.New("the VM cannot be copied now")
 	}
 	var ref string
 	if full {

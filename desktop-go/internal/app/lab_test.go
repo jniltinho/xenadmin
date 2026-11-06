@@ -1409,6 +1409,24 @@ func TestLabServerAndTemplateCommands(t *testing.T) {
 	if objs, _ := ListObjects(c, "templates"); !slices.ContainsFunc(objs, func(o Object) bool { return o.UUID == uuid && o.UserTemplate }) {
 		t.Fatal("the template is not a user template")
 	}
+	// Templates > Copy... (a fast clone of a user template is a template)
+	copied, err := ops.CopyVM(c, uuid, "xcpng-center-go-test-template copy", "", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cref, _ := xenapi.VM.GetByUUID(s, copied)
+	if tpl, _ := xenapi.VM.GetIsATemplate(s, cref); !tpl {
+		t.Error("the copy of a template is not a template")
+	}
+	if cdel, err := ReadVMDelete(c, copied); err == nil {
+		var cvbds []string
+		for _, x := range cdel.Disks {
+			cvbds = append(cvbds, x.UUID)
+		}
+		if err := ops.DeleteVM(c, copied, cvbds, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Delete Template..., with its disk
 	del, err := ReadVMDelete(c, uuid)
 	if err != nil {
