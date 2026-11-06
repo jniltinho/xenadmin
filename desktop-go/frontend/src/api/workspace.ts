@@ -70,6 +70,9 @@ export interface IQN { index: number; iqn: string; address: string; port: number
 export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
 export interface Appliance { name: string; warnings: string[] | null; vms: { name: string }[] | null; disks: number; interfaces: number;
   eulas: string[] | null; has_manifest: boolean; required_space: number }
+export interface ExportChoices { pool: string; is_pool: boolean;
+  vms: { uuid: string; name: string; description: string; size: string; vapp: string; selected: boolean; vtpm: boolean }[] }
+export interface ApplianceExport { dir: string; name: string; vms: string[]; eulas: string[]; manifest: boolean; ova: boolean; compress: boolean; verify: boolean }
 export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
 export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
 export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
@@ -167,7 +170,6 @@ export const api = {
   setVgpuTypes: (key: string, pgpus: string[], changes: Record<string, boolean>) => call<void>("SetVGPUTypes", key, pgpus, changes),
   usb: (key: string, uuid: string) => call<USBTab>("USB", key, uuid),
   setUsbPassthrough: (key: string, pusb: string, wasEnabled: boolean) => call<void>("SetUSBPassthrough", key, pusb, wasEnabled),
-  pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),
   exportVm: (key: string, vm: string, file: string, verify: boolean) => call<void>("ExportVM", key, vm, file, verify),
@@ -180,6 +182,13 @@ export const api = {
   applianceSpaceError: (key: string, sr: string, required: number) => call<string>("ApplianceSpaceError", key, sr, required),
   importAppliance: (key: string, file: string, sr: string, network: string, verify: boolean, start: boolean) =>
     call<string>("ImportAppliance", key, file, sr, network, verify, start),
+  // the Export wizard's OVF/OVA path (internal/gui/ovfexport.go)
+  exportChoices: (key: string, vm: string, vapp: string) => call<ExportChoices>("ExportChoices", key, vm, vapp),
+  exportFolder: () => call<string>("ExportFolder"),
+  pickExportFolder: (dir: string) => call<string>("PickExportFolder", dir),
+  pickEulaFile: () => call<string>("PickEulaFile"),
+  applianceTargetError: (dir: string, name: string, xva: boolean) => call<string>("ApplianceTargetError", dir, name, xva),
+  exportAppliance: (key: string, e: ApplianceExport) => call<string>("ExportAppliance", key, e),
   memoryEdit: (key: string, vm: string) => call<MemoryEdit>("MemoryEdit", key, vm),
   memoryQuestion: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<string>("MemoryQuestion", key, vm, dynMin, dynMax, staticMax),
   changeMemory: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<void>("ChangeMemory", key, vm, dynMin, dynMax, staticMax),

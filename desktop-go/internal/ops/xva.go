@@ -144,22 +144,13 @@ func finishTask(s *xenapi.Session, task xenapi.TaskRef, transfer error, done fun
 // download is ExportVmAction.HttpGet: the export written to f while Export.verify checks it as it comes (the block
 // checksums and the end of the archive), then flushed to the disk.
 func download(s *xenapi.Session, policy *trust.Policy, host string, port int, path string, f *os.File) error {
-	client, base := xvaClient(s, policy, host, port)
-	req, err := http.NewRequest(http.MethodGet, base+path, nil)
+	body, err := get(s, policy, host, port, path)
 	if err != nil {
 		return err
 	}
-	req.AddCookie(&http.Cookie{Name: "session_id", Value: string(s.Ref())})
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("the export failed: %s", resp.Status)
-	}
+	defer body.Close()
 	w := bufio.NewWriterSize(f, 1<<20)
-	tee := io.TeeReader(resp.Body, w)
+	tee := io.TeeReader(body, w)
 	if err := rules.VerifyXVA(tee); err != nil {
 		return err
 	}
@@ -170,6 +161,29 @@ func download(s *xenapi.Session, policy *trust.Policy, host string, port int, pa
 		return err
 	}
 	return f.Sync() // FlushFileBuffers / fsync before the file is called done
+}
+
+// get is HTTPHelper.Get: the body of GET path, the session in a cookie; another answer than 200 is an error.
+func get(s *xenapi.Session, policy *trust.Policy, host string, port int, path string) (io.ReadCloser, error) {
+	client, base := xvaClient(s, policy, host, port)
+	req, err := http.NewRequest(http.MethodGet, base+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.AddCookie(&http.Cookie{Name: "session_id", Value: string(s.Ref())})
+	resp, err := client.Do(req)
+	if err != nil {
+		var u *url.Error
+		if errors.As(err, &u) { // the cause, without the URL and its task and disk references
+			return nil, u.Err
+		}
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("the export failed: %s", resp.Status)
+	}
+	return resp.Body, nil
 }
 
 func verifyFile(file string) error {
