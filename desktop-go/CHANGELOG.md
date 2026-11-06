@@ -4,6 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+—
+
+## [0.3.2] — 2026-11-06
+
+**Split VMDKs, the certificate revocation check of signed packages, and the import of encrypted packages made by
+older XenCenters (the current Windows app refuses them).**
+
 ### Added
 
 - OVF/OVA import of split VMDKs (twoGbMaxExtentSparse and twoGbMaxExtentFlat: a descriptor and extents of up to
