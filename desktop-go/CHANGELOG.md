@@ -18,7 +18,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 - File > Import... and VM > Export...: a VM as an XVA file (ExportVmAction, ImportVmAction), checked as it downloads
   (the block checksums, SHA-1 or xxHash64) and optionally read back; the import picks the pool or a server and the SR,
   and can start the VM. OVF/OVA appliances are not ported yet.
+- VM menu: Take a Snapshot... and Convert to Template... (ConvertVMToTemplateCommand); Server menu: Restart Toolstack
+  and Remove From Pool (a member running only its control domain), with the C# questions.
 - The Search tab of a VM, server or pool: the overview of its connection ("<pool>: Overview").
+- The Search overview follows the C# SearchView: the pool, its servers and their VMs (folding with +/-), with the live
+  CPU and memory (with bars), disks, network, address and uptime columns, read every ten seconds (MetricUpdater).
 - Networking tab: Add Interface, Properties, Remove Interface and Activate/Deactivate (network, generated or typed MAC
   with the duplicate MAC question, QoS limit), plugged live when the server allows it.
 

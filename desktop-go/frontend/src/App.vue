@@ -11,6 +11,7 @@ import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
 import HostTab from "./HostTab.vue";
+import SearchView from "./SearchView.vue";
 import PerformanceView from "./PerformanceView.vue";
 import NewVmWizard from "./NewVmWizard.vue";
 import NewSrWizard from "./NewSrWizard.vue";
@@ -214,6 +215,8 @@ const hostCommands = [
   { op: "reboot", label: "Reboot", icon: "001_Reboot" },
   { op: "enter_maintenance", label: "Enter Maintenance Mode...", icon: "000_ServerMaintenance" },
   { op: "exit_maintenance", label: "Exit Maintenance Mode", icon: "000_ServerMaintenance" },
+  { op: "restart_toolstack", label: "Restart Toolstack", icon: "" },
+  { op: "remove_from_pool", label: "Remove From Pool", icon: "" },
 ];
 type HostCommand = (typeof hostCommands)[number];
 const selectedHost = computed(() => (selected.value?.object?.kind === "hosts" ? selected.value : null));
@@ -298,7 +301,8 @@ async function runHost(c: HostCommand, n: Node | null) {
     }
   } else {
     const enter = c.op === "enter_maintenance";
-    if ((await choose({ title: q.title ?? "", text: q.text ?? "" }, enter ? ["Enter Maintenance Mode", "Cancel"] : ["Yes", "No"])) !== 0) return;
+    const yes = enter ? "Enter Maintenance Mode" : q.option || "Yes"; // Remove From Pool: "Yes, Remove"
+    if ((await choose({ title: q.title ?? "", text: q.text ?? "" }, [yes, enter ? "Cancel" : "No"])) !== 0) return;
   }
   const label = c.label.replace("...", "");
   status.value = `${label}: '${n.label}'...`;
@@ -511,6 +515,22 @@ async function exportVm(n: Node | null) {
   try { await api.exportVm(key, n.object.uuid, file, pick === 0); status.value = "Ready"; } catch (e) { failure.value = `${label}: ${String(e)}`; }
 }
 
+// Take a Snapshot from the menu opens the Snapshots tab's dialog
+const snapshotAsk = ref(false);
+// Convert to Template (ConvertVMToTemplateCommand): the C# question, then the conversion
+async function convertToTemplate(n: Node | null) {
+  closeMenus();
+  if (!n?.server || !n.object) return;
+  const q = await api.convertQuestion(n.object.name);
+  if ((await choose(q, ["Convert", "Cancel"])) !== 0) return;
+  const label = `Converting '${n.object.name}' to a template`, key = n.server;
+  status.value = `${label}...`;
+  let error = "";
+  try { await api.convertToTemplate(key, n.object.uuid); } catch (e) { error = `${label}: ${String(e)}`; }
+  await load(key);
+  if (error) failure.value = error; else { status.value = "Ready"; reselect(key); }
+}
+
 // the Copy VM and Delete VM dialogs
 const copyOf = ref<Node | null>(null);
 const deleteOf = ref<Node | null>(null);
@@ -534,7 +554,9 @@ async function propertiesClosed(saved: boolean) {
 }
 
 const soon = "Not available in this version yet";
-const hostItems = (n: Node | null): MenuItem[] => hostCommands.map((c) => ({ label: c.label, icon: `${c.icon}_h32bit_16`, enabled: hostCanRun(c, n), run: () => runHost(c, n) }));
+// the Server menu: power, maintenance mode, then Restart Toolstack and Remove From Pool (a member running only dom0)
+const hostItems = (n: Node | null): MenuItem[] => hostCommands.flatMap((c) => [...(c.op === "restart_toolstack" ? [{ label: "", sep: true }] : []),
+  { label: c.label, icon: c.icon ? `${c.icon}_h32bit_16` : undefined, enabled: hostCanRun(c, n) && (c.op !== "remove_from_pool" || (!n?.object?.coordinator && (n?.object?.resident ?? 0) <= 1)), run: () => runHost(c, n) }]);
 const srItems = (n: Node | null): MenuItem[] => srCommands.flatMap((c, i) => [...(i === 2 ? [{ label: "", sep: true }] : []),
   { label: c.label, icon: c.icon, enabled: !!n?.object?.allowed?.includes(c.op), run: () => runSr(c.op, c.label, n) }]);
 // CopyVMCommand: a shut down VM that can be cloned or copied; DeleteVMCommand: destroy allowed
@@ -563,6 +585,9 @@ const vmItems = (n: Node | null): MenuItem[] => [
   ...onHostItems(n),
   { label: "", sep: true },
   { label: "Copy VM...", enabled: canCopy(n), run: () => { closeMenus(); copyOf.value = n; } },
+  { label: "Take a Snapshot...", icon: "000_VMSnapShotDiskOnly_h32bit_16", enabled: !!n?.object?.allowed?.some((a) => a === "snapshot" || a === "checkpoint"),
+    run: () => { closeMenus(); if (n) { reselect(n.id); tab.value = "snapshots"; snapshotAsk.value = true; } } },
+  { label: "Convert to Template...", enabled: !!n?.object?.allowed?.includes("make_into_template"), run: () => convertToTemplate(n) },
   { label: "", sep: true },
   { label: "Export...", icon: "000_ExportVirtualAppliance_h32bit_16", enabled: !!n?.object?.allowed?.includes("export"), run: () => exportVm(n) },
   { label: "Delete VM...", enabled: !!n?.object?.allowed?.includes("destroy"), run: () => { closeMenus(); deleteOf.value = n; } },
@@ -631,11 +656,20 @@ const overviewTitle = computed(() => {
 });
 // the tree node a row of the Search tab opens: a view's own node, else the Infrastructure tree's
 const rowId = (r: { key: string; type: string; o: XenObject; id?: string }) => r.id ?? (r.type === "Pool" ? r.key : `${r.key}/${r.o.uuid}`);
-const everything = computed(() => Object.entries(data).flatMap(([key, d]) => [
-  ...(d.pools ?? []).map((o) => ({ o: { ...o, name: o.name || (d.hosts ?? []).find((h) => h.coordinator)?.name || key }, type: "Pool", key, icon: "000_PoolConnected_h32bit_16" })),
-  ...(d.hosts ?? []).map((o) => ({ o, type: "Server", key, icon: "000_TreeConnected_h32bit_16" })),
-  ...(d.vms ?? []).map((o) => ({ o, type: "VM", key, icon: vmIcon(o) })), ...(d.srs ?? []).map((o) => ({ o, type: "Storage", key, icon: o.icon || "000_Storage_h32bit_16" })),
-]));
+// SearchView.Rows: per connection the pool (a pool of one server has none), its servers by name with the VMs on each,
+// then the VMs on no server. shortcut: no custom templates rows; a halted VM's home server is not looked up.
+const byName = (a: XenObject, b: XenObject) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+const everything = computed(() => Object.entries(data).flatMap(([key, d]) => {
+  const hosts = [...(d.hosts ?? [])].sort(byName), vms = [...(d.vms ?? [])].sort(byName);
+  const pools = (d.pools ?? []).filter((p) => p.name || hosts.length > 1); // Helpers.GetPool
+  const depth = pools.length ? 1 : 0;
+  return [
+    ...pools.map((o) => ({ o: { ...o, name: o.name || hosts.find((h) => h.coordinator)?.name || key }, type: "Pool", key, icon: "000_PoolConnected_h32bit_16", depth: 0 })),
+    ...hosts.flatMap((h) => [{ o: h, type: "Server", key, icon: "000_TreeConnected_h32bit_16", depth },
+      ...vms.filter((v) => v.host_uuid === h.uuid).map((o) => ({ o, type: "VM", key, icon: vmIcon(o), depth: depth + 1 }))]),
+    ...vms.filter((v) => !v.host_uuid || !hosts.some((h) => h.uuid === v.host_uuid)).map((o) => ({ o, type: "VM", key, icon: vmIcon(o), depth })),
+  ];
+}));
 
 async function refreshServers() { servers.value = await api.servers(); }
 
@@ -831,20 +865,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
           <img src="/icons/home-logo.png" alt="" class="h-72 w-72" />
           <a class="cursor-pointer font-serif text-[15px] text-blue-700 underline" @click="openAdd()">Add a Server</a>
         </div>
-        <div v-else-if="tab === 'search'" class="min-h-0 flex-1 overflow-auto">
-          <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">{{ overviewTitle }}</div>
-          <table class="w-full border-collapse">
-            <thead class="sticky top-0 bg-pane text-left"><tr>
-              <th class="border-b border-line px-2 py-1 font-normal">Name</th><th class="border-b border-line px-2 py-1 font-normal">Type</th>
-              <th class="border-b border-line px-2 py-1 font-normal">Description</th><th class="border-b border-line px-2 py-1 font-normal">Server</th></tr></thead>
-            <tbody>
-              <tr v-for="r in overview" :key="`${r.key}/${r.o.uuid}`" class="cursor-default hover:bg-neutral-100" @dblclick="reselect(rowId(r))">
-                <td class="border-b border-line px-2 py-1"><span class="flex items-center gap-1.5"><img :src="`/icons/${r.icon}.png`" alt="" class="h-4 w-4" />{{ r.o.name }}</span></td><td class="border-b border-line px-2 py-1">{{ r.type }}</td>
-                <td class="border-b border-line px-2 py-1">{{ r.o.description }}</td><td class="border-b border-line px-2 py-1">{{ r.key }}</td></tr>
-            </tbody>
-          </table>
-          <p v-if="!overview.length" class="p-3 text-neutral-500">No connected server. Use Add New Server, or double-click a server of the tree to connect.</p>
-        </div>
+        <SearchView v-else-if="tab === 'search'" :title="overviewTitle" :rows="overview" @open="(r) => reselect(rowId(r))" />
         <ConsoleView v-else-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
         <PerformanceView v-else-if="tab === 'performance' && selected?.object && selected.server" :key="`perf/${selected.id}`"
                          :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" />
@@ -856,7 +877,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
                @status="onTabStatus" />
         <!-- keyed: another VM gets a new tab, never the previous VM's rows or selection -->
         <SnapshotsView v-else-if="tab === 'snapshots' && selected?.object && selected.server" :key="selected.server + '/' + selected.object.uuid"
-                       :server="selected.server" :vm="selected.object.uuid" :tick="tick"
+                       :server="selected.server" :vm="selected.object.uuid" :tick="tick" :ask-take="snapshotAsk" @asked="snapshotAsk = false"
                        @status="onTabStatus" @changed="selected?.server && load(selected.server).then(() => reselect(selected!.id))" />
         <template v-else>
         <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">{{ selected?.disconnected ? "Connection General Properties" : "General Properties" }}</div>

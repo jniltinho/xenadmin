@@ -31,18 +31,19 @@ Disconnect, Remove). Passwords stay in memory, never in files, logs or errors. T
 **Main window.** The C# menus, toolbar (Back, Forward, Add New Server, New Pool, New Storage, New VM, the power
 buttons, Pause/Unpause) and context menus, enabled by the same rules; the tree with its search box and the C#
 icons; the navigation pane (Infrastructure, Objects, Organization Views, Saved Searches, Notifications), resizable;
-the Home and Search tabs; XAPI errors in the Windows app's words (`FriendlyErrorNames`).
+the Home and Search tabs (the overview with live CPU, memory, disk, network, address and uptime columns); XAPI errors in the Windows app's words (`FriendlyErrorNames`).
 
 **VMs.** Start, Shut Down, Reboot, Suspend, Resume, Pause, Unpause and the forced ones, with the C# questions;
 Export to an XVA file and Import (File > Import...); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
-New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Copy VM (fast clone or
+New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
 (General, CPU, Boot Options, Start Options, Home Server, Advanced); the General, Memory (Memory Settings: fixed, range or static
 maximum), Storage (add, attach, activate, detach and delete disks; the DVD drive and its ISO), Networking (add,
 change, remove, activate and deactivate interfaces), Console (noVNC), Performance and Snapshots (take, revert,
 delete) tabs.
 
-**Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), the Memory,
+**Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), Restart
+Toolstack, Remove From Pool, the Memory,
 Storage, Networking, NICs, Console and Performance tabs; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
 question, `pool.join`).
 
@@ -55,7 +56,7 @@ and the searches saved in the pools (the XenSearch filters and groupings they us
 Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
 
 Not there yet: the other Properties pages (HA, Alerts, GPU, USB), the Performance graph editor, HA, disaster
-recovery, NICs and bonds, OVF/OVA appliances, the overview's live columns (CPU, memory, network), and saved searches
+recovery, NICs and bonds, OVF/OVA appliances, and saved searches
 with the rarer XenSearch filters (dates, IP addresses, object references; listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.
 
 ## Command line and MCP

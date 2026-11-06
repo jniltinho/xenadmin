@@ -6,8 +6,9 @@ import { serial } from "./serial";
 import { api, type Snapshot, type VMSnapshots } from "./api/workspace";
 
 // tick: the server's objects changed (xcp:changed), read the snapshots again
-const props = defineProps<{ server: string; vm: string; tick?: number }>();
-const emit = defineEmits<{ (e: "status", text: string, error: boolean): void; (e: "changed"): void }>();
+// askTake: VM > Take a Snapshot... opens the dialog (answered with "asked")
+const props = defineProps<{ server: string; vm: string; tick?: number; askTake?: boolean }>();
+const emit = defineEmits<{ (e: "status", text: string, error: boolean): void; (e: "changed"): void; (e: "asked"): void }>();
 
 const data = ref<VMSnapshots | null>(null);
 const picked = ref<string>("");
@@ -49,6 +50,7 @@ async function run(label: string, f: () => Promise<void>) {
 function openTake() {
   Object.assign(take, { open: true, name: "", description: "", memory: false, error: "" });
 }
+watch(() => props.askTake, (v) => { if (v) { openTake(); emit("asked"); } }, { immediate: true });
 
 async function submitTake(): Promise<boolean> {
   if (!take.name.trim()) { take.error = "Enter a name for the snapshot."; return false; }

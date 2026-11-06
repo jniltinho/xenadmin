@@ -33,6 +33,8 @@ type Object struct {
 	Icon        string   `json:"icon,omitempty"` // an SR's tree icon (Images.GetIconFor)
 	// ControlDomain is a host's dom0 VM (its Console tab shows the server's console)
 	ControlDomain string `json:"control_domain,omitempty"`
+	// Resident is the number of VMs a host runs, its control domain included (HostRules.CanRemoveFromPool: at most 1)
+	Resident int `json:"resident,omitempty"`
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -63,7 +65,8 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 			if err != nil {
 				live = false // no metrics yet: the server is starting
 			}
-			o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, Maintenance: !r.Enabled, Live: live}
+			o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, Maintenance: !r.Enabled, Live: live,
+				Resident: len(r.ResidentVMs)}
 			if dom0, err := xenapi.VM.GetUUID(s, r.ControlDomain); err == nil {
 				o.ControlDomain = dom0
 			}

@@ -21,7 +21,8 @@ func TestValidateMemory(t *testing.T) {
 	if MemoryConfirmation(m, 4*gb) == "" || MemoryConfirmation(m, 2*gb) != "" {
 		t.Error("confirmation")
 	}
-	if MemoryText(512*mib) != "512 MB" || MemoryText(3*gb/2) != "1.5 GB" {
-		t.Error("text")
+	if MemoryText(512*mib) != "512 MB" || MemoryText(3*gb/2) != "1.5 GB" || MemoryText(2*gb) != "2.0 GB" || MemoryText(1<<40) != "1024 GB" ||
+		MemorySizeText(float64(2*gb), false) != "2 GB" || MemorySizeText(0, false) != "0" {
+		t.Error("text", MemoryText(2*gb), MemoryText(1<<40))
 	}
 }

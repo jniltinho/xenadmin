@@ -47,7 +47,12 @@ func labPolicy(t *testing.T) *trust.Policy {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &trust.Policy{Store: s, OperatorPins: map[string]string{"*": os.Getenv("XCP_TRUST_FINGERPRINT")}}
+	h, p, err := xapi.ParseAddress(os.Getenv("XCP_LAB_HOST"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// only the coordinator is pinned: the members are trusted through it (VouchedFingerprints), as in the window
+	return &trust.Policy{Store: s, OperatorPins: map[string]string{xapi.HostKey(h, p): os.Getenv("XCP_TRUST_FINGERPRINT")}}
 }
 
 // TestLabVMTabs reads the Storage, Networking and Memory tabs of every VM of the lab (read-only).
@@ -1341,5 +1346,107 @@ func TestLabExportImport(t *testing.T) {
 	t.Cleanup(func() { destroy(ref) })
 	if got, _ := xenapi.VM.GetNameLabel(s, ref); got != name+" (1)" {
 		t.Fatalf("the imported VM is named %q", got)
+	}
+}
+
+// TestLabServerAndTemplateCommands converts a throwaway VM to a template (then destroys it), restarts the toolstack of
+// the pool member and checks that Remove From Pool refuses the coordinator and a member running a VM (XCP_ALLOW_WRITE=1).
+func TestLabServerAndTemplateCommands(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	opts, err := ReadNewVMOptions(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tpl string
+	for _, x := range opts.Templates {
+		if x.Name == "Other install media" {
+			tpl = x.UUID
+		}
+	}
+	d, err := ReadNewVMDefaults(c, tpl, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := ops.CreateVM(c, ops.NewVM{Template: tpl, Name: "xcpng-center-go-test-template", Install: "cd", BootMode: d.BootMode, VCPUs: 1, Cores: 1,
+		Memory: 256 << 20, Disks: []ops.NewDisk{{Position: "0", Name: "xcpng-center-go-test-template 0", Size: 64 << 20, SR: opts.DefaultSR}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := created.UUID
+	vm, _ := xenapi.VM.GetByUUID(s, uuid)
+	t.Cleanup(func() { // a template's disks go with it
+		vbds, _ := xenapi.VM.GetVBDs(s, vm)
+		for _, b := range vbds {
+			if typ, _ := xenapi.VBD.GetType(s, b); typ == xenapi.VbdTypeDisk {
+				if vdi, err := xenapi.VBD.GetVDI(s, b); err == nil {
+					_ = xenapi.VDI.Destroy(s, vdi)
+				}
+			}
+		}
+		if err := xenapi.VM.Destroy(s, vm); err != nil {
+			t.Errorf("not destroyed: %v", err)
+		}
+	})
+	if err := ops.ConvertToTemplate(c, uuid); err != nil {
+		ops, _ := xenapi.VM.GetAllowedOperations(s, vm)
+		t.Fatal(err, ops)
+	}
+	rec, _ := xenapi.VM.GetRecord(s, vm)
+	if !rec.IsATemplate || rec.OtherConfig["instant"] != "true" {
+		t.Fatalf("not a template: %v %v", rec.IsATemplate, rec.OtherConfig["instant"])
+	}
+	if err := ops.ConvertToTemplate(c, uuid); err == nil {
+		t.Fatal("a template converted again")
+	}
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	var master xenapi.HostRef
+	for _, p := range pools {
+		master = p.Master
+	}
+	hosts, _ := xenapi.Host.GetAllRecords(s)
+	for r, h := range hosts {
+		_, _, _, err := ops.RemoveFromPoolQuestion(c, h.UUID)
+		if err == nil {
+			t.Fatalf("%s may be removed (resident VMs %d)", h.NameLabel, len(h.ResidentVMs))
+		}
+		if r == master {
+			continue
+		}
+		if title, text, err := ops.RestartToolstackQuestion(c, h.UUID); err != nil || title == "" || !strings.Contains(text, h.NameLabel) {
+			t.Fatalf("%q %q %v", title, text, err)
+		}
+		if err := ops.RestartToolstack(c, h.UUID); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestLabOverview reads the live columns of the Search overview: every server and the running VM have figures.
+func TestLabOverview(t *testing.T) {
+	c := labConnection(t)
+	rows, err := Overview(c, labPolicy(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, _ := xenapi.Host.GetAllRecords(c.Session)
+	for _, h := range hosts {
+		r := rows[h.UUID]
+		if !strings.Contains(r.CPU, "% of") || r.CPUBar < 0 || !strings.Contains(r.Memory, " of ") || r.Uptime == "-" || r.Address == "-" {
+			t.Fatalf("%s: %+v", h.NameLabel, r)
+		}
+		t.Logf("%s: %+v", h.NameLabel, r)
+	}
+	if name := os.Getenv("XCP_LAB_VM"); name != "" {
+		refs, _ := xenapi.VM.GetByNameLabel(c.Session, name)
+		uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+		r := rows[uuid]
+		if !strings.Contains(r.CPU, "% of") || r.Uptime == "-" || r.Disks == "-" {
+			t.Fatalf("%s: %+v", name, r)
+		}
+		t.Logf("%s: %+v", name, r)
 	}
 }

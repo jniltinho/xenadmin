@@ -9,7 +9,7 @@ const call = <T>(method: string, ...args: unknown[]) =>
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
 export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean;
-  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string }
+  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string; resident?: number }
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
 export interface Table { title: string; headers: string[]; rows: string[][]; keys: string[] }
@@ -28,6 +28,7 @@ export interface VIF { uuid: string; device: string; network: string; mac: strin
   can_toggle: boolean; toggle_label: string; edit_tip: string; remove_tip: string; toggle_tip: string }
 export interface VMNetworking { table: Table; vifs: VIF[]; can_add: boolean; at_max: string }
 export interface VIFSettings { network: string; mac: string; qos: boolean; limit: string }
+export interface OverviewRow { cpu: string; cpu_bar: number; memory: string; memory_bar: number; disks: string; network: string; address: string; uptime: string }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
@@ -79,6 +80,9 @@ export const api = {
   setVifActive: (key: string, vif: string, active: boolean) => call<void>("SetVIFActive", key, vif, active),
   memory: (key: string, vm: string) => call<Table>("Memory", key, vm),
   hostTab: (key: string, kind: string, uuid: string, tab: string) => call<Table>("HostTab", key, kind, uuid, tab),
+  overview: (key: string) => call<Record<string, OverviewRow> | null>("Overview", key),
+  convertQuestion: (name: string) => call<Confirm>("ConvertQuestion", name),
+  convertToTemplate: (key: string, vm: string) => call<void>("ConvertToTemplate", key, vm),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

@@ -2,6 +2,8 @@ package rules
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 
 	"xcpng-center/internal/messages"
 )
@@ -97,14 +99,30 @@ func MemoryConfirmation(m MemoryVM, staticMax int64) string {
 	return messages.Get("CONFIRM_CHANGE_MEMORY_SINGULAR")
 }
 
-// MemoryText is Util.MemorySizeStringSuitableUnits: MB up to 1 GB, GB above (one decimal when needed).
-func MemoryText(bytes int64) string {
-	if bytes < 1<<30 {
-		return fmt.Sprintf("%d MB", bytes/mib)
+// MemoryText is Util.MemorySizeStringSuitableUnits(bytes, true): "1.0 GB" from 1 GB (whole GB above 100), MB, kB, B.
+func MemoryText(bytes int64) string { return MemorySizeText(float64(bytes), true) }
+
+// MemorySizeText is Util.MemorySizeStringSuitableUnits: GB with one decimal ("{0:F1} GB", or as rounded without
+// point0), whole GB above 100 GB, then MB, kB and B.
+func MemorySizeText(bytes float64, point0 bool) string {
+	const kib, mib, gib = 1 << 10, 1 << 20, 1 << 30
+	switch {
+	case bytes >= gib:
+		gb := bytes / gib
+		if gb > 100 {
+			return fmt.Sprintf("%v GB", math.Round(gb))
+		}
+		gb = math.Round(gb*10) / 10 // MidpointRounding.AwayFromZero, as math.Round
+		if point0 {
+			return fmt.Sprintf("%.1f GB", gb)
+		}
+		return strconv.FormatFloat(gb, 'f', -1, 64) + " GB"
+	case bytes >= mib: // Math.Round: to even
+		return fmt.Sprintf("%v MB", math.RoundToEven(bytes/mib))
+	case bytes >= kib:
+		return fmt.Sprintf("%v kB", math.RoundToEven(bytes/kib))
+	case bytes == 0:
+		return "0"
 	}
-	gb := float64(bytes) / (1 << 30)
-	if gb == float64(int64(gb)) {
-		return fmt.Sprintf("%d GB", int64(gb))
-	}
-	return fmt.Sprintf("%.1f GB", gb)
+	return strconv.FormatFloat(bytes, 'f', -1, 64) + " B"
 }

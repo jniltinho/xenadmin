@@ -39,6 +39,8 @@ type Workspace struct {
 	Emit func(key string)
 	// Files is the window's file dialog (export and import)
 	Files FileDialog
+	// hostBusy counts the server commands running on each host (by uuid)
+	hostBusy map[string]int
 }
 
 // watcher is a running app.Watch: cancel cuts its call, done closes when it has returned.
@@ -138,6 +140,31 @@ func (w *Workspace) Connect(address, user, password string) ConnectResult {
 	return ConnectResult{Connected: true, Key: key}
 }
 
+// reconnect logs in again with the connection's password kept in memory, trying for three minutes while the
+// coordinator's toolstack starts.
+// It stops when the connection is no longer the one restarted (Disconnect, Forget, a new login) or the window closed.
+func (w *Workspace) reconnect(key, user string) error {
+	w.mu.Lock()
+	password, old := w.passwords[key], w.conns[key]
+	w.mu.Unlock()
+	var last string
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Second) {
+		w.mu.Lock()
+		current, closed := w.conns[key], w.closed
+		w.mu.Unlock()
+		if closed || current != old {
+			return nil
+		}
+		r := w.Connect(key, user, password)
+		if r.Connected {
+			w.changed(key)
+			return nil
+		}
+		last = r.Error
+	}
+	return errors.New("the server did not come back after the toolstack restart: " + last)
+}
+
 // Trust pins a certificate the user accepted for a new server. A changed certificate is never replaced from here:
 // the C# app also refuses it until the user removes the old pin deliberately.
 func (w *Workspace) Trust(key, fingerprint string) error {
@@ -212,6 +239,22 @@ func (w *Workspace) RemoveCustomField(key, name string) error {
 // HostTab is the Memory, Storage, Networking or NICs tab of a server or pool ("hosts", "pools"), or an SR's Storage tab.
 func (w *Workspace) HostTab(key, kind, uuid, tab string) (out app.Table, err error) {
 	err = w.with(key, func(c *xapi.Connection) error { out, err = app.HostTab(c, kind, uuid, tab); return err })
+	return out, err
+}
+
+// ConvertQuestion is Convert to Template's question (ConvertVMToTemplateCommand).
+func (w *Workspace) ConvertQuestion(name string) Confirm {
+	return Confirm{Title: messages.Get("CONVERT_TO_TEMPLATE"), Text: messages.Format(messages.Get("CONVERT_TEMPLATE_DIALOG_TEXT"), ops.Ellipsise(name, 25))}
+}
+
+// ConvertToTemplate turns a VM into a template.
+func (w *Workspace) ConvertToTemplate(key, vmUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.ConvertToTemplate(c, vmUUID) })
+}
+
+// Overview is the live columns of the Search overview for a connection's servers and VMs (by uuid).
+func (w *Workspace) Overview(key string) (out map[string]app.OverviewRow, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.Overview(c, w.policy); return err })
 	return out, err
 }
 
@@ -338,7 +381,8 @@ type HostQuestion struct {
 	Error string `json:"error,omitempty"`
 	Title string `json:"title,omitempty"`
 	Text  string `json:"text,omitempty"`
-	// Option is a check box shown with the question (Revert: take a snapshot first), "" for none
+	// Option is a check box shown with the question (Revert: take a snapshot first), or the Yes button's label of
+	// Remove From Pool; "" for none
 	Option string `json:"option,omitempty"`
 }
 
@@ -348,6 +392,17 @@ func (w *Workspace) HostQuestion(key, uuid, op string) (q HostQuestion, err erro
 		if op == "exit_maintenance" {
 			name, restore, err := ops.VMsToRestore(c, uuid)
 			q = HostQuestion{Title: messages.Get("EXIT_MAINTENANCE_MODE_CONTEXT_MENU"), Text: rules.ExitMaintenanceQuestion(name, restore)}
+			return err
+		}
+		switch op {
+		case "restart_toolstack":
+			q.Title, q.Text, err = ops.RestartToolstackQuestion(c, uuid)
+			return err
+		case "remove_from_pool":
+			q.Title, q.Text, q.Option, err = ops.RemoveFromPoolQuestion(c, uuid)
+			if err != nil {
+				q.Error, err = err.Error(), nil
+			}
 			return err
 		}
 		h, err := ops.HostInfo(c, uuid)
@@ -370,8 +425,38 @@ func (w *Workspace) HostQuestion(key, uuid, op string) (q HostQuestion, err erro
 	return q, err
 }
 
-// HostCommand runs a server command after its question (restore: Exit Maintenance Mode puts the VMs back).
+// HostCommand runs a server command after its question (restore: Exit Maintenance Mode puts the VMs back). Restart
+// Toolstack waits for no other command of ours on that server (HelpersGUI.HasActiveHostAction), and on the
+// coordinator connects again afterwards (RestartToolstackAction: the session does not survive the restart).
 func (w *Workspace) HostCommand(key, uuid, op string, restore bool) error {
+	w.mu.Lock()
+	if w.hostBusy == nil {
+		w.hostBusy = map[string]int{}
+	}
+	if op == "restart_toolstack" && w.hostBusy[uuid] > 0 {
+		w.mu.Unlock()
+		return errors.New("another command is running on this server: wait for it to finish")
+	}
+	w.hostBusy[uuid]++
+	w.mu.Unlock()
+	defer func() { w.mu.Lock(); w.hostBusy[uuid]--; w.mu.Unlock() }()
+	if op == "restart_toolstack" {
+		var coordinator bool
+		var user string
+		err := w.with(key, func(c *xapi.Connection) error {
+			user = c.User
+			h, err := ops.HostInfo(c, uuid)
+			if err != nil { // never restart without knowing whether the session goes with it
+				return err
+			}
+			coordinator = h.Coordinator
+			return ops.RestartToolstack(c, uuid)
+		})
+		if err != nil || !coordinator {
+			return err
+		}
+		return w.reconnect(key, user)
+	}
 	return w.with(key, func(c *xapi.Connection) error {
 		switch op {
 		case "shutdown", "reboot":
@@ -380,6 +465,10 @@ func (w *Workspace) HostCommand(key, uuid, op string, restore bool) error {
 			return ops.EnterMaintenance(c, uuid)
 		case "exit_maintenance":
 			return ops.ExitMaintenance(c, uuid, restore)
+		case "restart_toolstack":
+			return ops.RestartToolstack(c, uuid)
+		case "remove_from_pool":
+			return ops.RemoveFromPool(c, uuid)
 		}
 		return fmt.Errorf("unknown server command %q", op)
 	})
