@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -18,7 +19,8 @@ import (
 // A search saved in a pool (XenModel/XenSearch: SearchMarshalling XML, major version 2) is a query (the object
 // types of QueryScope and a filter) and a grouping, each element named after its C# class. This is the part of
 // XenSearch the saved searches use most; a search with any other filter, property or grouping is listed, not run.
-// shortcut: no XenModelObject*Query or Recursive*Query yet; IPAddressQuery
+// shortcut: no Recursive*Query (a filter on a related object's properties) yet; XenModelObject*Query reads the pool,
+// server, vApp and networks of an object; IPAddressQuery
 // reads VM and server addresses (not an SR's target);
 // port them from QueryTypes.cs when a saved search needs one.
 
@@ -64,6 +66,10 @@ var filterProperties = map[string]map[string]bool{
 	"NullQuery":               {"pool": true, "folder": true, "appliance": true},
 	"IPAddressQuery":          {"ip_address": true},
 	"DatePropertyQuery":       {"start_time": true},
+	// the objects an object belongs to, by uuid or name (property type Pool, Host, VM_appliance, List<Network>)
+	"XenModelObjectPropertyQuery":         {"pool": true, "appliance": true},
+	"XenModelObjectListContainsQuery":     {"networks": true, "host": true}, // HostProperty is a list
+	"XenModelObjectListContainsNameQuery": {"networks": true, "host": true},
 }
 
 // groupingProperties are the properties each grouping reads here.
@@ -170,6 +176,12 @@ func checkFilter(f xmlNode) error {
 		if props, ok := filterProperties[name]; !ok || !props[f.attr("property")] {
 			return fmt.Errorf("%s on %q", name, f.attr("property"))
 		}
+		if name == "XenModelObjectPropertyQuery" && !slices.ContainsFunc(f.Attrs, func(a xml.Attr) bool { return a.Name.Local == "uuid" }) {
+			return errors.New("an object query by reference") // the old "query" form needs the connection's cache
+		}
+		if t := f.attr("type"); name == "XenModelObjectListContainsNameQuery" && !strings.Contains(" contains startswith endswith exactmatch notcontain ", " "+t+" ") {
+			return fmt.Errorf("string query type %q", t)
+		}
 		if t := f.attr("type"); name == "DatePropertyQuery" && !strings.Contains(" today yesterday thisweek lastweek before after exact ", " "+t+" ") {
 			return fmt.Errorf("date query type %q", t) // Enum.Parse refuses it
 		}
@@ -210,6 +222,7 @@ type facts struct {
 	noIPs  bool                 // ...except a template's or snapshot's, an empty list (IsRealVm is false)
 	dates  map[string]time.Time // start_time of a real VM (VM_metrics.start_time; the zero time without metrics)
 	other  map[string]string    // other_config, for the custom field queries (CustomFieldsManager.GetCustomFieldValue)
+	known  map[string]bool      // the pools and vApps of the connection: an object query finds its object (FindByUUID)
 }
 
 type customFieldGroup struct{ name, value, key string }
@@ -304,11 +317,18 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 		}
 		return nil
 	}
+	known := map[string]bool{}
+	for _, p := range inv.pools {
+		known[p.UUID] = true
+	}
+	for _, a := range apps {
+		known[a.UUID] = true
+	}
 	root := &ViewNode{}
 	for _, it := range inv.items {
 		f := facts{values: map[string]string{"label": it.obj.Name, "uuid": it.obj.UUID, "description": it.obj.Description},
 			labels: map[string]string{}, ints: map[string]int64{}, lists: map[string][]string{"tags": it.tags}, groups: map[string][]group{},
-			folder: folderPath(it.other["folder"]), other: it.other}
+			folder: folderPath(it.other["folder"]), other: it.other, known: known}
 		if pool != nil {
 			f.values["pool"], f.groups["pool"] = poolUUID, []group{*pool}
 		}
@@ -533,6 +553,22 @@ func match(q xmlNode, f facts) tri {
 			return no
 		}
 		return of((len(list) == 0) == parseBool(q.attr("empty")))
+	case "XenModelObjectPropertyQuery": // the object it is (a missing one: nothing matches; uuid "invalid": no object)
+		gs := f.groups[prop]
+		if len(gs) == 0 || !f.known[q.attr("uuid")] { // no object, or the queried one is gone: nothing matches
+			return no
+		}
+		same := slices.ContainsFunc(gs, func(g group) bool { return groupUUID(g) == q.attr("uuid") })
+		return of(same == parseBool(q.attr("equals")))
+	case "XenModelObjectListContainsQuery", "XenModelObjectListContainsNameQuery": // ListContainsQuery.MatchProperty
+		gs := f.groups[prop] // NetworksProperty and HostProperty: a list, maybe empty, never null
+		found := slices.ContainsFunc(gs, func(g group) bool {
+			if q.XMLName.Local == "XenModelObjectListContainsQuery" {
+				return groupUUID(g) == q.attr("uuid")
+			}
+			return matchString(g.name, q.attr("query"), q.attr("type"), false)
+		})
+		return of(found == parseBool(q.attr("contains")))
 	case "CustomFieldQuery", "CustomFieldDateQuery": // CustomFieldQuery.Match, CustomFieldDateQuery.Match
 		def := q.Children[0]
 		raw := f.other[rules.CustomFieldsKey+"."+def.attr("name")]
@@ -686,3 +722,6 @@ func groupPaths(groupings []xmlNode, f facts) [][]group {
 	}
 	return paths
 }
+
+// groupUUID is the uuid of the object a group is (its key is "server/uuid").
+func groupUUID(g group) string { return g.key[strings.LastIndex(g.key, "/")+1:] }

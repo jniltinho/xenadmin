@@ -2800,3 +2800,52 @@ func TestLabCustomFieldSearch(t *testing.T) {
 		t.Fatal("custom field date search")
 	}
 }
+
+// TestLabObjectSearch runs searches by the objects a VM belongs to (XenModelObjectPropertyQuery on its server,
+// XenModelObjectListContains(Name)Query on its networks), read-only.
+func TestLabObjectSearch(t *testing.T) {
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" {
+		t.Skip("XCP_LAB_VM not set")
+	}
+	c := labConnection(t)
+	s := c.Session
+	refs, _ := xenapi.VM.GetByNameLabel(s, name)
+	if len(refs) == 0 {
+		t.Fatal("no lab VM")
+	}
+	vm, _ := xenapi.VM.GetRecord(s, refs[0])
+	hostUUID, _ := xenapi.Host.GetUUID(s, vm.ResidentOn)
+	if len(vm.VIFs) == 0 {
+		t.Skip("the lab VM has no VIF")
+	}
+	netRef, _ := xenapi.VIF.GetNetwork(s, vm.VIFs[0])
+	netUUID, _ := xenapi.Network.GetUUID(s, netRef)
+	netName, _ := xenapi.Network.GetNameLabel(s, netRef)
+	found := func(filter string) bool {
+		nodes, err := RunSearch(c, "lab", `<Search Name="by object" major_version="2" minor_version="1" show_expanded="yes"><Query>`+
+			`<QueryScope><VM /></QueryScope>`+filter+`</Query></Search>`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hit := false
+		var walk func([]*ViewNode)
+		walk = func(ns []*ViewNode) {
+			for _, n := range ns {
+				hit = hit || n.Object != nil && n.Object.Name == name
+				walk(n.Children)
+			}
+		}
+		walk(nodes)
+		return hit
+	}
+	if !found(`<XenModelObjectListContainsQuery property="host" contains="yes" uuid="`+hostUUID+`" />`) ||
+		found(`<XenModelObjectListContainsQuery property="host" contains="no" uuid="`+hostUUID+`" />`) {
+		t.Fatal("search by server")
+	}
+	if !found(`<XenModelObjectListContainsQuery property="networks" contains="yes" uuid="`+netUUID+`" />`) ||
+		!found(`<XenModelObjectListContainsNameQuery property="networks" contains="yes" query="`+netName+`" type="exactmatch" />`) ||
+		found(`<XenModelObjectListContainsNameQuery property="networks" contains="yes" query="no such network" type="exactmatch" />`) {
+		t.Fatal("search by network")
+	}
+}
