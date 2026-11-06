@@ -75,9 +75,9 @@
 
 ## 9. Empacotamento, release e web
 
-- [ ] 9.1 Linux: binário, tarball e AppImage (base Ubuntu 24.04) com fumaça Xvfb em Ubuntu 24.04, Debian 13 e Fedora 42; distribuições suportadas no README
-- [ ] 9.2 macOS universal (`lipo`, `.app`, mínimo 14) no runner `macos-15`; validação no Mac do lab
-- [ ] 9.3 Windows x64 (exe em zip); validação no Windows do lab
-- [ ] 9.4 Workflow de release `go-v*` (pre-release, `SHA256SUMS`, notas no estilo rustXterm) e seção Go na skill `create-release`
+- [~] 9.1 (feito: binário e AppImage amd64, fumaça Xvfb em Ubuntu 24.04; faltam o tarball e Debian/Fedora) Linux: binário, tarball e AppImage (base Ubuntu 24.04) com fumaça Xvfb em Ubuntu 24.04, Debian 13 e Fedora 42; distribuições suportadas no README
+- [~] 9.2 (feito: `.app` amd64 cross-compilado sem assinatura e `build/darwin/build-on-mac.sh` para o build nativo arm64/amd64 assinado e notarizado; falta validar num Mac) macOS universal (`lipo`, `.app`, mínimo 14) no runner `macos-15`; validação no Mac do lab
+- [~] 9.3 (feito: exe amd64 publicado; falta validar no Windows do lab) Windows x64 (exe em zip); validação no Windows do lab
+- [~] 9.4 (feito: release `go-v0.1.0` publicada à mão com `SHA256SUMS` e notas no estilo rustXterm, seção Go na skill; falta o workflow, que precisa do escopo `workflow` do token) Workflow de release `go-v*` (pre-release, `SHA256SUMS`, notas no estilo rustXterm) e seção Go na skill `create-release`
 - [ ] 9.5 Spike do modo web (build `-tags server` do Wails com middleware de autenticação e `Workspace` por usuário) documentado em `docs/web.md`, sem publicar o comando `serve`
-- [ ] 9.6 README raiz, AGENTS.md raiz e revisão Codex final
+- [~] 9.6 (feito: README raiz e do desktop-go, revisão Codex final; falta o AGENTS.md raiz) README raiz, AGENTS.md raiz e revisão Codex final
