@@ -21,6 +21,7 @@ import ImportVmDialog from "./ImportVmDialog.vue";
 import OptionsDialog from "./OptionsDialog.vue";
 import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import VappsDialog from "./VappsDialog.vue";
+import ChangePasswordDialog from "./ChangePasswordDialog.vue";
 import VappEditor from "./VappEditor.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
@@ -303,6 +304,17 @@ async function objPropsClosed(saved: boolean) {
   objProps.value = null;
   if (saved && o) { await load(o.server); if (selected.value) reselect(selected.value.id); }
 }
+
+// Change Server Password (ChangeHostPasswordCommand: the local root only) and Reconnect As (PoolReconnectAsCommand: log
+// in again from the Add Server dialog for the same server, with another user)
+const passwordOn = ref("");
+async function changePassword(key: string) {
+  closeMenus();
+  if (!(await api.canChangePassword(key))) { await choose({ title: "Change Server Password", text: "Only the local root account can change the server password." }, ["OK"]); return; }
+  passwordOn.value = key;
+}
+// the new login replaces the connection only when it succeeds (Workspace.Connect); Cancel leaves it as it is
+function reconnectAs(n: Node) { connectTo(n); }
 
 // vApps: Pool > Manage vApps and VM > Assign to vApp (AssignGroupToolStripMenuItem<VM_appliance>)
 const vappsOn = ref("");
@@ -646,7 +658,10 @@ const poolItems = (key: string | null): MenuItem[] => [
     return hosts.map((h) => ({ label: h.name, enabled: !!h.live && !h.coordinator && (h.resident ?? 0) <= 1,
       run: () => runHost(hostCommands.find((c) => c.op === "remove_from_pool")!, treeNode(`${key}/${h.uuid}`)) }));
   } },
+  { label: "Reconnect As...", enabled: !!key, run: () => { closeMenus(); const n = treeNode(key!); if (n) reconnectAs(n); } },
   { label: "Disconnect", enabled: !!key, run: () => { closeMenus(); const n = treeNode(key!); if (n) disconnect(n); } },
+  { label: "", sep: true },
+  { label: "Change Server Password...", enabled: !!key, run: () => changePassword(key!) },
   { label: "", sep: true },
   { label: "Rotate Pool Secret", enabled: !!selectedConnection.value, run: () => rotateSecret(selectedConnection.value!) },
   { label: "", sep: true },
@@ -756,7 +771,8 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     { label: "Add...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
     { label: "Connect", enabled: !!serverNode.value?.disconnected, run: () => { closeMenus(); connectTo(serverNode.value!); } },
     { label: "Disconnect", enabled: !!serverNode.value && !serverNode.value.disconnected, run: () => { closeMenus(); disconnect(serverNode.value!); } },
-    { label: "", sep: true }, ...hostItems(selectedHost.value)] },
+    { label: "", sep: true }, ...hostItems(selectedHost.value),
+    { label: "Change Server Password...", enabled: !!selectedHost.value?.object?.live, run: () => changePassword(selectedHost.value!.server!) }] },
   { label: "VM", items: [{ label: "New VM...", icon: "001_CreateVM_h32bit_16", enabled: !!targetServer.value, run: openNewVm }, { label: "", sep: true }, ...vmItems(selectedVm.value)] },
   { label: "Storage", items: [{ label: "New SR...", icon: "000_Storage_h32bit_16", enabled: !!targetServer.value, run: openNewSr }, { label: "", sep: true }, ...srItems(selectedSr.value)] },
   { label: "Templates", items: templateItems(selectedTemplate.value) },
@@ -1053,6 +1069,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <NewVmWizard v-if="newVmOn" :server="newVmOn" :template="newVmTemplate" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
     <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
+    <ChangePasswordDialog v-if="passwordOn" :server="passwordOn" @close="(done) => { passwordOn = ''; if (done) status = 'Ready'; }" />
     <VappsDialog v-if="vappsOn" :server="vappsOn" @close="vappsOn = ''; selected?.server && load(selected.server)" />
     <VappEditor v-if="newVappFor" :server="newVappFor.server" :data="newVappFor.data" :vapp="null" :preselect="newVappFor.vm"
                 @close="newVappFor = null; selected?.server && load(selected.server)" />
