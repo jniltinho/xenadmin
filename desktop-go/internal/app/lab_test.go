@@ -911,3 +911,32 @@ func TestLabViews(t *testing.T) {
 		t.Errorf("%d default searches", len(searches))
 	}
 }
+
+// TestLabPause pauses the running XCP_LAB_VM and unpauses it (XCP_ALLOW_WRITE=1).
+func TestLabPause(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	refs, err := xenapi.VM.GetByNameLabel(c.Session, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %d VMs, %v", name, len(refs), err)
+	}
+	uuid, err := xenapi.VM.GetUUID(c.Session, refs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := func() xenapi.VMPowerState { p, _ := xenapi.VM.GetPowerState(c.Session, refs[0]); return p }
+	t.Cleanup(func() { // never leave the lab's VM paused
+		if state() == xenapi.VMPowerStatePaused {
+			_ = xenapi.VM.Unpause(c.Session, refs[0])
+		}
+	})
+	if err := ops.VMPower(c, uuid, rules.VMPause); err != nil || state() != xenapi.VMPowerStatePaused {
+		t.Fatal(err, state())
+	}
+	if err := ops.VMPower(c, uuid, rules.VMUnpause); err != nil || state() != xenapi.VMPowerStateRunning {
+		t.Fatal(err, state())
+	}
+}

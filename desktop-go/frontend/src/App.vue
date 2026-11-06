@@ -40,6 +40,10 @@ const vmCommands = [
   { op: "force_reboot", label: "Force Reboot", icon: "001_ForceReboot", needs: "hard_reboot", busy: "Forcing reboot of" },
 ];
 type VmCommand = (typeof vmCommands)[number];
+// the toolbar's Pause button (PauseVMCommand), Unpause on a paused VM (UnPauseVMCommand); neither asks first
+const pauseCommand = computed<VmCommand>(() => (selectedVm.value?.object?.power_state === "Paused"
+  ? { op: "unpause", label: "Unpause", icon: "000_Resumed", needs: "unpause", busy: "Unpausing" }
+  : { op: "pause", label: "Pause", icon: "000_Paused", needs: "pause", busy: "Pausing" }) as VmCommand);
 const selectedVm = computed(() => (selected.value?.object?.kind === "vms" ? selected.value : null));
 const canRun = (c: VmCommand, n: Node | null) => !!n?.object?.allowed?.includes(c.needs);
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -300,7 +304,8 @@ async function runHost(c: HostCommand, n: Node | null) {
 
 const cert = ref<{ key: string; fingerprint: string; previous?: string } | null>(null);
 
-const vmIcon = (o: XenObject) => (o.power_state === "Running" ? "000_StartVM_h32bit_16" : o.power_state === "Suspended" ? "000_SuspendVM_h32bit_16" : "000_StoppedVM_h32bit_16");
+const vmIcon = (o: XenObject) => (o.power_state === "Running" ? "000_StartVM_h32bit_16" : o.power_state === "Suspended" ? "000_SuspendVM_h32bit_16"
+  : o.power_state === "Paused" ? "000_paused_h32bit_16" : "000_StoppedVM_h32bit_16");
 const hostIcon = (h: XenObject) => (!h.live ? "000_ServerDisconnected_h32bit_16" : h.maintenance ? "000_ServerMaintenance_h32bit_16" : "000_TreeConnected_h32bit_16");
 // Images.GetIconFor by kind, for the objects of the Organization Views and searches
 const objectIcon = (o: XenObject) => ({ vms: vmIcon(o), hosts: hostIcon(o), pools: "000_PoolConnected_h32bit_16", srs: o.icon || "000_Storage_h32bit_16",
@@ -702,7 +707,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <button class="tool" :disabled="!targetServer" @click="openNewVm"><img src="/icons/000_CreateVM_h32bit_24.png" alt="" />New VM</button>
       <span class="toolsep"></span>
       <button v-for="b in powerButtons" :key="b.op" class="tool" :disabled="!b.enabled" @click="b.run()"><img :src="`/icons/${b.icon}_h32bit_24.png`" alt="" />{{ b.label }}</button>
-      <button class="tool" disabled><img src="/icons/000_Paused_h32bit_24_green.png" alt="" />Pause</button>
+      <button class="tool" :disabled="!canRun(pauseCommand, selectedVm)" @click="runVm(pauseCommand, selectedVm)">
+        <img :src="`/icons/${pauseCommand.icon}_h32bit_24_green.png`" alt="" />{{ pauseCommand.label }}</button>
     </div>
     <div class="flex min-h-0 flex-1">
       <aside class="flex shrink-0 flex-col bg-pane" :style="{ width: `${sideWidth}px` }">

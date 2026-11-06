@@ -19,6 +19,8 @@ const (
 	VMResume        VMOp = "resume"
 	VMForceShutdown VMOp = "force_shutdown"
 	VMForceReboot   VMOp = "force_reboot"
+	VMPause         VMOp = "pause"   // the window's Pause button (PauseVMCommand); not an MCP operation
+	VMUnpause       VMOp = "unpause" // UnPauseVMCommand
 )
 
 // VMOps in the order of the C# toolbar.
@@ -27,10 +29,10 @@ var VMOps = []VMOp{VMStart, VMShutdown, VMReboot, VMSuspend, VMResume, VMForceSh
 // required is VmOperations.Required: the XAPI allowed_operations entry each operation needs.
 var required = map[VMOp]string{
 	VMStart: "start", VMShutdown: "clean_shutdown", VMReboot: "clean_reboot", VMSuspend: "suspend",
-	VMResume: "resume", VMForceShutdown: "hard_shutdown", VMForceReboot: "hard_reboot",
+	VMResume: "resume", VMForceShutdown: "hard_shutdown", VMForceReboot: "hard_reboot", VMPause: "pause", VMUnpause: "unpause",
 }
 
-// Known reports whether op is one of VMOps.
+// Known reports whether op is one of VMOps or Pause/Unpause.
 func Known(op VMOp) bool { _, ok := required[op]; return ok }
 
 // VMAllowed is VmOperations.IsAllowed: the server lists the operation in the VM's allowed_operations.
@@ -44,7 +46,9 @@ func VMAllowed(allowed []string, op VMOp) bool {
 }
 
 // NeedsConfirmation is VmOperations.NeedsConfirmation: Start and Resume do not ask.
-func NeedsConfirmation(op VMOp) bool { return op != VMStart && op != VMResume }
+func NeedsConfirmation(op VMOp) bool {
+	return op != VMStart && op != VMResume && op != VMPause && op != VMUnpause // PauseVMCommand.ConfirmationRequired: false
+}
 
 // Confirmation is VmOperations.Confirmation (the commands' ConfirmationDialogTitle/Text from Messages.resx);
 // haProtected is VM.HAIsProtected (pool HA on and a restart priority set).

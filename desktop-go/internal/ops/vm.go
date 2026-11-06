@@ -56,6 +56,10 @@ func VMPower(c *xapi.Connection, uuid string, op rules.VMOp) error {
 		task, err = xenapi.VM.AsyncCleanShutdown(s, ref)
 	case rules.VMReboot:
 		task, err = xenapi.VM.AsyncCleanReboot(s, ref)
+	case rules.VMPause:
+		task, err = xenapi.VM.AsyncPause(s, ref)
+	case rules.VMUnpause:
+		task, err = xenapi.VM.AsyncUnpause(s, ref)
 	case rules.VMSuspend:
 		task, err = xenapi.VM.AsyncSuspend(s, ref)
 	case rules.VMForceShutdown:

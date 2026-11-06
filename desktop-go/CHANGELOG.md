@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- The toolbar's Pause button pauses a running VM and becomes Unpause on a paused one (PauseVMCommand / UnPauseVMCommand,
+  no question); a paused VM has the C# icon. The MCP server keeps the seven C# operations.
 - Organization Views (Tags, Folders with the empty ones, Custom Fields, vApps) and Saved Searches (the seven C#
   default searches) from their navigation buttons and the View menu, over every connected server; a group shows the
   Search tab of its objects, and the views follow the servers live. Searches saved in pools are listed, not run yet.

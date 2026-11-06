@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -232,7 +233,7 @@ type vmPowerIn struct {
 
 // VMPower is the vm_power tool: the VM is looked up on every connected server.
 func (s *Server) VMPower(in vmPowerIn) (statusOut, error) {
-	if !rules.Known(rules.VMOp(in.Operation)) {
+	if !slices.Contains(rules.VMOps, rules.VMOp(in.Operation)) { // the C# MCP's seven operations
 		return statusOut{}, fmt.Errorf("unknown operation %q", in.Operation)
 	}
 	return s.onObject(in.Confirm, in.VM, ops.HasVM, func(c *xapi.Connection) error { return ops.VMPower(c, in.VM, rules.VMOp(in.Operation)) })
