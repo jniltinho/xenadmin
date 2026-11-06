@@ -34,7 +34,7 @@ icons; the navigation pane (Infrastructure, Objects, Organization Views, Saved S
 the Home and Search tabs (the overview with live CPU, memory, disk, network, address and uptime columns); XAPI errors in the Windows app's words (`FriendlyErrorNames`).
 
 **VMs.** Start, Shut Down, Reboot, Suspend, Resume, Pause, Unpause and the forced ones, with the C# questions;
-Export to an XVA file and Import (File > Import...); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
+Export to an XVA file and Import (File > Import...) of an XVA file or an OVF/OVA appliance (.ovf, .ova, .ova.gz, .ova.bz2; raw, VHD and stream-optimized VMDK disks; its EULA, manifest verification, one SR and one network); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
 (General, Custom Fields, CPU, Boot Options, Start Options, Alerts, Home Server, Advanced); the General (the C# sections: General, Boot
@@ -70,9 +70,10 @@ Import... of `.xensearch` files the Windows app reads; searches by name, type, p
 fields, dates, IP addresses and the pool, server, vApp or network of an object; Notifications > Alerts with the
 severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: a VM's GPU and USB Properties pages, the Performance graph editor, SR-IOV networks, OVF/OVA
-appliances, and saved searches that filter on a related object's properties (XenSearch Recursive queries; listed,
-not run). The Windows app has those.
+Not there yet: a VM's GPU and USB Properties pages, the Performance graph editor, SR-IOV networks, a disk and
+network choice per VM, disk and interface when importing an OVF/OVA appliance (and its OS fixup, encrypted packages
+and VMDKs that are not stream-optimized), OVF/OVA export, and saved searches that filter on a related object's
+properties (XenSearch Recursive queries; listed, not run). The Windows app has those.
 
 ## Command line and MCP
 

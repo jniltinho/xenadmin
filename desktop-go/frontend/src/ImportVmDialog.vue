@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // Import VM (the import wizard's XVA path in one dialog, as XenAdmin.Desktop's Dialogs.ImportVm): the file, the pool or
-// server to import to (a pool's servers as the home server), the SR and "Start VM after import".
-// shortcut: XVA only; OVF/OVA appliances are not ported (OvfRules in the C# app).
+// server to import to (a pool's servers as the home server), the SR and "Start VM after import". An OVF/OVA appliance
+// goes to its own dialog (ImportApplianceDialog), as the C# app's Dialogs.ImportAppliance.
 import { onMounted, ref, watch } from "vue";
 import { api, type ServerRow } from "./api/workspace";
 
-const emit = defineEmits<{ (e: "close"): void; (e: "run", label: string, key: string, f: () => Promise<string>): void }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "run", label: string, key: string, f: () => Promise<string>): void; (e: "appliance", file: string): void }>();
 
 type Target = { key: string; host: string; text: string };
 const file = ref("");
@@ -50,6 +50,7 @@ async function ok() {
   pending.value = true; // the form is frozen: the values checked are the values imported
   const t = targets.value[target.value], path = file.value.trim(), srUuid = sr.value, run = start.value;
   try {
+    if (await api.isAppliance(path)) { emit("appliance", path); emit("close"); return; } // the appliance path has its own pages
     error.value = await api.importFileError(path);
     if (!error.value && !t) error.value = "Select the pool or server to import to.";
     if (!error.value && !srUuid) error.value = "Select a storage repository.";
@@ -65,9 +66,9 @@ async function ok() {
     <form novalidate class="w-[36rem] border border-neutral-500 bg-white shadow-lg" @submit.prevent="ok">
       <div class="bg-band-dark px-3 py-1 font-semibold text-white">Import VM</div>
       <fieldset :disabled="pending" class="space-y-2 p-3">
-        <p>Import a VM from an XVA file to a pool or server.</p>
+        <p>Import a VM from an XVA file, or an appliance from an OVF/OVA package, to a pool or server.</p>
         <div class="flex gap-2">
-          <input v-model="file" placeholder="File to import (.xva, .xva.gz)" aria-label="File to import" class="min-w-0 flex-1 border border-line px-1 py-0.5" />
+          <input v-model="file" placeholder="File to import (.xva, .xva.gz, .ovf, .ova, .ova.gz, .ova.bz2)" aria-label="File to import" class="min-w-0 flex-1 border border-line px-1 py-0.5" />
           <button type="button" class="btn" @click="browse">Browse...</button>
         </div>
         <label for="imptarget" class="block">Import to:</label>

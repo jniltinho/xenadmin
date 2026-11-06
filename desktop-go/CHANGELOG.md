@@ -32,6 +32,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   the C# Desktop editor; an edited search keeps its conditions, other types, nested grouping, columns and sorting),
   Apply, Save to a pool (gui_config `xensearch.Search-<uuid>`, it joins Saved Searches), Delete (from every pool), and
   Export... / Import... of `.xensearch` files in the SearchMarshalling format the Windows app loads.
+- File > Import... of OVF/OVA appliances (.ovf, .ova, .ova.gz, .ova.bz2) as the C# app (OvfRules,
+  ImportApplianceAction): the package's VMs, disks and interfaces, its EULA to accept, the pool or server, one SR for
+  every disk, one network for every interface, manifest verification and Start; a vApp named after the package with
+  each VM's vCPUs, memory, Xen settings, disks, DVD drive and interfaces. Raw, VHD and stream-optimized VMDK disks
+  (converted to raw as they are read), streamed from the archive without extracting it; a failed import removes what
+  it made. The package is checked as untrusted input (file names inside it, sizes, no DOCTYPE).
 - General tab of VMs, templates, servers, pools, SRs and networks as in the C# app (Details.General): collapsible
   sections with Expand all / Collapse all and the Properties button; General (tags, folder, OS, virtualization mode and
   state, uptime, home server, pool coordinator, enabled, autoboot, certificate verification, iSCSI IQN, log
