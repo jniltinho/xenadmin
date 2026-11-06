@@ -212,6 +212,8 @@ export const api = {
   setHaPriorities: (key: string, plan: HAStartup[], ntol: number) => call<void>("SetHAPriorities", key, plan, ntol),
   haDisableQuestion: (key: string) => call<HostQuestion>("HADisableQuestion", key),
   disableHa: (key: string) => call<void>("DisableHA", key),
+  // the General tab (internal/gui/general.go): Details.General's sections
+  general: (key: string, kind: string, uuid: string) => call<{ title: string; rows: [string, string][]; expanded: boolean }[]>("General", key, kind, uuid),
 };
 export interface HAPriority { value: string; text: string }
 export interface HAConfig { pool: string; ha_enabled: boolean; blocker?: string; ntol: number; hosts: number; priorities: HAPriority[] | null;

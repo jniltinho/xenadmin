@@ -37,7 +37,9 @@ the Home and Search tabs (the overview with live CPU, memory, disk, network, add
 Export to an XVA file and Import (File > Import...); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
-(General, CPU, Boot Options, Start Options, Home Server, Advanced); the General, Memory (Memory Settings: fixed, range or static
+(General, CPU, Boot Options, Start Options, Home Server, Advanced); the General (the C# sections: General, Boot
+Options, CPUs, Read Caching; for servers, pools and SRs Certificates, Version Details, Management Interfaces, Memory,
+CPUs, Status, Multipathing), Memory (Memory Settings: fixed, range or static
 maximum), Storage (add, attach, activate, detach and delete disks; the DVD drive and its ISO), Networking (add,
 change, remove, activate and deactivate interfaces), Console (noVNC), Performance and Snapshots (take, revert,
 delete) tabs.

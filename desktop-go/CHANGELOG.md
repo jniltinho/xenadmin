@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- General tab of VMs, templates, servers, pools, SRs and networks as in the C# app (Details.General): collapsible
+  sections with Expand all / Collapse all and the Properties button; General (tags, folder, OS, virtualization mode and
+  state, uptime, home server, pool coordinator, enabled, autoboot, certificate verification, iSCSI IQN, log
+  destination, type, size, SCSI ID), Boot Options, CPUs, Read Caching, Certificates, Version Details, Management
+  Interfaces, Memory, Status and Multipathing, with the C# labels and formats.
 - Servers and pools, Networking tab: Add Network... (the New Network wizard: External network on a VLAN of a NIC,
   Single-Server Private network, Bonded network), Properties (name, description, auto-add, MTU with the C# reasons it
   is fixed; a new MTU unplugs and plugs the network's PIFs and VIFs) and Remove Network (its VLAN PIFs first; a bond

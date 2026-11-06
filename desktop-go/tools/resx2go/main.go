@@ -26,10 +26,18 @@ type resx struct {
 func main() {
 	out := flag.String("o", "", "output .go file")
 	name := flag.String("var", "texts", "map variable name")
-	prefixes := flag.String("prefix", "", "comma-separated key prefixes to keep")
+	prefixes := flag.String("prefix", "", "comma-separated key prefixes to keep, or @file with one per line")
 	flag.Parse()
 	if *out == "" || flag.NArg() != 1 || *prefixes == "" {
 		log.Fatal("usage: resx2go -o out.go -var name -prefix P1,P2 file.resx")
+	}
+	// a long list goes in a file: go generate refuses directives over 4 KB
+	if file, ok := strings.CutPrefix(*prefixes, "@"); ok {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			log.Fatal(err)
+		}
+		*prefixes = strings.Join(strings.Fields(string(b)), ",")
 	}
 	raw, err := os.ReadFile(flag.Arg(0))
 	if err != nil {

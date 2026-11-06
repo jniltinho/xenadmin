@@ -2103,3 +2103,65 @@ func TestLabMemoryBars(t *testing.T) {
 		t.Logf("%s: %+v", name, b)
 	}
 }
+
+// TestLabGeneral reads the General tab of the pool, its servers, the lab VM and the default SR (read-only) and checks
+// the key rows of each section (Details.General).
+func TestLabGeneral(t *testing.T) {
+	c := labConnection(t)
+	s := c.Session
+	pools, err := xenapi.Pool.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pool xenapi.PoolRecord
+	for _, p := range pools {
+		pool = p
+	}
+	type want struct{ section, row string }
+	read := func(name, kind, uuid string, keys ...want) {
+		secs, err := ReadGeneral(c, kind, uuid)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		rows := map[want]string{}
+		for _, sec := range secs {
+			for _, r := range sec.Rows {
+				rows[want{sec.Title, r[0]}] = r[1]
+				t.Logf("%s / %s / %s: %q", name, sec.Title, r[0], r[1])
+			}
+		}
+		for _, k := range keys {
+			if rows[k] == "" {
+				t.Errorf("%s: no %s / %s", name, k.section, k.row)
+			}
+		}
+	}
+	read("pool", "pools", pool.UUID, want{"General", "Name"}, want{"General", "Tags"}, want{"General", "Number of Sockets"},
+		want{"General", "Version"}, want{"General", "UUID"}, want{"Management Interfaces", "DNS hostname"}, want{"Management Interfaces", "Management interface"})
+	hosts, err := xenapi.Host.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hosts {
+		read(h.NameLabel, "hosts", h.UUID, want{"General", "Pool coordinator"}, want{"General", "Enabled"}, want{"General", "Server uptime"},
+			want{"General", "Log destination"}, want{"Certificates", "Server identity certificate"}, want{"Version Details", "Version"},
+			want{"Management Interfaces", "Management interface"}, want{"Memory", "Server"}, want{"CPUs", fmt.Sprintf("CPU 0 - %d", len(h.HostCPUs)-1)})
+	}
+	if name := os.Getenv("XCP_LAB_VM"); name != "" {
+		vms, err := ListObjects(c, "vms")
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(vms, func(o Object) bool { return o.Name == name })
+		if i < 0 {
+			t.Fatalf("no VM %s", name)
+		}
+		read(name, "vms", vms[i].UUID, want{"General", "Operating System"}, want{"General", "Virtualization mode"}, want{"General", "UUID"},
+			want{"Boot Options", "Auto-boot"}, want{"CPUs", "Virtual CPUs"}, want{"CPUs", "Topology"})
+	}
+	if sr, err := xenapi.SR.GetUUID(s, pool.DefaultSR); err == nil {
+		read("default SR", "srs", sr, want{"General", "Type"}, want{"General", "Size"}, want{"Status", "State"}, want{"Multipathing", "Multipath capable"})
+	} else {
+		t.Errorf("default SR: %v", err)
+	}
+}
