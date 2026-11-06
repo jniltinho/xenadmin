@@ -79,8 +79,13 @@ export interface NewNetworkChoices { title: string; host: string; external_name:
 export interface NewNetworkSpec { external: boolean; name: string; description: string; auto: boolean; host: string; nic: string; vlan: string; mtu: string }
 export interface BondWarning { block: boolean; title: string; text: string; ok: string }
 export interface MTUState { shown: boolean; enabled: boolean; min: number; max: number; note: string }
-export interface NetworkEdit { name: string; description: string; auto: boolean; auto_enabled: boolean; mtu: number; mtu_state: MTUState }
-export interface NetworkChanges { name: string; description: string; auto: boolean; mtu: string }
+export interface NICState { shown: boolean; enabled: boolean; note: string }
+export interface SettingsNIC { uuid: string; name: string; vlans: number[] }
+export interface NetworkEdit {
+  name: string; description: string; auto: boolean; auto_enabled: boolean; mtu: number; mtu_state: MTUState; vlan_mtu_state: MTUState
+  nic_state: NICState; nics: SettingsNIC[]; nic: string; vlan: number; min_vlan: number; bond: boolean; lacp: boolean; mode: string; hashing: string
+}
+export interface NetworkChanges { name: string; description: string; auto: boolean; mtu: string; nic: string; vlan: string; mode: string; hashing: string }
 
 export const api = {
   servers: () => call<ServerRow[]>("Servers"),

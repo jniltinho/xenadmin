@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ### Added
 
+- Network Properties, Network Settings page complete: the NIC and VLAN of a VLAN network, a private network made
+  external on a NIC and back (the network's PIFs destroyed and its VLAN made again on every server), and a bond
+  network's mode (active-active, active-passive, LACP) and LACP load balancing; fixed, with the C# reason, on a
+  management interface or with VMs attached, and the disruption warning shown first.
 - Server Properties: the Multipathing page (editable in maintenance mode; the SRs are unplugged and plugged again
   around the change) and the Log Destination page (a remote syslog server, then syslog_reconfigure).
 

@@ -253,14 +253,15 @@ func NewNetworkOptions(c *xapi.Connection, kind, uuid string) (NewNetworkChoices
 	return out, nil
 }
 
-// NetworkEdit is a network's Properties: General (name, description) and Network Settings (auto-add, MTU).
+// NetworkEdit is a network's Properties: General (name, description) and Network Settings (auto-add, MTU, NIC and
+// VLAN, bond mode).
 type NetworkEdit struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Auto        bool           `json:"auto"`
-	AutoEnabled bool           `json:"auto_enabled"` // not the guest installer network
-	MTU         int            `json:"mtu"`
-	MTUState    rules.MTUState `json:"mtu_state"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Auto        bool   `json:"auto"`
+	AutoEnabled bool   `json:"auto_enabled"` // not the guest installer network
+	MTU         int    `json:"mtu"`
+	ops.NetworkSettings
 }
 
 // noTools is a running VM without I/O drivers (VM.GetVirtualizationStatus), for the MTU rules.
@@ -279,9 +280,9 @@ func ReadNetworkEdit(c *xapi.Connection, uuid string) (NetworkEdit, error) {
 	if err != nil {
 		return NetworkEdit{}, xapi.Sanitize(err)
 	}
-	m, err := ops.NetworkMTU(s, uuid, noTools(s))
+	st, err := ops.ReadNetworkSettings(s, uuid, noTools(s))
 	return NetworkEdit{Name: n.NameLabel, Description: n.NameDescription, Auto: n.OtherConfig["automatic"] != "false",
-		AutoEnabled: n.OtherConfig["is_guest_installer_network"] != "true", MTU: n.MTU, MTUState: m}, err
+		AutoEnabled: n.OtherConfig["is_guest_installer_network"] != "true", MTU: n.MTU, NetworkSettings: st}, err
 }
 
 // SaveNetwork saves a network's Properties (ops.UpdateNetwork).
