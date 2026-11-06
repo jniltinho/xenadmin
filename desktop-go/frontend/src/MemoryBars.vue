@@ -15,7 +15,7 @@ const total = (segs: { bytes: number }[]) => Math.max(1, segs.reduce((a, s) => a
 </script>
 
 <template>
-  <div v-if="bars" class="space-y-2 px-3 pt-3">
+  <div v-if="bars" class="space-y-2 p-3">
     <template v-if="kind === 'vms' || kind === 'templates'">
       <div class="relative h-[26px] w-[600px] border border-[#828790] bg-[#F2F2F2]" :title="bars.used_text">
         <div class="absolute inset-y-px bg-[#C9E7B0]" :style="{ left: `${bars.dynamic_min * 100}%`, width: `${Math.max(0, bars.dynamic_max - bars.dynamic_min) * 100}%` }" />
