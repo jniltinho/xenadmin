@@ -1726,3 +1726,71 @@ func TestLabNetworks(t *testing.T) {
 		t.Fatalf("after the networks: %d networks, %d bonds", n, b)
 	}
 }
+
+// TestLabObjectProperties changes the description, folder and tags of the default SR, a network and the pool through
+// the General page and restores them (XCP_ALLOW_WRITE=1).
+func TestLabObjectProperties(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	var poolUUID, srUUID string
+	for _, p := range pools {
+		poolUUID = p.UUID
+		srUUID, _ = xenapi.SR.GetUUID(s, p.DefaultSR)
+	}
+	nets, _ := xenapi.Network.GetAllRecords(s)
+	var netUUID string
+	for _, n := range nets {
+		if len(n.PIFs) > 0 {
+			netUUID = n.UUID
+			break
+		}
+	}
+	poolRef, _ := xenapi.Pool.GetByUUID(s, poolUUID)
+	other, _ := xenapi.Pool.GetOtherConfig(s, poolRef)
+	empty, hadEmpty := other["EMPTY_FOLDERS"]
+	t.Cleanup(func() { // the folders the test emptied stay as empty folders (FolderAction): give the pool its list back
+		_ = xenapi.Pool.RemoveFromOtherConfig(s, poolRef, "EMPTY_FOLDERS")
+		if hadEmpty {
+			_ = xenapi.Pool.AddToOtherConfig(s, poolRef, "EMPTY_FOLDERS", empty)
+		}
+	})
+	for _, o := range []struct{ kind, uuid string }{{"srs", srUUID}, {"networks", netUUID}, {"pools", poolUUID}} {
+		before, err := ReadObjectProperties(c, o.kind, o.uuid)
+		if err != nil {
+			t.Fatal(o.kind, err)
+		}
+		restore := ops.ObjectChanges{Description: &before.Description, Folder: &before.Folder, Tags: before.Tags, TagsSet: true}
+		desc, folder := before.Description+" (go test)", "/xcpng-center-go-test/sub"
+		tags := append(append([]string{}, before.Tags...), "xcpng-center-go-test")
+		if err := ops.SaveObject(c, o.kind, o.uuid, ops.ObjectChanges{Description: &desc, Folder: &folder, Tags: tags, TagsSet: true}); err != nil {
+			t.Fatal(o.kind, err)
+		}
+		after, _ := ReadObjectProperties(c, o.kind, o.uuid)
+		if after.Description != desc || after.Folder != folder || !slices.Contains(after.Tags, "xcpng-center-go-test") ||
+			!slices.Contains(after.AllTags, "xcpng-center-go-test") || !slices.Contains(after.Folders, folder) {
+			t.Errorf("%s: %+v", o.kind, after)
+		}
+		bad := "no/slash"
+		if err := ops.SaveObject(c, o.kind, o.uuid, ops.ObjectChanges{Folder: &bad}); err == nil {
+			t.Errorf("%s: a bad folder is saved", o.kind)
+		}
+		if err := ops.SaveObject(c, o.kind, o.uuid, restore); err != nil {
+			t.Fatal(o.kind, "not restored:", err)
+		}
+		back, _ := ReadObjectProperties(c, o.kind, o.uuid)
+		if back.Description != before.Description || back.Folder != before.Folder || len(back.Tags) != len(before.Tags) {
+			t.Fatalf("%s not restored: %+v", o.kind, back)
+		}
+		if !slices.Contains(back.Folders, folder) { // left empty, kept in EMPTY_FOLDERS
+			t.Errorf("%s: the emptied folder is lost: %v", o.kind, back.Folders)
+		}
+		empty := ""
+		if err := ops.SaveObject(c, o.kind, o.uuid, ops.ObjectChanges{Description: &empty, Name: &empty}); err == nil {
+			t.Errorf("%s: a blank name is saved", o.kind)
+		}
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
 	xenapi "go/xenapi"
 
@@ -122,45 +121,7 @@ func removeFieldValues(s *xenapi.Session, key string) error {
 	return errors.Join(errs...)
 }
 
-// SaveVMCustomFields is SaveCustomFieldsAction for a VM: each field's value set, or removed when empty. A Date comes as
-// RFC 3339 and is stored as the C# app writes it (universal time, "u").
+// SaveVMCustomFields is SaveCustomFieldsAction for a VM: each field's value set, or removed when empty (SaveObject).
 func SaveVMCustomFields(c *xapi.Connection, vmUUID string, values map[string]string) error {
-	s := c.Session
-	ref, err := xenapi.VM.GetByUUID(s, vmUUID)
-	if err != nil {
-		return xapi.Sanitize(err)
-	}
-	_, fields, err := poolFields(s)
-	if err != nil {
-		return err
-	}
-	other, err := xenapi.VM.GetOtherConfig(s, ref)
-	if err != nil {
-		return xapi.Sanitize(err)
-	}
-	for name, v := range values {
-		i := slices.IndexFunc(fields, func(f rules.CustomField) bool { return f.Name == name })
-		if i < 0 {
-			return errors.New("the custom field '" + name + "' no longer exists")
-		}
-		if v != "" && fields[i].Type == "Date" {
-			t, err := time.Parse(time.RFC3339, v)
-			if err != nil {
-				return errors.New("enter a valid date for '" + name + "'")
-			}
-			v = rules.FieldDateText(t)
-		}
-		key := rules.CustomFieldsKey + "." + name
-		if _, ok := other[key]; ok { // Helpers.SetOtherConfig: remove, then add
-			if err := xenapi.VM.RemoveFromOtherConfig(s, ref, key); err != nil {
-				return xapi.Sanitize(err)
-			}
-		}
-		if v != "" {
-			if err := xenapi.VM.AddToOtherConfig(s, ref, key, v); err != nil {
-				return xapi.Sanitize(err)
-			}
-		}
-	}
-	return nil
+	return SaveObject(c, "vms", vmUUID, ObjectChanges{Fields: values})
 }

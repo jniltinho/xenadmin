@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // A network's Properties: General (name, description) and Network Settings (EditNetworkPage: auto-add and MTU, with
-// the reason the MTU is fixed). shortcut: no NIC/VLAN change, bond mode or tags/folder/custom fields pages; add them
+// the reason the MTU is fixed); its folder, tags and custom fields open in ObjectPropertiesDialog. shortcut: no NIC/VLAN
+// change or bond mode; add them
 // with the full Properties dialog of networks.
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type NetworkEdit } from "./api/workspace";
 import { mtuCheck } from "./netrules";
 
 const props = defineProps<{ server: string; uuid: string }>();
-const emit = defineEmits<{ (e: "close"): void; (e: "run", label: string, f: () => Promise<void>): void }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "run", label: string, f: () => Promise<void>): void; (e: "more"): void }>();
 
 const edit = ref<NetworkEdit | null>(null);
 const f = reactive({ name: "", description: "", auto: true, mtu: "" });
@@ -47,6 +48,8 @@ function ok() {
           <p v-if="m.enabled && mtu.ok && Number(f.mtu) !== edit.mtu" class="w-full text-amber-700">Warning: Your network will be temporarily disrupted when you apply these settings</p>
         </div>
         <label class="flex items-center gap-2"><input v-model="f.auto" type="checkbox" :disabled="!edit.auto_enabled" />Automatically add this network to new virtual machines</label>
+        <!-- the folder, tags and custom fields pages (ObjectPropertiesDialog) -->
+        <p class="pt-1"><a class="cursor-pointer underline" @click="emit('more')">Folder, tags and custom fields...</a></p>
       </div>
       <p v-if="error || why" class="mx-3 text-red-600">{{ error || why }}</p>
       <div class="flex justify-end gap-2 p-3">

@@ -31,6 +31,8 @@ export interface VIFSettings { network: string; mac: string; qos: boolean; limit
 export interface OverviewRow { cpu: string; cpu_bar: number; memory: string; memory_bar: number; disks: string; network: string; address: string; uptime: string }
 export interface AppOptions { no_new_certificate_warning?: boolean; no_rotate_secret_reminder?: boolean; proxy?: string; proxy_address?: string; proxy_port?: number;
   bypass_proxy_for_servers?: boolean; connection_timeout?: number; no_dismiss_confirmation?: boolean; area_graphs?: boolean; no_remember_last_tab?: boolean }
+export interface ObjectProps { name: string; description: string; folder: string; tags: string[]; all_tags: string[]; folders: string[]; iqn?: string;
+  fields: { name: string; type: string; value: string }[] }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
@@ -107,6 +109,8 @@ export const api = {
   makeStandalone: (key: string) => call<void>("MakeStandalone", key),
   options: () => call<AppOptions>("Options"),
   setOptions: (o: AppOptions) => call<void>("SetOptions", o),
+  objectProperties: (key: string, kind: string, uuid: string) => call<ObjectProps>("ObjectProperties", key, kind, uuid),
+  saveObjectProperties: (key: string, kind: string, uuid: string, ch: Record<string, unknown>) => call<void>("SaveObjectProperties", key, kind, uuid, ch),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

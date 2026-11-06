@@ -6,6 +6,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { api, type HostNetworking, type HostNics, type Table } from "./api/workspace";
 import DetailsTable from "./DetailsTable.vue";
 import NetworkPropertiesDialog from "./NetworkPropertiesDialog.vue";
+import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import NewNetworkWizard from "./NewNetworkWizard.vue";
 import { serial } from "./serial";
 
@@ -42,6 +43,7 @@ const network = computed(() => nets.value?.networks.find((n) => n.uuid === picke
 const nic = computed(() => nics.value?.nics.find((n) => n.uuid === picked.value) ?? null);
 const wizard = ref<{ bond: boolean } | null>(null);
 const props_ = ref<string | null>(null); // the network whose Properties are open
+const more = ref<string | null>(null); // the network whose folder, tags and custom fields are open
 
 // the questions: ok "" is an error to read (a blocked bond change)
 const ask = ref<{ title: string; text: string; ok: string; cancel: string; resolve: (ok: boolean) => void } | null>(null);
@@ -83,7 +85,8 @@ function edit() { if (network.value?.can_edit) props_.value = network.value.uuid
       <button class="btn" :disabled="busy || !nics.can_bond" @click="run('Scanning for NICs', () => api.rescanNics(server, uuid))">Rescan</button>
     </div>
     <NewNetworkWizard v-if="wizard" :server="server" :kind="kind" :uuid="uuid" :bond="wizard.bond" @close="wizard = null" @run="run" />
-    <NetworkPropertiesDialog v-if="props_" :server="server" :uuid="props_" @close="props_ = null" @run="run" />
+    <NetworkPropertiesDialog v-if="props_" :server="server" :uuid="props_" @close="props_ = null" @run="run" @more="more = props_; props_ = null" />
+    <ObjectPropertiesDialog v-if="more" :server="server" kind="networks" :uuid="more" @close="more = null; load()" />
     <div v-if="ask" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
       <div class="w-[32rem] border border-neutral-500 bg-white shadow-lg">
         <div class="bg-band-dark px-3 py-1 font-semibold text-white">{{ ask.title }}</div>

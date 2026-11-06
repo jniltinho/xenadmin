@@ -26,6 +26,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   the VMs using them).
 - Pool menu: Add Server and Remove Server (submenus), Disconnect, Rotate Pool Secret and Make into standalone server,
   with the C# questions and warnings (supplemental packs and CPU levelling, also in New Pool).
+- Properties of servers, pools, SRs and networks (General: name, description, folder, tags, a server's iSCSI IQN;
+  Custom Fields), with Change Folder and Edit Tags; a folder left empty is kept (EMPTY_FOLDERS).
 - The user templates in the tree and the Templates menu: Create VM From Selection, Delete Template, Properties.
 - Tools > Options: certificate warnings, the pool secret reminder, the proxy server and connection timeout, the
   dismiss alerts confirmation, area or line graphs, and the last tab of each resource.

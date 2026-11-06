@@ -19,6 +19,7 @@ import MenuList, { type MenuItem } from "./MenuList.vue";
 import CopyVmDialog from "./CopyVmDialog.vue";
 import ImportVmDialog from "./ImportVmDialog.vue";
 import OptionsDialog from "./OptionsDialog.vue";
+import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
 
@@ -292,6 +293,15 @@ const tabs = computed<Tab[]>(() => {
 function onTabStatus(text: string, error: boolean) {
   if (error) failure.value = text; else { status.value = text || "Ready"; if (!text) failure.value = ""; }
 }
+// Properties of a server, pool or SR (ObjectPropertiesDialog)
+const objProps = ref<{ server: string; kind: string; uuid: string } | null>(null);
+function openObjProps(server: string | undefined, kind: string, uuid: string | undefined) { closeMenus(); if (server && uuid) objProps.value = { server, kind, uuid }; }
+async function objPropsClosed(saved: boolean) {
+  const o = objProps.value;
+  objProps.value = null;
+  if (saved && o) { await load(o.server); if (selected.value) reselect(selected.value.id); }
+}
+
 // Tools > Options (read at start and after OK)
 const optionsOpen = ref(false);
 const appOptions = ref<AppOptions>({});
@@ -615,6 +625,8 @@ const poolItems = (key: string | null): MenuItem[] => [
   { label: "Rotate Pool Secret", enabled: !!selectedConnection.value, run: () => rotateSecret(selectedConnection.value!) },
   { label: "", sep: true },
   { label: "Make into standalone server", enabled: !!key && (data[key]?.hosts ?? []).length === 1, run: () => makeStandalone(key!) },
+  { label: "", sep: true },
+  { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!key, run: () => openObjProps(key!, "pools", data[key!]?.pools?.[0]?.uuid) },
 ];
 
 // Take a Snapshot from the menu opens the Snapshots tab's dialog
@@ -657,10 +669,14 @@ async function propertiesClosed(saved: boolean) {
 
 const soon = "Not available in this version yet";
 // the Server menu: power, maintenance mode, then Restart Toolstack and Remove From Pool (a member running only dom0)
-const hostItems = (n: Node | null): MenuItem[] => hostCommands.flatMap((c) => [...(c.op === "restart_toolstack" ? [{ label: "", sep: true }] : []),
-  { label: c.label, icon: c.icon ? `${c.icon}_h32bit_16` : undefined, enabled: hostCanRun(c, n) && (c.op !== "remove_from_pool" || (!n?.object?.coordinator && (n?.object?.resident ?? 0) <= 1)), run: () => runHost(c, n) }]);
-const srItems = (n: Node | null): MenuItem[] => srCommands.flatMap((c, i) => [...(i === 2 ? [{ label: "", sep: true }] : []),
-  { label: c.label, icon: c.icon, enabled: !!n?.object?.allowed?.includes(c.op), run: () => runSr(c.op, c.label, n) }]);
+const hostItems = (n: Node | null): MenuItem[] => [...hostCommands.flatMap((c) => [...(c.op === "restart_toolstack" ? [{ label: "", sep: true }] : []),
+  { label: c.label, icon: c.icon ? `${c.icon}_h32bit_16` : undefined, enabled: hostCanRun(c, n) && (c.op !== "remove_from_pool" || (!n?.object?.coordinator && (n?.object?.resident ?? 0) <= 1)), run: () => runHost(c, n) }]),
+  { label: "", sep: true },
+  { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!n?.object, run: () => openObjProps(n?.server, "hosts", n?.object?.uuid) }];
+const srItems = (n: Node | null): MenuItem[] => [...srCommands.flatMap((c, i) => [...(i === 2 ? [{ label: "", sep: true }] : []),
+  { label: c.label, icon: c.icon, enabled: !!n?.object?.allowed?.includes(c.op), run: () => runSr(c.op, c.label, n) }]),
+  { label: "", sep: true },
+  { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!n?.object, run: () => openObjProps(n?.server, "srs", n?.object?.uuid) }];
 // CopyVMCommand: a shut down VM that can be cloned or copied; DeleteVMCommand: destroy allowed
 const canCopy = (n: Node | null) => n?.object?.power_state === "Halted" && !!n.object.allowed?.some((a) => a === "clone" || a === "copy");
 // Resume on, Migrate to and Start on Server (VMOperationHostCommand): a submenu of the servers, the home server first
@@ -722,7 +738,8 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
 function contextItems(n: Node): MenuItem[] {
   if (n.id === "root") return [{ label: "Add New Server...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } }];
   if (n.disconnected) return [{ label: "Connect", enabled: true, run: () => { closeMenus(); connectTo(n); } }, { label: "Remove", enabled: true, run: () => { closeMenus(); forget(n); } }];
-  if (n.server && n.id === n.server) return [{ label: "Disconnect", enabled: true, run: () => { closeMenus(); disconnect(n); } }];
+  if (n.server && n.id === n.server) return [{ label: "Disconnect", enabled: true, run: () => { closeMenus(); disconnect(n); } },
+    ...(n.object?.kind === "pools" ? [{ label: "", sep: true }, { label: "Properties", icon: "000_Info3_h32bit_16", enabled: true, run: () => openObjProps(n.server, "pools", n.object!.uuid) }] : [])];
   if (n.object?.kind === "hosts") return hostItems(n);
   if (n.object?.kind === "vms") return vmItems(n);
   if (n.object?.kind === "srs") return srItems(n);
@@ -1007,6 +1024,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <NewVmWizard v-if="newVmOn" :server="newVmOn" :template="newVmTemplate" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
     <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
+    <ObjectPropertiesDialog v-if="objProps" :server="objProps.server" :kind="objProps.kind" :uuid="objProps.uuid" @close="objPropsClosed" />
     <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />
