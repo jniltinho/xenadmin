@@ -49,10 +49,14 @@ type VMProperties struct {
 	ShadowMultiplier float64           `json:"shadow_multiplier"` // HVM_shadow_multiplier
 	Frozen           bool              `json:"frozen"`            // suspended or paused: no shadow multiplier change
 
-	// Start Options (VMHAEditPage without HA): the start order and the delay before the next VM starts
-	Order      int  `json:"order"`
-	StartDelay int  `json:"start_delay"`
-	HAEnabled  bool `json:"ha_enabled"` // the pool has HA on: the page is read-only here (no restart priority yet)
+	// Start Options (StartOptionsPage): the start order and the delay before the next VM starts; with HA on, the
+	// restart priority too, among those the VM can have (HaRules.Allowed: one that is not agile is not restarted, unless
+	// it already is)
+	Order             int                `json:"order"`
+	StartDelay        int                `json:"start_delay"`
+	HAEnabled         bool               `json:"ha_enabled"`
+	HARestartPriority string             `json:"ha_restart_priority"`
+	HAPriorities      []rules.HAPriority `json:"ha_priorities"`
 }
 
 // VCPUChoice is one vCPU count and its topologies.
@@ -173,6 +177,18 @@ func ReadVMProperties(c *xapi.Connection, vmUUID string) (VMProperties, error) {
 	if pools, err := xenapi.Pool.GetAllRecords(s); err == nil {
 		for _, pool := range pools {
 			p.HAEnabled = pool.HaEnabled
+		}
+	}
+	p.HARestartPriority, p.HAPriorities = rules.HANormalPriority(vm.HaRestartPriority), []rules.HAPriority{}
+	if p.HAEnabled && rules.HAProtectable(vm.IsATemplate, vm.IsASnapshot, vm.IsControlDomain, vm.OtherConfig["HideFromXenCenter"] == "true", vm.NameLabel) {
+		why, err := ops.NotAgileReason(s, ref)
+		if err != nil {
+			return VMProperties{}, err
+		}
+		for _, hp := range rules.HAPriorities() {
+			if rules.HAAllowed(hp.Value, why == "") || hp.Value == p.HARestartPriority {
+				p.HAPriorities = append(p.HAPriorities, hp)
+			}
 		}
 	}
 	// VmRules.CanHaveNoHomeServer: shared storage that can hold disks and reaches every server, or no home server now

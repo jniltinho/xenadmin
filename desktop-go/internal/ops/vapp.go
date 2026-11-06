@@ -47,8 +47,8 @@ func vmRefs(s *xenapi.Session, uuids []string) ([]xenapi.VMRef, error) {
 	return out, nil
 }
 
-// setStartup is SetVMStartupOptionsAction for the changed VMs, then pool.sync_database.
-func setStartup(s *xenapi.Session, startup map[string]VappStart) error {
+// setVappStartup is SetVMStartupOptionsAction for the changed VMs, then pool.sync_database.
+func setVappStartup(s *xenapi.Session, startup map[string]VappStart) error {
 	if len(startup) == 0 {
 		return nil
 	}
@@ -94,7 +94,7 @@ func CreateVapp(c *xapi.Connection, spec VappSpec) (string, error) {
 		}
 	}
 	uuid, _ := xenapi.VMAppliance.GetUUID(s, app)
-	return uuid, setStartup(s, spec.Startup)
+	return uuid, setVappStartup(s, spec.Startup)
 }
 
 // SaveVapp is a vApp's Properties: name and description, the members (VappRules.SetMembersAction: the others leave)
@@ -129,7 +129,7 @@ func SaveVapp(c *xapi.Connection, uuid string, spec VappSpec) error {
 	if err := setMembers(s, ref, app.VMs, vms); err != nil {
 		return err
 	}
-	return setStartup(s, spec.Startup)
+	return setVappStartup(s, spec.Startup)
 }
 
 // setMembers is AssignVMsToVMApplianceAction: the members not kept leave, the new ones join.
