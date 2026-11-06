@@ -30,7 +30,7 @@ type ObjectProperties struct {
 	MultipathEditable bool    `json:"multipath_editable,omitempty"`
 }
 
-// ReadObjectProperties reads an object ("vms", "templates", "hosts", "pools", "srs", "networks") for its Properties.
+// ReadObjectProperties reads an object ("vms", "templates", "hosts", "pools", "srs", "networks", "vdis") for its Properties.
 func ReadObjectProperties(c *xapi.Connection, kind, uuid string) (ObjectProperties, error) {
 	s := c.Session
 	out := ObjectProperties{Tags: []string{}, AllTags: []string{}, Folders: []string{}, Fields: []FieldValue{}}
@@ -111,6 +111,16 @@ func ReadObjectProperties(c *xapi.Connection, kind, uuid string) (ObjectProperti
 		note(n.Tags, n.OtherConfig)
 		if kind == "networks" {
 			pick(n.UUID, n.NameLabel, n.NameDescription, n.Tags, n.OtherConfig)
+		}
+	}
+	vdis, err := xenapi.VDI.GetAllRecords(s)
+	if err != nil {
+		return out, xapi.Sanitize(err)
+	}
+	for _, v := range vdis {
+		note(v.Tags, v.OtherConfig)
+		if kind == "vdis" {
+			pick(v.UUID, v.NameLabel, v.NameDescription, v.Tags, v.OtherConfig)
 		}
 	}
 	if !found {

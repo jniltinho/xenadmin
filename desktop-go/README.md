@@ -56,8 +56,9 @@ management interface and HA warnings; New Pool (the coordinator and the members 
 question, `pool.join`).
 
 **Storage.** The New Storage wizard: NFS, SMB, iSCSI (Scan Target Host, IQN, LUN, Reattach or Format), NFS and SMB
-ISO libraries, Scan and Reattach of an existing SR; the SR's Storage tab (its disks); Repair, Set as Default, Detach, Forget and Destroy, with the C#
-icons of a default, broken or detached SR.
+ISO libraries, Scan and Reattach of an existing SR; the SR's Storage tab (its disks: Rescan, Add, Move to another SR
+live or offline, Delete, Properties); a server's or pool's Storage tab (New SR, Reclaim freed space, Properties);
+Repair, Set as Default, Detach, Forget and Destroy, with the C# icons of a default, broken or detached SR.
 
 **Views and notifications.** Organization Views (Tags, Folders, Custom Fields, vApps), the default Saved Searches
 and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;

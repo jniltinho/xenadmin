@@ -232,6 +232,11 @@ func NewDiskOptions(c *xapi.Connection, vmUUID string) (NewDisk, error) {
 	if err != nil {
 		return NewDisk{}, xapi.Sanitize(err)
 	}
+	return newDiskOptions(s, vmHome(s, vm))
+}
+
+// newDiskOptions is NewDiskDialog's defaults and the SRs a new disk can go to, seen from home ("" any server).
+func newDiskOptions(s *xenapi.Session, home xenapi.HostRef) (NewDisk, error) {
 	vdis, err := xenapi.VDI.GetAllRecords(s)
 	if err != nil {
 		return NewDisk{}, xapi.Sanitize(err)
@@ -252,7 +257,6 @@ func NewDiskOptions(c *xapi.Connection, vmUUID string) (NewDisk, error) {
 	if err != nil {
 		return NewDisk{}, xapi.Sanitize(err)
 	}
-	home := vmHome(s, vm)
 	hosts, _ := xenapi.Host.GetAll(s)
 	pools, _ := xenapi.Pool.GetAllRecords(s)
 	var def xenapi.SRRef
@@ -404,8 +408,17 @@ func isoChoices(s *xenapi.Session, vm xenapi.VMRecord) ([]ISO, error) {
 }
 
 // vmHome is VM.Home: the server it runs on, else the one holding its local disks or CD (VM.GetStorageHost), else
-// its affinity when that server is live; "" when none (every server then).
+// its affinity when that server is live; "" when none (every server then), as for a template; a snapshot's is its VM's.
 func vmHome(s *xenapi.Session, vm xenapi.VMRecord) xenapi.HostRef {
+	if vm.IsASnapshot { // a snapshot has its VM's home (CA-76273)
+		if from, err := xenapi.VM.GetRecord(s, vm.SnapshotOf); err == nil && !from.IsASnapshot {
+			return vmHome(s, from)
+		}
+		return ""
+	}
+	if vm.IsATemplate { // templates have no home, whatever their affinity (CA-36286)
+		return ""
+	}
 	if vm.ResidentOn != "" && vm.ResidentOn != nullRef {
 		return vm.ResidentOn
 	}

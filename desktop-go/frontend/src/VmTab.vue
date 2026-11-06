@@ -6,6 +6,7 @@ import { api, type Confirm, type NewDisk, type Table, type VIF, type VIFSettings
 import DetailsTable from "./DetailsTable.vue";
 import MemoryDialog from "./MemoryDialog.vue";
 import MemoryBars from "./MemoryBars.vue";
+import NewDiskDialog from "./NewDiskDialog.vue";
 import VifDialog from "./VifDialog.vue";
 import { serial } from "./serial";
 
@@ -93,21 +94,13 @@ function toggleVif() {
 }
 
 // Add Virtual Disk (NewDiskDialog): name, description, size in GB or MB, the SR
-const add = ref<(NewDisk & { description: string; size: number; unit: "GB" | "MB"; sr: string; error: string }) | null>(null);
+const add = ref<NewDisk | null>(null);
 async function openAdd() {
-  try {
-    const o = await api.newDiskOptions(props.server, props.vm);
-    add.value = { ...o, description: "", size: 10, unit: "GB", sr: o.default_sr || o.srs[0]?.uuid || "", error: "" };
-  } catch (e) { emit("status", String(e), true); }
+  try { add.value = await api.newDiskOptions(props.server, props.vm); } catch (e) { emit("status", String(e), true); }
 }
-function submitAdd() {
-  const a = add.value!;
-  const bytes = Math.round(a.size * (a.unit === "GB" ? 1024 ** 3 : 1024 ** 2));
-  if (!a.name.trim()) { a.error = "Enter a name for the disk."; return; }
-  if (!a.sr) { a.error = "Select a storage repository."; return; }
-  if (!(bytes > 0)) { a.error = "Enter a disk size."; return; }
+function submitAdd(name: string, description: string, sr: string, bytes: number) {
   add.value = null;
-  run(`Adding virtual disk '${a.name.trim()}'`, async () => { notice.value = await api.addDisk(props.server, props.vm, a.name.trim(), a.description, a.sr, bytes); });
+  run(`Adding virtual disk '${name}'`, async () => { notice.value = await api.addDisk(props.server, props.vm, name, description, sr, bytes); });
 }
 
 // Attach Disk (AttachDiskDialog): an unattached disk, optionally read-only
@@ -180,30 +173,7 @@ watch(() => props.tick, load);
       <button class="btn" :disabled="busy || !disk?.can_delete" @click="del">Delete</button>
     </div>
 
-    <div v-if="add" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
-      <form novalidate class="w-[36rem] border border-neutral-500 bg-white shadow-lg" @submit.prevent="submitAdd">
-        <div class="bg-band-dark px-3 py-1 font-semibold text-white">Add Virtual Disk</div>
-        <div class="space-y-2 p-3">
-          <p>Enter a name, description and size for the new virtual disk, and select the storage repository where it will be stored.</p>
-          <label class="grid grid-cols-[6rem_1fr] items-center gap-2">Name:<input v-model="add.name" class="border border-line px-1 py-0.5" /></label>
-          <label class="grid grid-cols-[6rem_1fr] items-center gap-2">Description:<input v-model="add.description" class="border border-line px-1 py-0.5" /></label>
-          <div class="grid grid-cols-[6rem_1fr] items-center gap-2">Size:
-            <span class="flex gap-2"><input v-model.number="add.size" type="number" min="0.01" step="any" class="w-28 border border-line px-1 py-0.5" />
-              <select v-model="add.unit" class="border border-line bg-white px-1"><option>GB</option><option>MB</option></select></span>
-          </div>
-          <div class="grid grid-cols-[6rem_1fr] gap-2">Location:
-            <div class="h-36 overflow-auto border border-line">
-              <div v-for="s in add.srs" :key="s.uuid" class="cursor-default whitespace-pre px-1 py-0.5" :class="add.sr === s.uuid ? 'bg-select text-white' : 'hover:bg-neutral-100'" @click="add!.sr = s.uuid">{{ s.text }}</div>
-            </div>
-          </div>
-          <p v-if="add.error" class="text-red-600">{{ add.error }}</p>
-          <div class="flex justify-end gap-2 pt-1">
-            <button type="submit" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5">Add</button>
-            <button type="button" class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="add = null">Cancel</button>
-          </div>
-        </div>
-      </form>
-    </div>
+    <NewDiskDialog v-if="add" :options="add" @close="add = null" @add="submitAdd" />
 
     <div v-if="attach" class="fixed inset-0 z-30 flex items-center justify-center bg-black/20">
       <div class="w-[34rem] border border-neutral-500 bg-white shadow-lg">

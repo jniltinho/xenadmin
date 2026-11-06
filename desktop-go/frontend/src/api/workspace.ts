@@ -227,6 +227,17 @@ export const api = {
   disableHa: (key: string) => call<void>("DisableHA", key),
   // the General tab (internal/gui/general.go): Details.General's sections
   general: (key: string, kind: string, uuid: string) => call<{ title: string; rows: [string, string][]; expanded: boolean }[]>("General", key, kind, uuid),
+  // the Storage tabs' buttons of an SR and of a server or pool (internal/gui/srdisks.go)
+  srStorage: (key: string, sr: string) => call<SRStorage>("SRStorage", key, sr),
+  physicalStorage: (key: string, kind: string, uuid: string) => call<PhysicalStorage>("PhysicalStorage", key, kind, uuid),
+  newSrDiskOptions: (key: string, sr: string) => call<NewDisk>("NewSRDiskOptions", key, sr),
+  createSrDisk: (key: string, sr: string, name: string, description: string, size: number) => call<string>("CreateSRDisk", key, sr, name, description, size),
+  rescanSrs: (key: string, srs: string[]) => call<void>("RescanSRs", key, srs),
+  moveDiskTargets: (key: string, vdi: string) => call<DiskTargets>("MoveDiskTargets", key, vdi),
+  moveSrDisk: (key: string, vdi: string, sr: string) => call<string>("MoveSRDisk", key, vdi, sr),
+  deleteSrDisk: (key: string, vdi: string) => call<void>("DeleteSRDisk", key, vdi),
+  trimQuestion: () => call<Confirm>("TrimQuestion"),
+  trimSr: (key: string, sr: string) => call<void>("TrimSR", key, sr),
 };
 export interface HAPriority { value: string; text: string }
 export interface HAConfig { pool: string; ha_enabled: boolean; blocker?: string; ntol: number; hosts: number; priorities: HAPriority[] | null;
@@ -237,3 +248,8 @@ export interface HAStartup { vm: string; priority: string; order: number; start_
 // a pool's HA state (app.Object) and the Start Options page's restart priority (app.VMProperties)
 export interface XenObject { ha_enabled?: boolean }
 export interface VMProperties { ha_restart_priority: string; ha_priorities: HAPriority[] }
+// the Storage tabs of an SR and of a server or pool (app.SRStorage, app.PhysicalStorage, app.DiskTargets)
+export interface SRStorage { table: Table; can_add: boolean; can_rescan: boolean; rescan_tip?: string;
+  disks: { uuid: string; can_edit: boolean; can_delete: boolean; can_move: boolean; delete_title: string; delete_text: string }[] }
+export interface PhysicalStorage { table: Table; srs: { uuid: string; can_trim: boolean; trim_tip?: string }[]; can_new: boolean; pool: string }
+export interface DiskTargets { migrate: boolean; srs: { uuid: string; text: string; reason?: string }[] }

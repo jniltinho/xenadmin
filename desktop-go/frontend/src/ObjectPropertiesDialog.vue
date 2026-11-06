@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Properties of a server, pool, SR or network (PropertiesDialog.PagesFor): General (name, description, folder, tags; a
+// Properties of a server, pool, SR, network or virtual disk (PropertiesDialog.PagesFor): General (name, description, folder, tags; a
 // server's iSCSI IQN) and Custom Fields, with the Change Folder and Edit Tags dialogs (Dialogs.ChangeFolder/EditTags).
 // A server also has Multipathing (HostMultipathPage) and Log Destination (LogDestinationEditPage).
 // shortcut: the Alerts and Network Settings pages are not ported (as in the C# app).

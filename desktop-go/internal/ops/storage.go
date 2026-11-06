@@ -195,7 +195,7 @@ func DiskInfo(s *xenapi.Session, vm xenapi.VMRef, vdi xenapi.VDIRecord, sr xenap
 		}
 	}
 	d := rules.DiskInfo{SRPhysical: sr.Type == "local" || (sr.Type == "udev" && sr.SmConfig["type"] == "cd"), SRTools: sr.IsToolsSr,
-		UsedByHA: ha, System: vdi.Type == xenapi.VdiTypeSystem}
+		UsedByHA: ha, System: vdi.Type == xenapi.VdiTypeSystem, Locked: len(vdi.CurrentOperations) > 0}
 	d.DestroyAllowed = sr.Type == "rawhba" // SR.HBALunPerVDI: one LUN per disk, deleted without the destroy operation
 	for _, op := range vdi.AllowedOperations {
 		d.DestroyAllowed = d.DestroyAllowed || op == xenapi.VdiOperationsDestroy
