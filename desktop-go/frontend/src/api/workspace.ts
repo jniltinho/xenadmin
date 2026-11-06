@@ -9,7 +9,7 @@ const call = <T>(method: string, ...args: unknown[]) =>
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
 export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean;
-  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string; resident?: number }
+  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string; resident?: number; user_template?: boolean }
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
 export interface Table { title: string; headers: string[]; rows: string[][]; keys: string[] }
@@ -29,6 +29,8 @@ export interface VIF { uuid: string; device: string; network: string; mac: strin
 export interface VMNetworking { table: Table; vifs: VIF[]; can_add: boolean; at_max: string }
 export interface VIFSettings { network: string; mac: string; qos: boolean; limit: string }
 export interface OverviewRow { cpu: string; cpu_bar: number; memory: string; memory_bar: number; disks: string; network: string; address: string; uptime: string }
+export interface AppOptions { no_new_certificate_warning?: boolean; no_rotate_secret_reminder?: boolean; proxy?: string; proxy_address?: string; proxy_port?: number;
+  bypass_proxy_for_servers?: boolean; connection_timeout?: number; no_dismiss_confirmation?: boolean; area_graphs?: boolean; no_remember_last_tab?: boolean }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
@@ -83,6 +85,15 @@ export const api = {
   overview: (key: string) => call<Record<string, OverviewRow> | null>("Overview", key),
   convertQuestion: (name: string) => call<Confirm>("ConvertQuestion", name),
   convertToTemplate: (key: string, vm: string) => call<void>("ConvertToTemplate", key, vm),
+  joinCandidates: (pool: string) => call<{ key: string; name: string; reason: string; can_join: boolean }[]>("JoinCandidates", pool),
+  addToPoolQuestions: (pool: string, member: string) => call<string[]>("AddToPoolQuestions", pool, member),
+  addToPool: (pool: string, member: string) => call<void>("AddToPool", pool, member),
+  rotateSecretBlocker: (key: string) => call<string>("RotateSecretBlocker", key),
+  rotateSecret: (key: string) => call<string>("RotateSecret", key),
+  makeStandaloneBlocker: (key: string) => call<string>("MakeStandaloneBlocker", key),
+  makeStandalone: (key: string) => call<void>("MakeStandalone", key),
+  options: () => call<AppOptions>("Options"),
+  setOptions: (o: AppOptions) => call<void>("SetOptions", o),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

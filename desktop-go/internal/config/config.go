@@ -23,10 +23,25 @@ type Server struct {
 	Name string `toml:"name,omitempty"`
 }
 
+// Options are Tools > Options (OptionsDialog / AppOptions). The booleans are named so that false is the C# default.
+type Options struct {
+	NoNewCertificateWarning bool   `toml:"no_new_certificate_warning,omitempty" json:"no_new_certificate_warning,omitempty"` // trust a server's first certificate without asking
+	NoRotateSecretReminder  bool   `toml:"no_rotate_secret_reminder,omitempty" json:"no_rotate_secret_reminder,omitempty"`
+	Proxy                   string `toml:"proxy,omitempty" json:"proxy,omitempty"` // "direct" (the default), "system" or "specified"
+	ProxyAddress            string `toml:"proxy_address,omitempty" json:"proxy_address,omitempty"`
+	ProxyPort               int    `toml:"proxy_port,omitempty" json:"proxy_port,omitempty"`
+	BypassProxyForServers   bool   `toml:"bypass_proxy_for_servers,omitempty" json:"bypass_proxy_for_servers,omitempty"`
+	ConnectionTimeout       int    `toml:"connection_timeout,omitempty" json:"connection_timeout,omitempty"` // seconds, 20 when 0
+	NoDismissConfirmation   bool   `toml:"no_dismiss_confirmation,omitempty" json:"no_dismiss_confirmation,omitempty"`
+	AreaGraphs              bool   `toml:"area_graphs,omitempty" json:"area_graphs,omitempty"` // FillAreaUnderGraphs: areas instead of lines
+	NoRememberLastTab       bool   `toml:"no_remember_last_tab,omitempty" json:"no_remember_last_tab,omitempty"`
+}
+
 // Settings is settings.toml.
 type Settings struct {
 	Servers      []Server          `toml:"servers"`
 	Fingerprints map[string]string `toml:"fingerprints"`
+	Options      Options           `toml:"options"`
 
 	path string
 	mu   sync.Mutex
@@ -84,7 +99,7 @@ func (s *Settings) update(change func(*Settings)) error {
 		return err
 	}
 	change(fresh)
-	s.Servers, s.Fingerprints = fresh.Servers, fresh.Fingerprints // the in-memory copy follows the file
+	s.Servers, s.Fingerprints, s.Options = fresh.Servers, fresh.Fingerprints, fresh.Options // the in-memory copy follows the file
 	f, err := os.CreateTemp(filepath.Dir(s.path), ".settings-*.toml")
 	if err != nil {
 		return err
@@ -193,3 +208,15 @@ func (s *Settings) PinNew(hostKey, fingerprint string) error {
 
 // ErrPinned: the host already has a pinned certificate.
 var ErrPinned = errors.New("this server's certificate is already pinned: a changed certificate is not replaced from the window")
+
+// GetOptions are the current options.
+func (s *Settings) GetOptions() Options {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Options
+}
+
+// SetOptions saves the options.
+func (s *Settings) SetOptions(o Options) error {
+	return s.update(func(f *Settings) { f.Options = o })
+}

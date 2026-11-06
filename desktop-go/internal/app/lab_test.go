@@ -1378,7 +1378,10 @@ func TestLabServerAndTemplateCommands(t *testing.T) {
 	}
 	uuid := created.UUID
 	vm, _ := xenapi.VM.GetByUUID(s, uuid)
-	t.Cleanup(func() { // a template's disks go with it
+	t.Cleanup(func() { // whatever the test left: a template's disks go with it
+		if _, err := xenapi.VM.GetByUUID(s, uuid); err != nil {
+			return
+		}
 		vbds, _ := xenapi.VM.GetVBDs(s, vm)
 		for _, b := range vbds {
 			if typ, _ := xenapi.VBD.GetType(s, b); typ == xenapi.VbdTypeDisk {
@@ -1401,6 +1404,24 @@ func TestLabServerAndTemplateCommands(t *testing.T) {
 	}
 	if err := ops.ConvertToTemplate(c, uuid); err == nil {
 		t.Fatal("a template converted again")
+	}
+	if objs, _ := ListObjects(c, "templates"); !slices.ContainsFunc(objs, func(o Object) bool { return o.UUID == uuid && o.UserTemplate }) {
+		t.Fatal("the template is not a user template")
+	}
+	// Delete Template..., with its disk
+	del, err := ReadVMDelete(c, uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vbds []string
+	for _, x := range del.Disks {
+		vbds = append(vbds, x.UUID)
+	}
+	if err := ops.DeleteVM(c, uuid, vbds, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xenapi.VM.GetByUUID(s, uuid); err == nil {
+		t.Fatal("the template is still there")
 	}
 	pools, _ := xenapi.Pool.GetAllRecords(s)
 	var master xenapi.HostRef
@@ -1435,7 +1456,8 @@ func TestLabOverview(t *testing.T) {
 	hosts, _ := xenapi.Host.GetAllRecords(c.Session)
 	for _, h := range hosts {
 		r := rows[h.UUID]
-		if !strings.Contains(r.CPU, "% of") || r.CPUBar < 0 || !strings.Contains(r.Memory, " of ") || r.Uptime == "-" || r.Address == "-" {
+		// "-" for the CPU while a restarted toolstack has no samples yet, as the C# app
+		if !strings.Contains(r.CPU, "% of") && r.CPU != "-" || !strings.Contains(r.Memory, " of ") || r.Uptime == "-" || r.Address == "-" {
 			t.Fatalf("%s: %+v", h.NameLabel, r)
 		}
 		t.Logf("%s: %+v", h.NameLabel, r)
@@ -1448,5 +1470,29 @@ func TestLabOverview(t *testing.T) {
 			t.Fatalf("%s: %+v", name, r)
 		}
 		t.Logf("%s: %+v", name, r)
+	}
+}
+
+// TestLabPoolCommands rotates the pool secret and checks that a pool of two servers cannot be made into a standalone
+// server (XCP_ALLOW_WRITE=1).
+func TestLabPoolCommands(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	if why := ops.MakeStandaloneBlocker(c); why == "" {
+		t.Fatal("a pool of two servers may be made standalone")
+	}
+	if err := ops.MakeStandalone(c); err == nil {
+		t.Fatal("made standalone")
+	}
+	if why := ops.RotateSecretBlocker(c); why != "" {
+		t.Fatal(why)
+	}
+	if err := ops.RotateSecret(c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xenapi.Pool.GetAllRecords(c.Session); err != nil { // the session goes on
+		t.Fatal(err)
 	}
 }

@@ -4,7 +4,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, type Performance } from "./api/workspace";
 
-const props = defineProps<{ server: string; uuid: string; kind: "vms" | "hosts" }>();
+// area: Tools > Options' "Area graph" (FillAreaUnderGraphs), else lines
+const props = defineProps<{ server: string; uuid: string; kind: "vms" | "hosts"; area?: boolean }>();
 const zooms = [["10m", "10 Minutes"], ["1h", "1 Hour"], ["1d", "1 Day"], ["1w", "1 Week"], ["1mo", "1 Month"], ["1y", "1 Year"]] as const;
 const zoom = ref<string>("10m");
 const data = ref<Performance | null>(null);
@@ -79,7 +80,11 @@ onBeforeUnmount(() => window.clearInterval(timer));
             <line v-for="ev in data!.events" :key="ev.time + ev.name" :x1="x(Date.parse(ev.time) / 1000)" :x2="x(Date.parse(ev.time) / 1000)" :y1="6" :y2="H - B" stroke="#999" stroke-dasharray="3 3" />
           </g>
           <g v-for="(s, si) in g.series" :key="s.name">
-            <polyline v-for="(pts, pi) in paths(s.values, g.max)" :key="pi" :points="pts" fill="none" :stroke="colours[si % colours.length]" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+            <template v-for="(pts, pi) in paths(s.values, g.max)" :key="pi">
+              <polygon v-if="area" :points="`${pts.split(' ')[0].split(',')[0]},${H - B} ${pts} ${pts.split(' ').at(-1)!.split(',')[0]},${H - B}`"
+                       :fill="colours[si % colours.length]" fill-opacity="0.35" stroke="none" />
+              <polyline :points="pts" fill="none" :stroke="colours[si % colours.length]" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+            </template>
           </g>
         </svg>
         <ul class="w-56 shrink-0 space-y-0.5 text-xs">

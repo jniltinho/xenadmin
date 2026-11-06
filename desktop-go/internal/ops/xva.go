@@ -30,9 +30,9 @@ import (
 // on the whole transfer (an export takes hours), but a connection idle for transferIdle fails.
 func xvaClient(s *xenapi.Session, policy *trust.Policy, address string, port int) (*http.Client, string) {
 	key := xapi.HostKey(address, port)
-	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
-	return &http.Client{Transport: &http.Transport{
-			TLSClientConfig: xapi.MemberTLS(policy, key, xapi.VouchedFingerprints(s, address)), TLSHandshakeTimeout: 30 * time.Second,
+	dialer := xapi.Dialer()
+	return &http.Client{Transport: &http.Transport{Proxy: xapi.Proxy,
+			TLSClientConfig: xapi.MemberTLS(policy, key, xapi.VouchedFingerprints(s, address)), TLSHandshakeTimeout: xapi.HandshakeTimeout(),
 			ResponseHeaderTimeout: 30 * time.Minute, // HTTP_PUT_TIMEOUT: the server answers an import once it has read it
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				c, err := dialer.DialContext(ctx, network, addr)

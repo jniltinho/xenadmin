@@ -15,6 +15,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   maximum with ballooning), with the C# limits and questions; a new static maximum restarts a running VM on its server.
 - Servers and pools: the Memory, Storage, Networking and NICs (a server) tabs; SRs: the Storage tab (its disks and
   the VMs using them).
+- Pool menu: Add Server and Remove Server (submenus), Disconnect, Rotate Pool Secret and Make into standalone server,
+  with the C# questions and warnings (supplemental packs and CPU levelling, also in New Pool).
+- The user templates in the tree and the Templates menu: Create VM From Selection, Delete Template, Properties.
+- Tools > Options: certificate warnings, the pool secret reminder, the proxy server and connection timeout, the
+  dismiss alerts confirmation, area or line graphs, and the last tab of each resource.
 - File > Import... and VM > Export...: a VM as an XVA file (ExportVmAction, ImportVmAction), checked as it downloads
   (the block checksums, SHA-1 or xxHash64) and optionally read back; the import picks the pool or a server and the SR,
   and can start the VM. OVF/OVA appliances are not ported yet.

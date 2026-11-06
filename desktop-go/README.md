@@ -35,7 +35,7 @@ the Home and Search tabs (the overview with live CPU, memory, disk, network, add
 
 **VMs.** Start, Shut Down, Reboot, Suspend, Resume, Pause, Unpause and the forced ones, with the C# questions;
 Export to an XVA file and Import (File > Import...); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
-New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
+User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
 (General, CPU, Boot Options, Start Options, Home Server, Advanced); the General, Memory (Memory Settings: fixed, range or static
 maximum), Storage (add, attach, activate, detach and delete disks; the DVD drive and its ISO), Networking (add,
@@ -43,7 +43,7 @@ change, remove, activate and deactivate interfaces), Console (noVNC), Performanc
 delete) tabs.
 
 **Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), Restart
-Toolstack, Remove From Pool, the Memory,
+Toolstack, Remove From Pool, the Pool menu (Add Server, Remove Server, Rotate Pool Secret, Make into standalone server), the Memory,
 Storage, Networking, NICs, Console and Performance tabs; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
 question, `pool.join`).
 
@@ -75,7 +75,7 @@ The MCP tools have the names and arguments of the C# app's MCP server: `list_ser
 `snapshot_revert`, `snapshot_delete`, `host_power`, `host_maintenance`, `dismiss_alerts`. The password comes from
 `XCP_PASS`; the agent never sees it.
 
-Settings (servers and certificate fingerprints, never passwords) live in `settings.toml` under the user config
+Settings (servers, certificate fingerprints and Tools > Options; never passwords) live in `settings.toml` under the user config
 directory (`~/.config/xcp-ng-center-go` on Linux), mode 0600, shared by the window and the CLI.
 
 ## Build (only docker and make)

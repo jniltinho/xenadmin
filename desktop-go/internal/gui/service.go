@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	xenapi "go/xenapi"
 	"net"
 	"sort"
 	"strings"
@@ -67,6 +68,7 @@ var webviewOrigins = []string{"wails://localhost", "http://wails.localhost"}
 // NewWorkspace uses the settings file of the CLI (servers and pinned certificates are shared) and the CLI's trust
 // policy (the operator's --trust-fingerprint applies to the window too).
 func NewWorkspace(s *config.Settings, p *trust.Policy) *Workspace {
+	applyNetwork(s.GetOptions())
 	return &Workspace{settings: s, policy: p, conns: map[string]*xapi.Connection{}, watchers: map[string]*watcher{}, pending: map[string]bool{}, passwords: map[string]string{}}
 }
 
@@ -116,6 +118,12 @@ func (w *Workspace) Connect(address, user, password string) ConnectResult {
 	}
 	conn, err := xapi.Connect(context.Background(), w.policy, host, port, user, password)
 	var untrusted *trust.UntrustedError
+	if errors.As(err, &untrusted) && untrusted.Previous == "" && w.settings.GetOptions().NoNewCertificateWarning {
+		// Tools > Options: "Warn me when a new certificate is found" off; a changed certificate always asks
+		if perr := w.settings.PinNew(untrusted.HostKey, trust.Normalize(untrusted.Fingerprint)); perr == nil {
+			conn, err = xapi.Connect(context.Background(), w.policy, host, port, user, password)
+		}
+	}
 	if errors.As(err, &untrusted) {
 		return ConnectResult{Key: untrusted.HostKey, Fingerprint: untrusted.Fingerprint, Previous: untrusted.Previous}
 	}
@@ -147,6 +155,13 @@ func (w *Workspace) reconnect(key, user string) error {
 	w.mu.Lock()
 	password, old := w.passwords[key], w.conns[key]
 	w.mu.Unlock()
+	// the agent restarts after the call returns: wait for the old session to fail first (a login before that would die
+	// with it), for at most a minute
+	for deadline := time.Now().Add(time.Minute); old != nil && time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		if _, err := xenapi.Pool.GetAll(old.Session); err != nil {
+			break
+		}
+	}
 	var last string
 	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(5 * time.Second) {
 		w.mu.Lock()
@@ -990,7 +1005,8 @@ func (w *Workspace) PoolWarning(coordinator string, members []string) (string, e
 	for _, m := range members {
 		list = append(list, facts[m])
 	}
-	return rules.CPUWarning(list, facts[coordinator]), nil
+	// PoolRules.Warnings: the supplemental packs, then the CPU levelling
+	return strings.Trim(rules.PackWarning(list, facts[coordinator])+"\n\n"+rules.CPUWarning(list, facts[coordinator]), "\n"), nil
 }
 
 // CreatePool is CreatePoolAction: the coordinator's pool gets the name and description, then each member joins it

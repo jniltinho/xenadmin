@@ -73,7 +73,7 @@ func Locate(c *xapi.Connection, vmUUID string) (Target, error) {
 // cookie. Bytes the server sent after its HTTP answer stay in the returned connection.
 func Dial(ctx context.Context, policy *trust.Policy, t Target, session string) (net.Conn, error) {
 	conf := xapi.MemberTLS(policy, t.HostKey, t.Vouched)
-	d := tls.Dialer{NetDialer: &net.Dialer{Timeout: 20 * time.Second}, Config: conf}
+	d := tls.Dialer{NetDialer: xapi.Dialer(), Config: conf} // Tools > Options: the timeout (shortcut: no proxy for the console)
 	raw, err := d.DialContext(ctx, "tcp", t.HostKey)
 	if err != nil {
 		return nil, err

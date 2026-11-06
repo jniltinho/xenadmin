@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -55,9 +54,9 @@ func HTTPClient(policy *trust.Policy, host, hostKey string, timeout time.Duratio
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		Transport: &http.Transport{
 			TLSClientConfig:     tlsConfig,
-			Proxy:               http.ProxyFromEnvironment,
-			DialContext:         (&net.Dialer{Timeout: 20 * time.Second}).DialContext,
-			TLSHandshakeTimeout: 20 * time.Second,
+			Proxy:               Proxy, // Tools > Options
+			DialContext:         Dialer().DialContext,
+			TLSHandshakeTimeout: HandshakeTimeout(),
 		},
 	}
 }

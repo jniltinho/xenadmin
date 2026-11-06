@@ -5,7 +5,8 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type NewVMDefaults, type NewVMOptions } from "./api/workspace";
 
-const props = defineProps<{ server: string }>();
+// template: Create VM From Selection opens on that template (its uuid)
+const props = defineProps<{ server: string; template?: string }>();
 const emit = defineEmits<{ (e: "close", created: string, startError: string): void }>();
 
 const pages = ["Template", "Name", "Installation Media", "Home Server", "CPU & Memory", "Storage", "Networking", "Finish"] as const;
@@ -19,7 +20,10 @@ const f = reactive({ template: "", name: "", description: "", install: "cd", iso
   eliloader: false, url: "" });
 
 onMounted(async () => {
-  try { opts.value = await api.newVmOptions(props.server); f.template = opts.value.templates[0]?.uuid ?? ""; } catch (e) { error.value = String(e); }
+  try {
+    opts.value = await api.newVmOptions(props.server);
+    f.template = opts.value.templates.find((t) => t.uuid === props.template)?.uuid ?? opts.value.templates[0]?.uuid ?? "";
+  } catch (e) { error.value = String(e); }
 });
 const templates = computed(() => (opts.value?.templates ?? []).filter((t) => t.name.toLowerCase().includes(filter.value.toLowerCase())));
 const srName = (uuid: string) => opts.value?.srs.find((s) => s.uuid === uuid)?.text.split("   ")[0] ?? "(no storage)";

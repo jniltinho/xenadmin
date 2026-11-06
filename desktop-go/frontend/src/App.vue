@@ -4,7 +4,7 @@
 // (Home and Search for the root), Add New Server and the certificate question, a status bar.
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { Events } from "@wailsio/runtime";
-import { api, type ViewInfo, type ViewNode, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
+import { api, type AppOptions, type ViewInfo, type ViewNode, type Alert, type Confirm, type ServerRow, type XenObject } from "./api/workspace";
 import ConsoleView from "./ConsoleView.vue";
 import { serial } from "./serial";
 import SnapshotsView from "./SnapshotsView.vue";
@@ -18,6 +18,7 @@ import NewSrWizard from "./NewSrWizard.vue";
 import MenuList, { type MenuItem } from "./MenuList.vue";
 import CopyVmDialog from "./CopyVmDialog.vue";
 import ImportVmDialog from "./ImportVmDialog.vue";
+import OptionsDialog from "./OptionsDialog.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
 
@@ -73,6 +74,11 @@ async function runVm(c: VmCommand, n: Node | null) {
 }
 
 // keep the selection on the object after a reload (a VM moves under its host when it starts): expand its parents
+// the Infrastructure tree's node of an id (a server's key, "key/uuid" for its objects)
+function treeNode(id: string): Node | null {
+  const find = (n: Node): Node | null => (n.id === id ? n : n.children.reduce<Node | null>((f, c) => f ?? find(c), null));
+  return find(tree.value);
+}
 function reselect(id: string): boolean {
   const path = (n: Node): Node[] | null => {
     if (n.id === id) return [n];
@@ -117,7 +123,8 @@ const loadAlerts = serial(async () => {
 });
 
 async function dismiss(rows: AlertRow[], all = false) {
-  if (!rows.length || !(await confirm(await api.dismissConfirmation(rows.length, all)))) return;
+  // Tools > Options: "Don't show dismiss alerts confirmation dialog"
+  if (!rows.length || !appOptions.value.no_dismiss_confirmation && !(await confirm(await api.dismissConfirmation(rows.length, all)))) return;
   for (const key of new Set(rows.map((r) => r.server))) {
     try {
       await api.dismissAlerts(key, rows.filter((r) => r.server === key).map((r) => r.uuid));
@@ -273,7 +280,7 @@ const tabs = computed<Tab[]>(() => {
   // Details.Tabs: General, Memory, Storage, Networking, NICs (a server), Console, Performance, Snapshots (a VM)
   const t: Tab[] = ["general"];
   const kind = selected.value?.object?.kind;
-  if (kind === "vms" || kind === "hosts" || kind === "pools") t.push("memory", "storage", "networking");
+  if (kind === "vms" || kind === "templates" || kind === "hosts" || kind === "pools") t.push("memory", "storage", "networking");
   if (kind === "hosts") t.push("nics");
   if (kind === "srs") t.push("storage");
   if (consoleVm.value) t.push("console");
@@ -285,7 +292,23 @@ const tabs = computed<Tab[]>(() => {
 function onTabStatus(text: string, error: boolean) {
   if (error) failure.value = text; else { status.value = text || "Ready"; if (!text) failure.value = ""; }
 }
-watch(tabs, (t) => { if (!t.includes(tab.value)) tab.value = t[0]; }, { immediate: true });
+// Tools > Options (read at start and after OK)
+const optionsOpen = ref(false);
+const appOptions = ref<AppOptions>({});
+api.options().then((o) => (appOptions.value = o)).catch(() => {});
+async function optionsClosed(saved: boolean) {
+  optionsOpen.value = false;
+  if (saved) appOptions.value = await api.options();
+}
+
+// MainWindow's tab: the last tab used anywhere, or (Remember the last selected Tab for a resource) the last one of
+// this object, else its first tab
+const lastTabOf = new Map<string, Tab>();
+watch(tab, (t) => { if (selected.value) lastTabOf.set(selected.value.id, t); });
+watch(tabs, (t) => {
+  const want = appOptions.value.no_remember_last_tab ? tab.value : selected.value ? lastTabOf.get(selected.value.id) : undefined;
+  tab.value = want && t.includes(want) ? want : t[0];
+}, { immediate: true });
 
 async function runHost(c: HostCommand, n: Node | null) {
   closeMenus();
@@ -334,9 +357,12 @@ const tree = computed<Node>(() => ({
     }));
     const loose = (d.vms ?? []).filter((v) => !v.host_uuid).map<Node>((v) => ({ id: `${s.key}/${v.uuid}`, label: v.name, icon: vmIcon(v), object: v, server: s.key, children: [] }));
     const srs = (d.srs ?? []).map<Node>((r) => ({ id: `${s.key}/${r.uuid}`, label: r.name, icon: r.icon || "000_Storage_h32bit_16", object: r, server: s.key, children: [] }));
+    // ResourceTree: the user templates sit with the pool, by name (the default templates stay hidden)
+    const templates = (d.templates ?? []).filter((t) => t.user_template).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      .map<Node>((t) => ({ id: `${s.key}/${t.uuid}`, label: t.name, icon: "000_VMTemplate_h32bit_16", object: t, server: s.key, children: [] }));
     // Pool.Name: an unnamed pool is called after its coordinator
     const coordinator = (d.hosts ?? []).find((h) => h.coordinator);
-    return { id: s.key, label: pool?.name || coordinator?.name || s.name || s.host, icon: "000_PoolConnected_h32bit_16", object: pool, server: s.key, children: [...hosts, ...loose, ...srs] };
+    return { id: s.key, label: pool?.name || coordinator?.name || s.name || s.host, icon: "000_PoolConnected_h32bit_16", object: pool, server: s.key, children: [...hosts, ...loose, ...templates, ...srs] };
   }),
 }));
 
@@ -459,7 +485,18 @@ function startResize(e: MouseEvent) {
 // New VM (NewVMCommand): on the selected object's server, else the first connected one
 const newVmOn = ref("");
 const targetServer = computed(() => selected.value?.server && data[selected.value.server] ? selected.value.server : servers.value.find((s) => s.connected)?.key ?? "");
-function openNewVm() { closeMenus(); if (targetServer.value) newVmOn.value = targetServer.value; }
+const newVmTemplate = ref(""); // Create VM From Selection: the template the wizard opens on
+function openNewVm() { closeMenus(); newVmTemplate.value = ""; if (targetServer.value) newVmOn.value = targetServer.value; }
+// the Templates menu (and a template's context menu): Create VM From Selection, Delete Template, Properties
+const selectedTemplate = computed(() => (selected.value?.object?.kind === "templates" ? selected.value : null));
+const templateItems = (n: Node | null): MenuItem[] => [
+  { label: "Create VM From Selection...", icon: "001_CreateVM_h32bit_16", enabled: !!n?.object,
+    run: () => { closeMenus(); newVmTemplate.value = n!.object!.uuid; newVmOn.value = n!.server!; } },
+  { label: "", sep: true },
+  { label: "Delete Template...", enabled: !!n?.object?.allowed?.includes("destroy"), run: () => { closeMenus(); deleteOf.value = n; } },
+  { label: "", sep: true },
+  { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!n?.object, run: () => { closeMenus(); propsOf.value = n; } },
+];
 async function newVmClosed(uuid: string, startError: string) {
   const key = newVmOn.value;
   newVmOn.value = "";
@@ -514,6 +551,65 @@ async function exportVm(n: Node | null) {
   status.value = `${label}...`;
   try { await api.exportVm(key, n.object.uuid, file, pick === 0); status.value = "Ready"; } catch (e) { failure.value = `${label}: ${String(e)}`; }
 }
+
+// The Pool menu (MainWindow): Add Server and Remove Server (submenus), Disconnect, Rotate Pool Secret, Make into
+// standalone server; for the connection of the selected node when it is a pool (Helpers.GetPool)
+// the selected node's connection, a pool or a standalone server (SelectedNode()?.Connection)
+const selectedConnection = computed(() => (selected.value?.server && !selected.value.disconnected && data[selected.value.server] ? selected.value.server : null));
+const selectedPool = computed(() => {
+  const key = selected.value?.server, d = key ? data[key] : undefined;
+  if (!key || !d || selected.value?.disconnected) return null;
+  return (d.pools ?? []).some((p) => p.name) || (d.hosts ?? []).length > 1 ? key : null;
+});
+async function poolRun(label: string, key: string, f: () => Promise<string | void>): Promise<boolean> {
+  closeMenus();
+  status.value = `${label}...`;
+  let error = "", info: string | void = "";
+  try { info = await f(); } catch (e) { error = `${label}: ${String(e)}`; }
+  await load(key);
+  if (error) failure.value = error; else status.value = "Ready";
+  if (info) await choose({ title: label, text: info }, ["OK"]);
+  return !error;
+}
+async function addToPool(pool: string, member: string, name: string) {
+  closeMenus();
+  for (const q of await api.addToPoolQuestions(pool, member))
+    if ((await choose({ title: "Adding to Pool", text: q }, ["Yes", "No"])) !== 0) return;
+  if (!(await poolRun(`Adding '${name}' to the pool`, pool, () => api.addToPool(pool, member)))) return; // still a server of its own
+  retire(member);
+  delete data[member];
+  await refreshServers();
+}
+async function rotateSecret(key: string) {
+  closeMenus();
+  const why = await api.rotateSecretBlocker(key);
+  if (why) { await choose({ title: "Rotating pool secret", text: why }, ["OK"]); return; }
+  await poolRun("Rotating pool secret", key, () => api.rotateSecret(key)); // then the reminder to change the root password
+}
+async function makeStandalone(key: string) {
+  closeMenus();
+  const why = await api.makeStandaloneBlocker(key);
+  if (why) { await choose({ title: "Make into standalone server", text: why }, ["OK"]); return; }
+  await poolRun("Making the pool into a standalone server", key, () => api.makeStandalone(key));
+}
+const poolItems = (key: string | null): MenuItem[] => [
+  { label: "Add Server", enabled: !!key, sub: async () => {
+    const list = await api.joinCandidates(key!);
+    const items: MenuItem[] = list.map((c) => ({ label: c.can_join ? c.name : `${c.name} (${c.reason})`, enabled: c.can_join, run: () => addToPool(key!, c.key, c.name) }));
+    return [...items, ...(items.length ? [{ label: "", sep: true }] : []), { label: "Add a pool or standalone server...", enabled: true, run: () => { closeMenus(); openAdd(); } }];
+  } },
+  { label: "Remove Server", enabled: !!key, sub: async () => {
+    const hosts = [...(data[key!]?.hosts ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+    if (!hosts.length) return [{ label: "None", enabled: false }];
+    return hosts.map((h) => ({ label: h.name, enabled: !!h.live && !h.coordinator && (h.resident ?? 0) <= 1,
+      run: () => runHost(hostCommands.find((c) => c.op === "remove_from_pool")!, treeNode(`${key}/${h.uuid}`)) }));
+  } },
+  { label: "Disconnect", enabled: !!key, run: () => { closeMenus(); const n = treeNode(key!); if (n) disconnect(n); } },
+  { label: "", sep: true },
+  { label: "Rotate Pool Secret", enabled: !!selectedConnection.value, run: () => rotateSecret(selectedConnection.value!) },
+  { label: "", sep: true },
+  { label: "Make into standalone server", enabled: !!key && (data[key]?.hosts ?? []).length === 1, run: () => makeStandalone(key!) },
+];
 
 // Take a Snapshot from the menu opens the Snapshots tab's dialog
 const snapshotAsk = ref(false);
@@ -603,7 +699,8 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
   { label: "View", items: navButtons.map((b) => b.v === "organization" || b.v === "saved"
     ? { label: b.label, enabled: true, sub: () => viewItems(b.v as "organization" | "saved") }
     : { label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } }) },
-  { label: "Pool", items: [{ label: "New Pool...", icon: "000_PoolNew_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); newPool.value = true; } }] },
+  { label: "Pool", items: [{ label: "New Pool...", icon: "000_PoolNew_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); newPool.value = true; } },
+    { label: "", sep: true }, ...poolItems(selectedPool.value)] },
   { label: "Server", items: [
     { label: "Add...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
     { label: "Connect", enabled: !!serverNode.value?.disconnected, run: () => { closeMenus(); connectTo(serverNode.value!); } },
@@ -611,8 +708,8 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     { label: "", sep: true }, ...hostItems(selectedHost.value)] },
   { label: "VM", items: [{ label: "New VM...", icon: "001_CreateVM_h32bit_16", enabled: !!targetServer.value, run: openNewVm }, { label: "", sep: true }, ...vmItems(selectedVm.value)] },
   { label: "Storage", items: [{ label: "New SR...", icon: "000_Storage_h32bit_16", enabled: !!targetServer.value, run: openNewSr }, { label: "", sep: true }, ...srItems(selectedSr.value)] },
-  { label: "Templates", items: [{ label: "New VM from Template...", enabled: false }] },
-  { label: "Tools", items: [{ label: "Options...", enabled: false }] },
+  { label: "Templates", items: templateItems(selectedTemplate.value) },
+  { label: "Tools", items: [{ label: "Options...", enabled: true, run: () => { closeMenus(); optionsOpen.value = true; } }] },
   { label: "Help", items: [{ label: "About XCP-ng Center", enabled: true, run: () => { closeMenus(); choose({ title: "About XCP-ng Center", text: "XCP-ng Center (Go)\nThe XCP-ng Center desktop app in Go, Wails and Vue." }, ["OK"]); } }] },
 ]);
 // the tree's context menu by object
@@ -623,6 +720,7 @@ function contextItems(n: Node): MenuItem[] {
   if (n.object?.kind === "hosts") return hostItems(n);
   if (n.object?.kind === "vms") return vmItems(n);
   if (n.object?.kind === "srs") return srItems(n);
+  if (n.object?.kind === "templates") return templateItems(n);
   return [];
 }
 function activate(n: Node) { if (n.disconnected) connectTo(n); else toggle(n); }
@@ -687,7 +785,7 @@ async function load(key: string) {
 }
 async function read(key: string) {
   const result: Record<string, XenObject[]> = {};
-  for (const k of ["pools", "hosts", "vms", "srs"]) result[k] = (await api.objects(key, k)) ?? [];
+  for (const k of ["pools", "hosts", "vms", "templates", "srs"]) result[k] = (await api.objects(key, k)) ?? [];
   return result;
 }
 
@@ -868,8 +966,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         <SearchView v-else-if="tab === 'search'" :title="overviewTitle" :rows="overview" @open="(r) => reselect(rowId(r))" />
         <ConsoleView v-else-if="tab === 'console' && consoleVm && selected?.server" :server="selected.server" :vm="consoleVm" />
         <PerformanceView v-else-if="tab === 'performance' && selected?.object && selected.server" :key="`perf/${selected.id}`"
-                         :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" />
-        <HostTab v-else-if="['memory', 'storage', 'networking', 'nics'].includes(tab) && selected?.object && selected.object.kind !== 'vms' && selected.server"
+                         :server="selected.server" :uuid="selected.object.uuid" :kind="selected.object.kind as 'vms' | 'hosts'" :area="!!appOptions.area_graphs" />
+        <HostTab v-else-if="['memory', 'storage', 'networking', 'nics'].includes(tab) && selected?.object && selected.object.kind !== 'vms' && selected.object.kind !== 'templates' && selected.server"
                  :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :kind="selected.object.kind" :uuid="selected.object.uuid"
                  :tab="tab" :tick="tick" @status="onTabStatus" />
         <VmTab v-else-if="(tab === 'memory' || tab === 'storage' || tab === 'networking') && selected?.object && selected.server"
@@ -900,8 +998,9 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <MenuList v-if="viewMenu && viewMenu.items.length" class="fixed z-20" :style="{ left: `${viewMenu.x}px`, top: `${viewMenu.y}px` }" :items="viewMenu.items" />
     <MenuList v-if="menu" class="fixed z-20" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" :items="menu.items" />
 
-    <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />
+    <NewVmWizard v-if="newVmOn" :server="newVmOn" :template="newVmTemplate" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
+    <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
     <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />

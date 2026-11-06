@@ -20,6 +20,10 @@ func ReadPoolFacts(c *xapi.Connection, key string) (rules.PoolFacts, error) {
 		return f, xapi.Sanitize(err)
 	}
 	f.Hosts = len(hosts)
+	f.ServerPacks = map[string]map[string]string{}
+	for _, h := range hosts {
+		f.ServerPacks[h.NameLabel] = h.SoftwareVersion
+	}
 	for _, p := range pools {
 		f.PoolName, f.HA, f.TLSVerification, f.PoolCPU = p.NameLabel, p.HaEnabled, p.TLSVerificationEnabled, p.CPUInfo
 		if h, ok := hosts[p.Master]; ok {

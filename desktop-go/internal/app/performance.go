@@ -289,7 +289,8 @@ type updates struct {
 // cookie (never in the URL), the server's certificate through the member trust.
 func fetchUpdates(s *xenapi.Session, policy *trust.Policy, address string, port int, query string) (updates, error) {
 	key := xapi.HostKey(address, port)
-	client := &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{TLSClientConfig: xapi.MemberTLS(policy, key, xapi.VouchedFingerprints(s, address))},
+	client := &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{TLSClientConfig: xapi.MemberTLS(policy, key, xapi.VouchedFingerprints(s, address)),
+		Proxy: xapi.Proxy, DialContext: xapi.Dialer().DialContext, TLSHandshakeTimeout: xapi.HandshakeTimeout()},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	req, err := http.NewRequest(http.MethodGet, "https://"+key+"/rrd_updates?"+query, nil)
 	if err != nil {

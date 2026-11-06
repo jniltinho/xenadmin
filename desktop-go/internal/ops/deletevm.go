@@ -23,7 +23,9 @@ func DeleteVM(c *xapi.Connection, vmUUID string, vbdUUIDs, snapshotUUIDs []strin
 	if err != nil {
 		return xapi.Sanitize(err)
 	}
-	if rec.IsATemplate || rec.IsASnapshot || rec.IsControlDomain || !contains(rec.AllowedOperations, xenapi.VMOperationsDestroy) {
+	_, defaultTemplate := rec.OtherConfig["default_template"]
+	// VmRules.CanDeleteVm: a VM or a user template (Delete Template...), never a snapshot or a default template
+	if rec.IsATemplate && defaultTemplate || rec.IsASnapshot || rec.IsControlDomain || !contains(rec.AllowedOperations, xenapi.VMOperationsDestroy) {
 		return errors.New("this VM cannot be deleted now")
 	}
 	var vdis []xenapi.VDIRef

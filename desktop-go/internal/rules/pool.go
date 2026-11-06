@@ -2,6 +2,7 @@ package rules
 
 import (
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,8 @@ type PoolFacts struct {
 	CPU             map[string]string // a member's host cpu_info
 	PoolCPU         map[string]string // a coordinator's pool cpu_info (the features common to its hosts)
 	ReadError       string            // the server could not be read: it is offered for nothing
+	// ServerPacks are the software_version of each server of the connection, by server name (Host.SuppPacks)
+	ServerPacks map[string]map[string]string
 }
 
 // JoinReason is PoolJoinRules.Reason, in its order (the first reason found is the one shown).
@@ -172,4 +175,84 @@ func fewerFeatureBits(a, b string) bool {
 		}
 	}
 	return false
+}
+
+// suppPack is Host.SuppPack: "originator:name" -> "description, version V[, build B[, homogeneous]]".
+type suppPack struct {
+	description, version string
+	homogeneous          bool
+}
+
+func parseSuppPack(key, value string) (suppPack, bool) {
+	if len(strings.Split(key, ":")) != 2 {
+		return suppPack{}, false
+	}
+	x := strings.LastIndex(value, ", version ")
+	if x <= 0 {
+		return suppPack{}, false
+	}
+	p := suppPack{description: value[:x]}
+	parts := strings.Split(value[x+10:], ", ")
+	if len(parts) == 0 || len(parts) > 3 || len(parts) >= 2 && !strings.HasPrefix(parts[1], "build ") || len(parts) == 3 && parts[2] != "homogeneous" {
+		return suppPack{}, false
+	}
+	p.version, p.homogeneous = parts[0], len(parts) == 3
+	return p, true
+}
+
+// PackWarning is PoolRules.Warnings' supplemental packs (PoolJoinRules.HomogeneousSuppPacksDiffering): a pack that
+// must be on every server but is missing on some, or differs in version, over the members and the pool's servers;
+// "" when none.
+func PackWarning(members []PoolFacts, pool PoolFacts) string {
+	servers := map[string]map[string]string{}
+	var names []string
+	for _, f := range append(append([]PoolFacts{}, members...), pool) {
+		for name, sv := range f.ServerPacks {
+			if _, seen := servers[name]; !seen {
+				names = append(names, name)
+			}
+			servers[name] = sv
+		}
+	}
+	homogeneous := map[string]string{} // OriginatorAndName -> description
+	for _, n := range names {
+		for k, v := range servers[n] {
+			if p, ok := parseSuppPack(k, v); ok && p.homogeneous {
+				homogeneous[k] = p.description
+			}
+		}
+	}
+	packs := make([]string, 0, len(homogeneous))
+	for k := range homogeneous {
+		packs = append(packs, k)
+	}
+	sort.Strings(packs)
+	var bad []string
+	for _, k := range packs {
+		var missing []string
+		version, differ := "", false
+		for _, n := range names {
+			p, ok := parseSuppPack(k, servers[n][k])
+			switch {
+			case !ok:
+				missing = append(missing, n)
+			case version == "":
+				version = p.version
+			case p.version != version:
+				differ = true
+			}
+		}
+		if len(missing) > 0 {
+			bad = append(bad, messages.Format(messages.Get("SUPP_PACK_MISSING_ON"), homogeneous[k], strings.Join(missing, "\n")))
+		} else if differ {
+			bad = append(bad, messages.Format(messages.Get("SUPP_PACK_VERSIONS_DIFFER"), homogeneous[k]))
+		}
+	}
+	switch len(bad) {
+	case 0:
+		return ""
+	case 1:
+		return messages.Format(messages.Get("NEW_POOL_SUPP_PACK"), bad[0])
+	}
+	return messages.Format(messages.Get("NEW_POOL_SUPP_PACKS"), strings.Join(bad, "\n"))
 }

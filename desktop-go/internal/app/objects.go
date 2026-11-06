@@ -35,6 +35,8 @@ type Object struct {
 	ControlDomain string `json:"control_domain,omitempty"`
 	// Resident is the number of VMs a host runs, its control domain included (HostRules.CanRemoveFromPool: at most 1)
 	Resident int `json:"resident,omitempty"`
+	// UserTemplate is a template made by a user (ResourceTree.IsUserTemplate: not a default one, shown in the tree)
+	UserTemplate bool `json:"user_template,omitempty"`
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -126,6 +128,14 @@ func vmObjects(kind string, vms map[xenapi.VMRef]xenapi.VMRecord, hosts map[xena
 			continue
 		}
 		o := Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription}
+		if kind == "templates" {
+			_, def := r.OtherConfig["default_template"]
+			_, internal := r.OtherConfig["xensource_internal"]
+			o.UserTemplate = !def && !internal && r.OtherConfig["HideFromXenCenter"] != "true" && !strings.HasPrefix(r.NameLabel, "__gui__")
+			for _, a := range r.AllowedOperations {
+				o.Allowed = append(o.Allowed, string(a))
+			}
+		}
 		if kind == "vms" {
 			o.PowerState = string(r.PowerState)
 			if h, ok := hosts[r.ResidentOn]; ok {
