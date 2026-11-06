@@ -4,18 +4,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+—
+
+## [0.3.0] — 2026-11-06
+
+**The last parity gaps with the Windows app: OVF/OVA export, the import's per-VM, disk and interface choices, a VM's
+GPU and USB pages, SR-IOV networks and searches on related objects.**
+
 ### Added
 
 - Searches on a related object's properties (XenSearch RecursiveXMOPropertyQuery and RecursiveXMOListPropertyQuery:
   the VMs on an SR or a server, the servers running a VM, the VMs of a disk or a pool), run on every object's facts.
-
-## [0.2.0] — 2026-11-06
-
-**Close to the Windows app's feature set: VM, server, pool, SR and network Properties and tabs, HA, disaster
-recovery, vApps, XVA and OVF/OVA import, the search editor and its filters, the Performance graph editor, alert
-filters and export, and Tools > Options.**
-
-### Added
 - A VM's GPU page in its Properties (GpuEditPage): its vGPUs with their PCI slot, type, vGPUs per GPU and video RAM,
   Add (the types each GPU group allows beside the VM's other vGPUs, whole-GPU pass-through only when vGPUs are
   restricted) and Delete, with the C# warnings (Remote Desktop, drivers, a VM that is running or protected by HA,
@@ -27,13 +26,27 @@ filters and export, and Tools > Options.**
   then SR-IOV on that device of every server, the coordinator first), offered only with an SR-IOV capable NIC; the
   NICs tab's SR-IOV Capable column (virtual functions left, a reboot needed, an unplugged logical PIF). The vGPU, USB
   and SR-IOV writes were not run on hardware (the lab has none).
-
 - OVF/OVA export as the Windows app's Export wizard (ExportApplianceAction): VM > Export... offers an OVF/OVA package
   besides the XVA file, and Manage vApps' Export exports a vApp; the name, location and format, the halted or
   suspended VMs of the pool (the selected VM or the vApp's VMs ticked, the vTPM warning), EULA files, a manifest, a
   single .ova file, compression (the disks as .vhd.gz, or the OVA as .ova.gz) and Verify. The disks come as VHD from
   export_raw_vdi; the descriptor is XenOvf's (the Xen settings, the start order and delays) and the appliance import
   reads it back. The package is made beside the target and only renamed into place once complete.
+- The import wizard's per-VM choices when importing an OVF/OVA appliance (ImportSelectHostPage, ImportSelectStoragePage,
+  ImportSelectNetworkPage, VmMapping): the server of each VM (to put its disks on that server's local storage), all
+  the disks on one SR or each disk on its own, and the network of each interface; the defaults keep it one click. The
+  choices are checked against the package and the pool when the dialog closes and again by the import (an SR the
+  server cannot see, a full one, one too small for the disks put on it, a network the server does not see).
+
+
+## [0.2.0] — 2026-11-06
+
+**Close to the Windows app's feature set: VM, server, pool, SR and network Properties and tabs, HA, disaster
+recovery, vApps, XVA and OVF/OVA import, the search editor and its filters, the Performance graph editor, alert
+filters and export, and Tools > Options.**
+
+### Added
+
 - Searches by address (XenSearch IPAddressQuery: a VM's guest addresses, a server's interfaces, full or partial such
   as 10.77.58.*), also from the search editor's text filter.
 - Searches by a VM's start time (XenSearch DatePropertyQuery: today, yesterday, this or last week, before, after or
@@ -72,11 +85,6 @@ filters and export, and Tools > Options.**
   each VM's vCPUs, memory, Xen settings, disks, DVD drive and interfaces. Raw, VHD and stream-optimized VMDK disks
   (converted to raw as they are read), streamed from the archive without extracting it; a failed import removes what
   it made. The package is checked as untrusted input (file names inside it, sizes, no DOCTYPE).
-- The import wizard's per-VM choices when importing an OVF/OVA appliance (ImportSelectHostPage, ImportSelectStoragePage,
-  ImportSelectNetworkPage, VmMapping): the server of each VM (to put its disks on that server's local storage), all
-  the disks on one SR or each disk on its own, and the network of each interface; the defaults keep it one click. The
-  choices are checked against the package and the pool when the dialog closes and again by the import (an SR the
-  server cannot see, a full one, one too small for the disks put on it, a network the server does not see).
 - General tab of VMs, templates, servers, pools, SRs and networks as in the C# app (Details.General): collapsible
   sections with Expand all / Collapse all and the Properties button; General (tags, folder, OS, virtualization mode and
   state, uptime, home server, pool coordinator, enabled, autoboot, certificate verification, iSCSI IQN, log
