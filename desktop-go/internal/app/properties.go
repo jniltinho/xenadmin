@@ -14,9 +14,8 @@ import (
 )
 
 // VMProperties is what the VM's Properties dialog shows (PropertiesDialog: GeneralPage, CpuPage, BootOptionsEditPage,
-// HomeServerPage, VMAdvancedEditPage).
-// shortcut: General has the name and description only (no tags, folder or custom fields yet); no HA, Alerts, GPU or
-// USB pages yet.
+// HomeServerPage, VMAdvancedEditPage). Folder, tags, custom fields, Alerts, GPU and USB are read by their own pages
+// (objprops.go, customfields.go, perfmon.go, vmhardware.go).
 type VMProperties struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`

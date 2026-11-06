@@ -1,17 +1,24 @@
 <script setup lang="ts">
 // The VM's Properties dialog (PropertiesDialog): General (name, description, folder, tags), Custom Fields, CPU, Boot
-// Options, Start Options, Alerts (PerfmonAlertsPage), Home Server and (HVM) Advanced Options pages on the left, OK and
-// Cancel. shortcut: no GPU or USB pages yet (not ported in the C# cross-platform app either).
+// Options, Start Options, Alerts (PerfmonAlertsPage), Home Server, GPU (GpuEditPage), USB (UsbEditPage) and (HVM)
+// Advanced Options pages on the left, OK and Cancel. The GPU and USB pages are shown when they say so.
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type ObjectProps, type VMProperties } from "./api/workspace";
 import FolderTags from "./FolderTags.vue";
+import GpuEditPage from "./GpuEditPage.vue";
 import PerfmonAlertsPage from "./PerfmonAlertsPage.vue";
+import UsbEditPage from "./UsbEditPage.vue";
 
 const props = defineProps<{ server: string; vm: string }>();
 const emit = defineEmits<{ (e: "close", saved: boolean): void }>();
 
-type Page = "general" | "fields" | "cpu" | "boot" | "start" | "alerts" | "home" | "advanced";
+type Page = "general" | "fields" | "cpu" | "boot" | "start" | "alerts" | "home" | "gpu" | "usb" | "advanced";
 const alerts = ref<InstanceType<typeof PerfmonAlertsPage> | null>(null);
+const gpu = ref<InstanceType<typeof GpuEditPage> | null>(null);
+const gpuShown = ref(false);
+// VMHAEditPage.RefillPrioritiesComboBox: no Restart priority for a VM with vGPUs on the GPU page (saved or not)
+const haChoices = computed(() => (orig.value?.ha_priorities ?? []).filter((p) => !(p.value === "restart" && (gpu.value?.count ?? 0) > 0)));
+const usbShown = ref(false);
 const page = ref<Page>("general");
 const orig = ref<VMProperties | null>(null);
 const f = reactive({ name: "", description: "", vcpus: 1, atStartup: 1, cores: 1, priority: 4, home: "",
@@ -100,6 +107,8 @@ const pages = computed<{ id: Page; label: string; icon: string }[]>(() => [
   { id: "start", label: "Start Options", icon: "000_RebootVM_h32bit_16" },
   { id: "alerts", label: "Alerts", icon: "000_Alert2_h32bit_16" },
   { id: "home", label: "Home Server", icon: "000_ServerHome_h32bit_16" },
+  ...(gpuShown.value ? [{ id: "gpu" as const, label: "GPU", icon: "000_GetMemoryInfo_h32bit_16" }] : []),
+  ...(usbShown.value ? [{ id: "usb" as const, label: "USB", icon: "usb_16" }] : []),
   ...(orig.value?.hvm ? [{ id: "advanced" as const, label: "Advanced", icon: "002_Configure_h32bit_16" }] : []), // VMAdvancedEditPage: HVM only
 ]);
 const bootOrder = () => f.devices.filter((d) => d.on).map((d) => d.code).join("");
@@ -148,13 +157,19 @@ async function save() {
   if (org.value && ft.tags.join("\n") !== [...org.value.tags].sort().join("\n")) { og.tags = ft.tags; og.tags_set = true; }
   const pm = alerts.value?.changes() ?? null;
   if (typeof pm === "string") { error.value = pm; page.value = "alerts"; return; }
-  if (!Object.keys(ch).length && !Object.keys(fc).length && !Object.keys(og).length && !pm) { emit("close", false); return; }
+  const gc = gpu.value?.changes() ?? null;
+  if (haVm && f.haPriority === "restart" && (gpu.value?.count ?? 0) > 0 && (gc || f.haPriority !== p.ha_restart_priority)) {
+    error.value = "A VM with virtual GPUs cannot have the Restart priority."; page.value = "start"; return;
+  }
+  if (!Object.keys(ch).length && !Object.keys(fc).length && !Object.keys(og).length && !pm && !gc) { emit("close", false); return; }
   busy.value = true;
   try {
     if (Object.keys(ch).length) await api.saveProperties(props.server, props.vm, ch);
     if (Object.keys(fc).length) await api.saveCustomFields(props.server, props.vm, fc);
     if (Object.keys(og).length) await api.saveObjectProperties(props.server, "vms", props.vm, og);
     if (pm) await api.savePerfmon(props.server, "vms", props.vm, pm.on, pm.interval);
+    // after the HA restart priority (saveProperties), which decides whether the vGPUs can change
+    if (gc) await api.assignVgpus(props.server, props.vm, gc.removed, gc.add).catch(async (e) => { await gpu.value?.reload(); throw e; });
     emit("close", true);
   } catch (e) { error.value = String(e); }
   busy.value = false;
@@ -174,7 +189,9 @@ async function save() {
         </div>
         <div v-if="orig" class="min-w-0 flex-1 overflow-auto p-4">
           <PerfmonAlertsPage v-show="page === 'alerts'" ref="alerts" :server="server" kind="vms" :uuid="vm" :disabled="busy" />
-          <template v-if="page === 'alerts'" />
+          <GpuEditPage v-show="page === 'gpu'" ref="gpu" :server="server" :vm="vm" :ha-priority="f.haPriority" :disabled="busy" @shown="gpuShown = $event" />
+          <UsbEditPage v-show="page === 'usb'" :server="server" :vm="vm" :ha-priority="f.haPriority" :disabled="busy" @shown="usbShown = $event" />
+          <template v-if="page === 'alerts' || page === 'gpu' || page === 'usb'" />
           <template v-else-if="page === 'general'">
             <label class="mb-2 grid grid-cols-[7rem_1fr] items-center gap-2">Name:<input v-model="f.name" class="border border-line px-1 py-0.5" /></label>
             <label class="grid grid-cols-[7rem_1fr] items-start gap-2">Description:<textarea v-model="f.description" rows="4" class="border border-line px-1 py-0.5" /></label>
@@ -228,7 +245,7 @@ async function save() {
               <template v-if="orig.ha_priorities.length">
                 <label for="harestart">HA restart priority:</label>
                 <select id="harestart" v-model="f.haPriority" class="border border-line bg-white px-1 py-0.5">
-                  <option v-for="p in orig.ha_priorities" :key="p.value" :value="p.value">{{ p.text }}</option>
+                  <option v-for="p in haChoices" :key="p.value" :value="p.value">{{ p.text }}</option>
                 </select><span />
               </template>
             </div>

@@ -44,6 +44,16 @@ export interface GPUTab { policy: string; policy_value: string; no_gpu: string; 
     pgpus: string[]; can_edit: boolean; edit: string; title: string; rubric: string }[] }
 export interface USBTab { title: string; table: Table;
   devices: { uuid: string; passthrough: boolean; button: string; can_toggle: boolean; question: string; yes: string }[] }
+export interface VGPURowFacts { known: boolean; passthrough: boolean; multiple: boolean; experimental: boolean }
+export interface VMGPURow { uuid: string; group: string; type: string; slot: string; name: string; per_gpu: string; vram: string; facts: VGPURowFacts }
+export interface GPUPageInput { halted: boolean; ha_enabled: boolean; ha_priority: string; gpus_available: boolean; rows: VGPURowFacts[];
+  original: number; changed: boolean; selected: boolean }
+export interface GPUPageState { can_add: boolean; can_delete: boolean; experimental: boolean; rdp: boolean; need_gpu: boolean; stop_vm: boolean; ha: boolean; multiple: string }
+export interface VMGPUPage { shown: boolean; rows: VMGPURow[]; input: GPUPageInput }
+export interface VGPUPicks { picked: number;
+  items: { group: string; type: string; text: string; header: boolean; sub: boolean; enabled: boolean; row: VMGPURow }[] }
+export interface VMUSBPage { shown: boolean; title: string; table: Table; can_attach: boolean; warning: string; confirm: string; confirm_title: string }
+export interface USBAttachChoices { hosts: { name: string; devices: { uuid: string; name: string }[] }[]; empty: string; upgrade: boolean }
 export interface PerfmonPage { interval: number;
   alerts: { name: string; enabled: boolean; level: number; period: number; min: number; max: number; sub: string }[] }
 export interface MemoryBars { used: number; dynamic_min: number; dynamic_max: number; used_text: string;
@@ -85,7 +95,9 @@ export interface BondNIC { uuid: string; name: string; in_bond: boolean; mac: st
 export interface BondChoices { nics: BondNIC[]; limit: number; lacp: boolean }
 export interface BondSpec { members: string[]; mode: string; hashing: string; mtu: number; auto: boolean }
 export interface WizardNIC { uuid: string; name: string; max_mtu: number; vlans: number[] }
-export interface NewNetworkChoices { title: string; host: string; external_name: string; private_name: string; nics: WizardNIC[]; min_vlan: number; bond: BondChoices }
+export interface NewNetworkChoices { title: string; host: string; external_name: string; private_name: string; nics: WizardNIC[]; min_vlan: number; bond: BondChoices;
+  sriov: boolean; sriov_why: string; sriov_name: string; sriov_nics: WizardNIC[]; sriov_warning: string; sriov_ok: string }
+export interface NewSriovSpec { name: string; description: string; auto: boolean; host: string; nic: string }
 export interface NewNetworkSpec { external: boolean; name: string; description: string; auto: boolean; host: string; nic: string; vlan: string; mtu: string }
 export interface BondWarning { block: boolean; title: string; text: string; ok: string }
 export interface MTUState { shown: boolean; enabled: boolean; min: number; max: number; note: string }
@@ -167,6 +179,15 @@ export const api = {
   setVgpuTypes: (key: string, pgpus: string[], changes: Record<string, boolean>) => call<void>("SetVGPUTypes", key, pgpus, changes),
   usb: (key: string, uuid: string) => call<USBTab>("USB", key, uuid),
   setUsbPassthrough: (key: string, pusb: string, wasEnabled: boolean) => call<void>("SetUSBPassthrough", key, pusb, wasEnabled),
+  // a VM's GPU and USB pages (internal/gui/vmhardware.go)
+  vmGpu: (key: string, vm: string) => call<VMGPUPage>("VMGPU", key, vm),
+  vmGpuState: (input: GPUPageInput) => call<GPUPageState>("VMGPUState", input),
+  vgpuChoices: (key: string, vm: string, existing: string[]) => call<VGPUPicks>("VGPUChoices", key, vm, existing),
+  assignVgpus: (key: string, vm: string, removed: string[], add: { group: string; type: string }[]) => call<void>("AssignVGPUs", key, vm, removed, add),
+  vmUsb: (key: string, vm: string, haPriority: string) => call<VMUSBPage>("VMUSB", key, vm, haPriority),
+  usbAttachChoices: (key: string, vm: string) => call<USBAttachChoices>("USBAttachChoices", key, vm),
+  attachUsb: (key: string, vm: string, pusb: string) => call<void>("AttachUSB", key, vm, pusb),
+  detachUsb: (key: string, vm: string, vusb: string) => call<void>("DetachUSB", key, vm, vusb),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),
@@ -247,6 +268,7 @@ export const api = {
   hostNics: (key: string, uuid: string) => call<HostNics>("HostNics", key, uuid),
   newNetworkOptions: (key: string, kind: string, uuid: string) => call<NewNetworkChoices>("NewNetworkOptions", key, kind, uuid),
   createNetwork: (key: string, spec: NewNetworkSpec) => call<void>("CreateNetwork", key, spec),
+  createSriov: (key: string, spec: NewSriovSpec) => call<void>("CreateSriov", key, spec),
   bondQuestion: (key: string, members: string[]) => call<BondWarning | null>("BondQuestion", key, members),
   createBond: (key: string, spec: BondSpec) => call<void>("CreateBond", key, spec),
   deleteBondQuestion: (key: string, network: string) => call<BondWarning>("DeleteBondQuestion", key, network),

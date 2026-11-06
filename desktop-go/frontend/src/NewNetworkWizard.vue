@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The New Network wizard (XenAdmin.Desktop/NewNetworkWizard.cs): Select Type, Details (NetWName), Interface
 // (NetWDetails) for External and Single-Server Private networks, or Select Type, Bond Members (NetWBondDetails) for a
-// bonded network; with bond set it is Create Bond (BondProperties: the BondDetails control alone).
-// shortcut: no SR-IOV Network type (CreateSriovAction); add it with SR-IOV support.
+// bonded network; with bond set it is Create Bond (BondProperties: the BondDetails control alone). An SR-IOV Network
+// (NetWTypeSelect, NetWSriovDetails) is Select Type, Details and its NIC, then a question (CreateSriovAction).
+// shortcut: no VLAN on an SR-IOV network (NetWDetails' checkBoxSriov); add it when a lab has an SR-IOV NIC.
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type BondSpec, type BondWarning, type NewNetworkChoices } from "./api/workspace";
 import BondEditor from "./BondEditor.vue";
@@ -13,9 +14,9 @@ const emit = defineEmits<{ (e: "close"): void; (e: "run", label: string, f: () =
 
 const opts = ref<NewNetworkChoices | null>(null);
 const error = ref("");
-const type = ref<"external" | "private" | "bond">(props.bond ? "bond" : "external");
+const type = ref<"external" | "private" | "bond" | "sriov">(props.bond ? "bond" : "external");
 const page = ref(props.bond ? 1 : 0);
-const f = reactive({ name: "", description: "", auto: true, nic: "", vlan: "0", mtu: String(MTU_MIN) });
+const f = reactive({ name: "", description: "", auto: true, nic: "", vlan: "0", mtu: String(MTU_MIN), sriovNic: "" });
 const bondSpec = ref<BondSpec>({ members: [], mode: "balance-slb", hashing: "", mtu: MTU_MIN, auto: true });
 const bondValid = ref(false);
 
@@ -25,10 +26,13 @@ onMounted(async () => {
     f.name = opts.value.external_name;
     f.vlan = String(opts.value.min_vlan);
     pickNic(opts.value.nics[0]?.uuid ?? "");
+    f.sriovNic = opts.value.sriov_nics[0]?.uuid ?? "";
   } catch (e) { error.value = String(e); }
 });
 // NetWName.PopulatePage: "New Network" or "New Private Network", made unique
-watch(type, (t) => { if (opts.value && t !== "bond") f.name = t === "external" ? opts.value.external_name : opts.value.private_name; });
+watch(type, (t) => {
+  if (opts.value && t !== "bond") f.name = t === "external" ? opts.value.external_name : t === "sriov" ? opts.value.sriov_name : opts.value.private_name;
+});
 
 const nic = computed(() => opts.value?.nics.find((n) => n.uuid === f.nic) ?? null);
 // NetWDetails: a VLAN already used on the NIC moves to the first free one; the MTU stays inside the NIC's range
@@ -53,6 +57,7 @@ const last = computed(() => props.bond || page.value === pages.value.length - 1)
 const why = computed(() => {
   if (step.value === "Bond Members") return bondValid.value ? "" : "Select two or more NICs that are not already bonded.";
   if (step.value === "Details" && !f.name.trim()) return "Enter a name for the new network.";
+  if (step.value === "Interface" && type.value === "sriov" && !f.sriovNic) return "Select a NIC.";
   if (step.value === "Interface" && type.value === "external") {
     if (!nic.value) return "Select a NIC.";
     if (!vlan.value.ok) return vlan.value.text;
@@ -65,6 +70,10 @@ const pending = ref(false);
 const ask = ref<BondWarning | null>(null);
 async function finish() {
   if (why.value || pending.value || !opts.value) return;
+  if (type.value === "sriov") { // NetWSriovDetails.PageLeaveCore: the servers' connections are disturbed
+    ask.value = { title: "XCP-ng Center", text: opts.value.sriov_warning, ok: opts.value.sriov_ok, block: false };
+    return;
+  }
   if (type.value !== "bond") {
     const o = opts.value, spec = { external: type.value === "external", name: f.name.trim(), description: f.description, auto: f.auto, host: o.host, nic: f.nic, vlan: f.vlan, mtu: f.mtu };
     emit("run", `Creating network '${spec.name}'`, () => api.createNetwork(props.server, spec));
@@ -78,6 +87,12 @@ async function finish() {
     else if (q) ask.value = q;
     else createBond();
   } catch (e) { error.value = String(e); } finally { pending.value = false; }
+}
+function confirmed() {
+  if (type.value !== "sriov") return createBond();
+  const spec = { name: f.name.trim(), description: f.description, auto: f.auto, host: opts.value!.host, nic: f.sriovNic };
+  ask.value = null;
+  emit("run", `Creating network '${spec.name}'`, () => api.createSriov(props.server, spec));
 }
 function createBond() {
   const spec = { ...bondSpec.value, members: [...bondSpec.value.members] };
@@ -104,12 +119,21 @@ function createBond() {
             <p class="ml-6 text-neutral-600">Create a network that does not leave each server. This can be used as a private connection between VMs on the same host.</p>
             <label class="mt-2 flex items-center gap-2"><input v-model="type" type="radio" value="bond" />Bonded Network</label>
             <p class="ml-6 text-neutral-600">Create a network that bonds together two or more of your NICs. This will create a single higher performing channel.</p>
+            <label class="mt-2 flex items-center gap-2" :class="opts.sriov ? '' : 'text-neutral-400'"><input v-model="type" type="radio" value="sriov" :disabled="!opts.sriov" />SR-IOV Network</label>
+            <p class="ml-6" :class="opts.sriov ? 'text-neutral-600' : 'text-neutral-400'">Enable SR-IOV on a NIC and create an SR-IOV network on that NIC.</p>
+            <p v-if="!opts.sriov" class="ml-6 flex items-center gap-2"><img src="/icons/000_Info3_h32bit_16.png" alt="" />{{ opts.sriov_why }}</p>
           </div>
           <BondEditor v-else-if="step === 'Bond Members'" v-model="bondSpec" v-model:valid="bondValid" :choices="opts.bond" :disabled="pending" />
           <div v-else-if="step === 'Details'" class="space-y-3">
             <p>Provide a name and optional description for the new network.</p>
             <label class="grid grid-cols-[6rem_1fr] items-center gap-2">Name:<input v-model="f.name" class="border border-line px-1 py-0.5" /></label>
             <label class="grid grid-cols-[6rem_1fr] items-start gap-2">Description:<textarea v-model="f.description" rows="3" class="border border-line px-1 py-0.5" /></label>
+          </div>
+          <div v-else-if="type === 'sriov'" class="space-y-3">
+            <p>Select a NIC to enable SR-IOV.</p>
+            <label class="flex items-center gap-3">NIC:<select v-model="f.sriovNic" class="w-56 border border-line bg-white px-1 py-0.5">
+              <option v-for="n in opts.sriov_nics" :key="n.uuid" :value="n.uuid">{{ n.name }}</option></select></label>
+            <label class="flex items-center gap-2"><input v-model="f.auto" type="checkbox" />Automatically add this network to new virtual machines.</label>
           </div>
           <div v-else-if="type === 'private'" class="space-y-3">
             <p>Select whether you would like to automatically add this network to new VMs.</p>
@@ -147,7 +171,7 @@ function createBond() {
       <div class="space-y-3 p-3">
         <p class="whitespace-pre-line">{{ ask.text }}</p>
         <div class="flex justify-end gap-2">
-          <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="createBond">{{ ask.ok }}</button>
+          <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="confirmed">{{ ask.ok }}</button>
           <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" autofocus @click="ask = null">Cancel</button>
         </div>
       </div>

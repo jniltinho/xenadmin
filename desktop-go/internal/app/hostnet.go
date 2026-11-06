@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	xenapi "go/xenapi"
 
@@ -200,6 +201,14 @@ type NewNetworkChoices struct {
 	NICs         []WizardNIC `json:"nics"`
 	MinVLAN      int         `json:"min_vlan"`
 	Bond         BondChoices `json:"bond"`
+	// the SR-IOV Network type (NetWTypeSelect, NetWSriovDetails): enabled, else why not; its default name, the NICs
+	// of the server that can enable SR-IOV, and the question asked before it is made
+	Sriov        bool        `json:"sriov"`
+	SriovWhy     string      `json:"sriov_why"`
+	SriovName    string      `json:"sriov_name"`
+	SriovNICs    []WizardNIC `json:"sriov_nics"`
+	SriovWarning string      `json:"sriov_warning"`
+	SriovOK      string      `json:"sriov_ok"`
 }
 
 // WizardNIC is a NIC of the Interface page: its MTU range's top and the VLANs already used on its device.
@@ -235,7 +244,18 @@ func NewNetworkOptions(c *xapi.Connection, kind, uuid string) (NewNetworkChoices
 	}
 	out := NewNetworkChoices{Title: messages.Format(messages.Get("NEWNETWORKWIZARD_TITLE"), PoolName(c)), Host: d.hosts[host].UUID,
 		ExternalName: rules.UniqueName(messages.Get("NEWNETWORK_NAME"), taken), PrivateName: rules.UniqueName(messages.Get("NEWNETWORK_VNAME"), taken),
-		NICs: []WizardNIC{}, MinVLAN: rules.MinVLAN(d.vswitch()), Bond: d.bondChoices(owner, nets)}
+		NICs: []WizardNIC{}, MinVLAN: rules.MinVLAN(d.vswitch()), Bond: d.bondChoices(owner, nets),
+		SriovName: rules.UniqueName(messages.Get("NEW_SRIOV_NETWORK_NAME"), taken), SriovNICs: []WizardNIC{},
+		SriovWarning: messages.Format(messages.Get("SRIOV_NETWORK_CREATE_WARNING"), "XCP-ng Center"),
+		SriovOK:      strings.ReplaceAll(messages.Get("SRIOV_NETWORK_CREATE"), "&", "")}
+	var sriov []xenapi.PIFRecord
+	if out.Sriov, out.SriovWhy, sriov, err = ops.SriovChoices(s, d.hosts[host].UUID); err != nil {
+		return NewNetworkChoices{}, err
+	}
+	sort.Slice(sriov, func(i, j int) bool { return d.pifName(sriov[i]) < d.pifName(sriov[j]) })
+	for _, p := range sriov {
+		out.SriovNICs = append(out.SriovNICs, WizardNIC{UUID: p.UUID, Name: d.pifName(p), VLANs: []int{}})
+	}
 	var list []xenapi.PIFRecord // NetworkRules.WizardNics
 	for _, p := range d.pifs {
 		if p.Host == host && pifPhysical(p) && p.Managed && p.OtherConfig["HideFromXenCenter"] != "true" && (p.BondSlaveOf == "" || p.BondSlaveOf == nullRef) {
