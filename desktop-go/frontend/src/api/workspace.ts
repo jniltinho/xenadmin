@@ -53,6 +53,19 @@ export interface PoolCandidate { key: string; name: string; reason: string; can_
 export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
 export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
+// server networks and bonds (internal/gui/network.go)
+export interface HostNetworking { table: Table; networks: { uuid: string; can_edit: boolean; can_remove: boolean; remove_tip?: string; bond: boolean }[]; can_add: boolean }
+export interface HostNics { table: Table; nics: { uuid: string; bond_network?: string }[]; can_bond: boolean }
+export interface BondNIC { uuid: string; name: string; in_bond: boolean; mac: string; link: string; speed: string; vendor: string; mtu: number }
+export interface BondChoices { nics: BondNIC[]; limit: number; lacp: boolean }
+export interface BondSpec { members: string[]; mode: string; hashing: string; mtu: number; auto: boolean }
+export interface WizardNIC { uuid: string; name: string; max_mtu: number; vlans: number[] }
+export interface NewNetworkChoices { title: string; host: string; external_name: string; private_name: string; nics: WizardNIC[]; min_vlan: number; bond: BondChoices }
+export interface NewNetworkSpec { external: boolean; name: string; description: string; auto: boolean; host: string; nic: string; vlan: string; mtu: string }
+export interface BondWarning { block: boolean; title: string; text: string; ok: string }
+export interface MTUState { shown: boolean; enabled: boolean; min: number; max: number; note: string }
+export interface NetworkEdit { name: string; description: string; auto: boolean; auto_enabled: boolean; mtu: number; mtu_state: MTUState }
+export interface NetworkChanges { name: string; description: string; auto: boolean; mtu: string }
 
 export const api = {
   servers: () => call<ServerRow[]>("Servers"),
@@ -149,4 +162,18 @@ export const api = {
   openConsole: (key: string, vm: string) => call<string>("OpenConsole", key, vm),
   vmConfirmation: (op: string, haProtected: boolean) => call<Confirm>("VMConfirmation", op, haProtected),
   vmPower: (key: string, uuid: string, op: string) => call<void>("VMPower", key, uuid, op),
+  // server networks and bonds (internal/gui/network.go)
+  hostNetworking: (key: string, kind: string, uuid: string) => call<HostNetworking>("HostNetworking", key, kind, uuid),
+  hostNics: (key: string, uuid: string) => call<HostNics>("HostNics", key, uuid),
+  newNetworkOptions: (key: string, kind: string, uuid: string) => call<NewNetworkChoices>("NewNetworkOptions", key, kind, uuid),
+  createNetwork: (key: string, spec: NewNetworkSpec) => call<void>("CreateNetwork", key, spec),
+  bondQuestion: (key: string, members: string[]) => call<BondWarning | null>("BondQuestion", key, members),
+  createBond: (key: string, spec: BondSpec) => call<void>("CreateBond", key, spec),
+  deleteBondQuestion: (key: string, network: string) => call<BondWarning>("DeleteBondQuestion", key, network),
+  deleteBond: (key: string, network: string) => call<void>("DeleteBond", key, network),
+  rescanNics: (key: string, host: string) => call<void>("RescanNics", key, host),
+  networkEdit: (key: string, uuid: string) => call<NetworkEdit>("NetworkEdit", key, uuid),
+  saveNetwork: (key: string, uuid: string, changes: NetworkChanges) => call<void>("SaveNetwork", key, uuid, changes),
+  removeNetworkQuestion: () => call<Confirm>("RemoveNetworkQuestion"),
+  removeNetwork: (key: string, uuid: string) => call<void>("RemoveNetwork", key, uuid),
 };

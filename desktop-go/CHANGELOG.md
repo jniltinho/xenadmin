@@ -5,12 +5,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- Servers and pools, Networking tab: Add Network... (the New Network wizard: External network on a VLAN of a NIC,
+  Single-Server Private network, Bonded network), Properties (name, description, auto-add, MTU with the C# reasons it
+  is fixed; a new MTU unplugs and plugs the network's PIFs and VIFs) and Remove Network (its VLAN PIFs first; a bond
+  network deletes the bond).
+- Servers, NICs tab: Create Bond... (the NICs up to the pool's limit, active-active, active-passive or LACP, MTU,
+  auto-add; the bond on every server, the secondary management interfaces moved onto it and back on a failure),
+  Delete Bond (on every server) and Rescan, with the C# warnings (management interfaces, HA) and an RBAC check first.
 - Searches saved in pools run, for the XenSearch filters and groupings they use most (GroupQuery, string, enum,
   boolean, integer, tag and null queries; type, power state, OS, tags, tools, folder, custom field, pool, server,
   network and vApp groupings), with the C# semantics; a search with another filter is still listed, not run.
 - VM Properties: Boot Options (autostart, the HVM boot order, the PV boot device and parameters) and, for HVM VMs,
   Advanced (the shadow memory multiplier, changed live on a running VM).
 - VM Properties: Start Options (the start order and the delay before the next VM starts; read-only on an HA pool).
+- VM Properties: Custom Fields (the pool's fields with the VM's values, dates as the C# app stores them) and Edit
+  Custom Fields (add a text or date field to the pool, delete one with its values on every object).
 - Memory tab: Edit... opens Memory Settings (a fixed memory or a range, or the dynamic minimum, maximum and static
   maximum with ballooning), with the C# limits and questions; a new static maximum restarts a running VM on its server.
 - Servers and pools: the Memory, Storage, Networking and NICs (a server) tabs; SRs: the Storage tab (its disks and

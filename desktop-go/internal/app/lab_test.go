@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -1494,5 +1495,234 @@ func TestLabPoolCommands(t *testing.T) {
 	}
 	if _, err := xenapi.Pool.GetAllRecords(c.Session); err != nil { // the session goes on
 		t.Fatal(err)
+	}
+}
+
+// TestLabNetworks bonds NIC 1 and NIC 2 of every lab server (never NIC 0, the management interface) and deletes the
+// bond, creates a VLAN network on NIC 1 and a private network, changes and removes them, and rescans the NICs; the
+// lab is left with the networks and bonds it had (writes only with XCP_ALLOW_WRITE=1).
+func TestLabNetworks(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	var master xenapi.HostRef
+	var poolUUID string
+	for _, p := range pools {
+		master, poolUUID = p.Master, p.UUID
+	}
+	hostUUID, _ := xenapi.Host.GetUUID(s, master)
+	hosts, _ := xenapi.Host.GetAll(s)
+	count := func() (nets, bonds int) {
+		n, _ := xenapi.Network.GetAll(s)
+		b, _ := xenapi.Bond.GetAll(s)
+		return len(n), len(b)
+	}
+	nets0, bonds0 := count()
+	byName := func(name string) (string, xenapi.NetworkRecord) {
+		all, _ := xenapi.Network.GetAllRecords(s)
+		for _, n := range all {
+			if n.NameLabel == name {
+				return n.UUID, n
+			}
+		}
+		return "", xenapi.NetworkRecord{}
+	}
+	for _, n := range []string{"Bond 1+2", "xcpng-center-go-test-vlan", "xcpng-center-go-test-vlan2", "xcpng-center-go-test-private", "xcpng-center-go-test-private2"} {
+		if u, _ := byName(n); u != "" {
+			t.Fatalf("the lab already has a network %q", n)
+		}
+	}
+	goHome := func() {}
+	made := map[string]bool{} // the networks this test made (true: a bond's)
+	t.Cleanup(func() {        // whatever a failed step left
+		for u, bond := range made {
+			if _, err := xenapi.Network.GetByUUID(s, u); err != nil {
+				continue
+			}
+			if bond {
+				_ = ops.DestroyBond(c, u)
+				goHome()
+			} else {
+				_ = ops.RemoveNetwork(c, u)
+			}
+		}
+		if n, b := count(); n != nets0 || b != bonds0 {
+			t.Errorf("the lab has %d networks and %d bonds, it had %d and %d", n, b, nets0, bonds0)
+		}
+	})
+
+	// the bond: NIC 1 + NIC 2 of the coordinator, on every server
+	opts, err := NewNetworkOptions(c, "hosts", hostUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the VIFs on the member networks move to the bond, and to the primary member's network (NIC 1's) after it: only
+	// the throwaway VM's may be there, and they are moved back home
+	var members []string
+	home := map[xenapi.VIFRef]xenapi.NetworkRef{}
+	for _, n := range opts.Bond.NICs {
+		if n.InBond {
+			t.Fatalf("%s is already bonded", n.Name)
+		}
+		if n.Name != "NIC 1" && n.Name != "NIC 2" {
+			continue
+		}
+		members = append(members, n.UUID)
+		p, _ := xenapi.PIF.GetByUUID(s, n.UUID)
+		net, _ := xenapi.PIF.GetNetwork(s, p)
+		vifs, _ := xenapi.Network.GetVIFs(s, net)
+		for _, v := range vifs {
+			vm, _ := xenapi.VIF.GetVM(s, v)
+			if name, _ := xenapi.VM.GetNameLabel(s, vm); name != os.Getenv("XCP_LAB_VM") || name == "" {
+				t.Fatalf("%s's network has a VIF of %q, not of XCP_LAB_VM", n.Name, name)
+			}
+			home[v] = net
+		}
+	}
+	goHome = func() {
+		for v, net := range home {
+			if now, err := xenapi.VIF.GetNetwork(s, v); err == nil && now != net {
+				if err := xenapi.VIF.Move(s, v, net); err != nil {
+					t.Errorf("VIF %s back to its network: %v", v, err)
+				}
+			}
+		}
+	}
+	if len(members) != 2 || opts.Bond.Limit != 4 || !opts.Bond.LACP {
+		t.Fatalf("bond choices %+v", opts.Bond)
+	}
+	if w, err := ops.BondCreateWarning(c, members); err != nil || w != nil {
+		t.Fatalf("create warning %+v %v", w, err)
+	}
+	if err := ops.CreateBond(c, ops.BondSpec{Members: members[:1], Mode: "active-backup", MTU: 1500}); err == nil {
+		t.Fatal("a bond of one NIC")
+	}
+	if err := ops.CreateBond(c, ops.BondSpec{Members: members, Mode: "lacp", Hashing: "src_mac", MTU: 1500}); err != nil {
+		t.Fatal(err)
+	}
+	bondNet, bn := byName("Bond 1+2")
+	made[bondNet] = true
+	if bondNet == "" || bn.OtherConfig["automatic"] != "false" || bn.OtherConfig["XenCenterCreateInProgress"] != "" || len(bn.PIFs) != len(hosts) {
+		t.Fatalf("bond network %+v", bn)
+	}
+	bonds, _ := xenapi.Bond.GetAllRecords(s)
+	if len(bonds) != bonds0+len(hosts) {
+		t.Fatalf("%d bonds", len(bonds))
+	}
+	for _, b := range bonds {
+		if dev, _ := xenapi.PIF.GetDevice(s, b.PrimarySlave); b.Mode != xenapi.BondModeLacp || b.Properties["hashing_algorithm"] != "src_mac" || dev != "eth1" {
+			t.Errorf("bond %+v (primary member %s)", b, dev)
+		}
+	}
+	nics, err := HostNicsTab(c, hostUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(nics.NICs, func(n HostNic) bool { return n.BondNetwork == bondNet }) || !nics.CanBond {
+		t.Fatalf("NICs tab %+v", nics)
+	}
+	t.Logf("NICs: %v", nics.Table.Rows)
+	tab, err := HostNetworkingTab(c, "pools", poolUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("networks: %v", tab.Table.Rows)
+	if i := slices.Index(tab.Table.Keys, bondNet); i < 0 || !tab.Networks[i].Bond || !tab.Networks[i].CanRemove || !tab.Networks[i].CanEdit {
+		t.Fatalf("networking tab %+v", tab)
+	}
+	if len(tab.Table.Keys) != 2 { // the member networks are hidden: network 0 and the bond
+		t.Errorf("networks %v", tab.Table.Rows)
+	}
+	if w, err := ops.BondDeleteWarning(c, bondNet); err != nil || w.Block || w.Text != "Are you sure that you want to delete Bond 1+2?" {
+		t.Fatalf("delete warning %+v %v", w, err)
+	}
+	if err := ops.DestroyBond(c, bondNet); err != nil {
+		t.Fatal(err)
+	}
+	if n, b := count(); n != nets0 || b != bonds0 {
+		t.Fatalf("after the bond: %d networks, %d bonds", n, b)
+	}
+	goHome()
+	for v, want := range home {
+		if net, err := xenapi.VIF.GetNetwork(s, v); err != nil || net != want {
+			t.Errorf("VIF %s is on %s, not back on %s: %v", v, net, want, err)
+		}
+	}
+
+	// a VLAN network on NIC 1 of every server, then a private one
+	opts, _ = NewNetworkOptions(c, "pools", poolUUID)
+	i := slices.IndexFunc(opts.NICs, func(n WizardNIC) bool { return n.Name == "NIC 1" })
+	if i < 0 || opts.Host != hostUUID || opts.ExternalName != "New Network" || opts.MinVLAN != 0 {
+		t.Fatalf("wizard choices %+v", opts)
+	}
+	nic := opts.NICs[i]
+	vlan := rules.VLANFor(3901, nic.VLANs)
+	spec := ops.NewNetwork{External: true, Name: "xcpng-center-go-test-vlan", Host: opts.Host, NIC: nic.UUID, VLAN: fmt.Sprint(vlan), MTU: "1500"}
+	bad := spec
+	bad.VLAN = "-1"
+	if err := ops.CreateNetwork(c, bad); err == nil {
+		t.Fatal("VLAN -1")
+	}
+	if err := ops.CreateNetwork(c, spec); err != nil {
+		t.Fatal(err)
+	}
+	vlanNet, vn := byName(spec.Name)
+	made[vlanNet] = false
+	if err := ops.CreateNetwork(c, spec); err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("the same VLAN twice: %v", err)
+	}
+	if len(vn.PIFs) != len(hosts) || vn.OtherConfig["automatic"] != "false" {
+		t.Fatalf("VLAN network %+v", vn)
+	}
+	edit, err := ReadNetworkEdit(c, vlanNet)
+	if err != nil || !edit.MTUState.Enabled || edit.MTU != 1500 || edit.Auto {
+		t.Fatalf("VLAN network properties %+v %v", edit, err)
+	}
+	if err := SaveNetwork(c, vlanNet, ops.NetworkChanges{Name: "x", MTU: "100"}); err == nil {
+		t.Fatal("MTU 100")
+	}
+	// shortcut: the MTU itself is not changed on the lab (a VLAN's MTU can raise NIC 1's), so the unplug and plug of
+	// UnplugPlugNetworkAction is not run here; upgrade when the lab has a NIC to spare.
+	if err := SaveNetwork(c, vlanNet, ops.NetworkChanges{Name: " xcpng-center-go-test-vlan2 ", Description: "d", Auto: true, MTU: "1500"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, n := byName("xcpng-center-go-test-vlan2"); n.NameDescription != "d" || n.OtherConfig["automatic"] != "true" {
+		t.Fatalf("renamed %+v", n)
+	}
+	tab, _ = HostNetworkingTab(c, "hosts", hostUUID)
+	if i := slices.Index(tab.Table.Keys, vlanNet); i < 0 || !tab.Networks[i].CanRemove || tab.Networks[i].Bond {
+		t.Fatalf("VLAN row %+v", tab)
+	}
+	if err := ops.RemoveNetwork(c, vlanNet); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.CreateNetwork(c, ops.NewNetwork{Name: "xcpng-center-go-test-private", Auto: true}); err != nil {
+		t.Fatal(err)
+	}
+	priv, pn := byName("xcpng-center-go-test-private")
+	made[priv] = false
+	if len(pn.PIFs) != 0 || pn.OtherConfig["automatic"] != "true" {
+		t.Fatalf("private network %+v", pn)
+	}
+	if edit, err := ReadNetworkEdit(c, priv); err != nil || edit.MTUState.Enabled || !edit.Auto {
+		t.Fatalf("private network properties %+v %v", edit, err)
+	}
+	if err := SaveNetwork(c, priv, ops.NetworkChanges{Name: "xcpng-center-go-test-private2", Auto: false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.RemoveNetwork(c, priv); err != nil {
+		t.Fatal(err)
+	}
+	if tab, _ := HostNetworkingTab(c, "hosts", hostUUID); !slices.ContainsFunc(tab.Networks, func(n HostNetwork) bool { return !n.CanRemove && n.RemoveTip != "" }) {
+		t.Errorf("the physical NICs' networks can be removed: %+v", tab.Networks)
+	}
+	if err := ops.RescanPIFs(c, hostUUID); err != nil {
+		t.Fatal(err)
+	}
+	if n, b := count(); n != nets0 || b != bonds0 {
+		t.Fatalf("after the networks: %d networks, %d bonds", n, b)
 	}
 }
