@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 - Searches on a related object's properties (XenSearch RecursiveXMOPropertyQuery and RecursiveXMOListPropertyQuery:
   the VMs on an SR or a server, the servers running a VM, the VMs of a disk or a pool), run on every object's facts.
+- OVF/OVA import of hosted sparse VMDKs (monolithicSparse, what `qemu-img convert -O vmdk` and VMware Workstation
+  write) and monolithic flat VMDKs (a descriptor and its flat extent), converted to raw as they are read, as DiscUtils
+  does in the Windows app. A hosted sparse disk needs a folder package or an uncompressed OVA.
+- Signed OVF/OVA packages: the Export wizard's "Sign the OVF package" with a .pfx certificate and its private key's
+  password (never kept), writing the `.cert` file as the Windows app does; the import's "Verify digital signature"
+  with View Certificate (subject, issuer, validity, thumbprint), which refuses an untrusted certificate or a bad
+  signature before the manifest is checked.
 
 ## [0.2.0] — 2026-11-06
 

@@ -23,8 +23,7 @@ import (
 // OVF/OVA appliance export: ExportApplianceAction (ExportApplianceAction.cs, Export.cs) with the Export wizard's
 // checks. The package is made in a temporary folder beside the target and renamed to "<dir>/<name>" once complete, so
 // a failed export leaves nothing at the target.
-// shortcut: no signing (the wizard's certificate), no encryption (hidden in the C# wizard too), no progress bar or
-// Cancel (as the XVA export).
+// shortcut: no encryption (hidden in the C# wizard too), no progress bar or Cancel (as the XVA export).
 
 // ApplianceExport is what the Export wizard asks for the OVF path (ExportApplianceAction's arguments).
 type ApplianceExport struct {
@@ -36,6 +35,11 @@ type ApplianceExport struct {
 	OVA      bool     `json:"ova"`
 	Compress bool     `json:"compress"`
 	Verify   bool     `json:"verify"`
+	// Sign the package with the certificate file (a .pfx) and its private key's password, typed in the dialog: used
+	// to open the file and never kept nor logged
+	Sign        bool   `json:"sign"`
+	Certificate string `json:"certificate"`
+	Password    string `json:"password"`
 }
 
 // diskMaxSize is SR.DISK_MAX_SIZE (2 TiB): ExportSelectVMsPage.CheckDiskSizeForTransfer refuses a bigger VM for OVF.
@@ -194,6 +198,12 @@ func ExportAppliance(c *xapi.Connection, policy *trust.Policy, e ApplianceExport
 	if err != nil {
 		return "", err
 	}
+	var signer *rules.Signer // ExportOptionsPage's checks, before any disk is exported
+	if e.Sign {
+		if signer, err = rules.LoadSigner(e.Certificate, e.Password, nil); err != nil {
+			return "", err
+		}
+	}
 	specs := make([]rules.ExportVM, len(e.VMs))
 	var disks []exportDisk
 	for i, uuid := range e.VMs {
@@ -231,7 +241,7 @@ func ExportAppliance(c *xapi.Connection, policy *trust.Policy, e ApplianceExport
 			disk.Href, disk.Compressed = file+".gz", true
 		}
 	}
-	file, err := rules.WritePackage(tmp, e.Name, specs, eulas, e.Manifest, e.OVA, e.Compress)
+	file, err := rules.WritePackage(tmp, e.Name, specs, eulas, e.Manifest, e.OVA, e.Compress, signer)
 	if err != nil {
 		return "", err
 	}

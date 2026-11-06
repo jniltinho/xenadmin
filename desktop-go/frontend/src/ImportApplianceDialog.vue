@@ -2,8 +2,8 @@
 // Import Appliance (XenAdmin.Desktop's Dialogs.ImportAppliance: the import wizard's OVF/OVA path in one dialog): the
 // package's VMs, its EULA to accept, the pool or server, then the wizard's VmMappings: the server of each VM
 // (ImportSelectHostPage, only to put its disks on local storage), all the disks on one SR or each on its own
-// (ImportSelectStoragePage), the network of each interface (ImportSelectNetworkPage); manifest verification and Start,
-// then ImportApplianceAction. The defaults (the target's server, its default SR, the first network) keep it one click.
+// (ImportSelectStoragePage), the network of each interface (ImportSelectNetworkPage); the signature or manifest check
+// with View Certificate (ImportSecurityPage) and Start, then ImportApplianceAction. The defaults (the target's server, its default SR, the first network) keep it one click.
 // shortcut: no OS fixup page (ImportOptionsPage): see rules/ovfmap.go.
 import { computed, onMounted, ref, watch } from "vue";
 import { api, type Appliance, type ApplianceMapping, type ServerRow } from "./api/workspace";
@@ -26,6 +26,7 @@ const diskSrs = ref<string[][]>([]);
 const nets = ref<string[][]>([]);
 const accept = ref(false);
 const verify = ref(false);
+const showCert = ref(false);
 const start = ref(false);
 const error = ref("");
 const pending = ref(false);
@@ -96,12 +97,13 @@ async function ok() {
   const a = info.value;
   if (pending.value || !a) return;
   pending.value = true; // the form is frozen: the values checked are the values imported
-  const t = conn.value, check = verify.value && a.has_manifest, run = start.value;
+  const t = conn.value, check = verify.value && (a.has_manifest || a.has_signature), run = start.value;
   const maps: ApplianceMapping[] = vms.value.map((v, i) => ({ sys_id: v.sys_id, host: hosts.value[i] ?? "",
     srs: (v.disks ?? []).map((_, j) => (sameSr.value ? sr.value : diskSrs.value[i]?.[j] ?? "")),
     networks: (v.macs ?? []).map((_, j) => nets.value[i]?.[j] ?? "") }));
   error.value = "";
   if (eulas.value.length > 0 && !accept.value) error.value = "You must accept the EULA(s) to import this appliance.";
+  else if (check && a.certificate_error) error.value = a.certificate_error; // ImportSecurityPage.OkToProceed
   else if (!t) error.value = "Select the pool or server to import to.";
   else if (maps.some((m) => m.srs.includes(""))) error.value = "Select a storage repository.";
   else if (maps.some((m) => m.networks.includes(""))) error.value = "Select a network.";
@@ -177,8 +179,19 @@ async function ok() {
             </template>
           </div>
         </template>
-        <label class="flex items-center gap-2" :class="{ 'text-neutral-400': !info.has_manifest }">
-          <input v-model="verify" type="checkbox" :disabled="!info.has_manifest" />Verify manifest content</label>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2" :class="{ 'text-neutral-400': !info.has_manifest && !info.has_signature }">
+            <input v-model="verify" type="checkbox" :disabled="!info.has_manifest && !info.has_signature" />
+            {{ info.has_signature ? "Verify digital signature" : "Verify manifest content" }}</label>
+          <button v-if="info.has_signature" type="button" class="text-blue-700 underline" @click="showCert = !showCert">View Certificate</button>
+        </div>
+        <p v-if="showCert && info.certificate_error" class="text-red-600">{{ info.certificate_error }}</p>
+        <div v-else-if="showCert && info.certificate" class="grid grid-cols-[7rem_1fr] gap-x-2 border border-line p-1.5">
+          <span>Issued to:</span><span class="break-all">{{ info.certificate.subject }}</span>
+          <span>Issued by:</span><span class="break-all">{{ info.certificate.issuer }}</span>
+          <span>Valid from:</span><span>{{ new Date(info.certificate.valid_from).toLocaleString() }} to {{ new Date(info.certificate.valid_to).toLocaleString() }}</span>
+          <span>Thumbprint:</span><span class="break-all font-mono">{{ info.certificate.thumbprint }}</span>
+        </div>
         <label class="flex items-center gap-2"><input v-model="start" type="checkbox" />Start VM(s) after import</label>
         <p v-if="error" class="text-red-600">{{ error }}</p>
         <div class="flex justify-end gap-2 pt-1">

@@ -628,6 +628,10 @@ type Appliance struct {
 	Eulas         []string      `json:"eulas"`
 	HasManifest   bool          `json:"has_manifest"`
 	RequiredSpace int64         `json:"required_space"` // the disks' capacities (OvfRules.RequiredSpace)
+	// a signed package (a "<name>.cert"): its signer's certificate, or why it cannot be read
+	HasSignature     bool             `json:"has_signature"`
+	Certificate      *CertificateInfo `json:"certificate,omitempty"`
+	CertificateError string           `json:"certificate_error,omitempty"`
 }
 
 var knownOVFVersions = []string{"0.9", "1.0", "1.0.0", "1.0.0a", "1.0.0.b", "1.0.0c", "1.0.0d", "1.0.1", "1.0.0e"}

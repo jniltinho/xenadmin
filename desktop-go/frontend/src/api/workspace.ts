@@ -80,12 +80,14 @@ export interface IQN { index: number; iqn: string; address: string; port: number
 export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
 export interface Appliance { name: string; warnings: string[] | null; disks: number; interfaces: number;
   vms: { sys_id: string; name: string; disks: { name: string; capacity: number }[] | null; macs: string[] | null }[] | null;
-  eulas: string[] | null; has_manifest: boolean; required_space: number }
+  eulas: string[] | null; has_manifest: boolean; required_space: number; has_signature: boolean;
+  certificate?: { subject: string; issuer: string; valid_from: string; valid_to: string; thumbprint: string }; certificate_error?: string }
 // a VM's server ("" for the pool), the SR of each of its disks and the network of each of its interfaces
 export interface ApplianceMapping { sys_id: string; host: string; srs: string[]; networks: string[] }
 export interface ExportChoices { pool: string; is_pool: boolean;
   vms: { uuid: string; name: string; description: string; size: string; vapp: string; selected: boolean; vtpm: boolean }[] }
-export interface ApplianceExport { dir: string; name: string; vms: string[]; eulas: string[]; manifest: boolean; ova: boolean; compress: boolean; verify: boolean }
+export interface ApplianceExport { dir: string; name: string; vms: string[]; eulas: string[]; manifest: boolean; ova: boolean; compress: boolean; verify: boolean;
+  sign: boolean; certificate: string; password: string }
 export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
 export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
 export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
@@ -211,6 +213,8 @@ export const api = {
   exportFolder: () => call<string>("ExportFolder"),
   pickExportFolder: (dir: string) => call<string>("PickExportFolder", dir),
   pickEulaFile: () => call<string>("PickEulaFile"),
+  pickCertificateFile: () => call<string>("PickCertificateFile"),
+  signingCertificateError: (file: string, password: string) => call<string>("SigningCertificateError", file, password),
   applianceTargetError: (dir: string, name: string, xva: boolean) => call<string>("ApplianceTargetError", dir, name, xva),
   exportAppliance: (key: string, e: ApplianceExport) => call<string>("ExportAppliance", key, e),
   memoryEdit: (key: string, vm: string) => call<MemoryEdit>("MemoryEdit", key, vm),

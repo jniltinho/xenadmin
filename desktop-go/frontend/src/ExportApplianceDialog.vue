@@ -2,9 +2,10 @@
 // Export (ExportApplianceWizard in one dialog): the name, location and format (ExportAppliancePage: an OVF/OVA package,
 // or for one VM an XVA file), the VMs (ExportSelectVMsPage: the halted or suspended VMs of the pool, the selected VM or
 // the vApp's VMs ticked), and for OVF/OVA the EULA files (ExportEulaPage), the options (ExportOptionsPage: manifest,
-// OVA, compression) and Verify (ExportFinishPage); then ExportApplianceAction or ExportVmAction.
-// shortcut: no signing (the certificate and its private key) and no encryption (hidden in the C# wizard too).
-import { computed, onMounted, ref } from "vue";
+// OVA, compression, signing with a .pfx certificate and its private key's password) and Verify (ExportFinishPage); then
+// ExportApplianceAction or ExportVmAction. The password stays in this dialog and the export's call; it is not kept.
+// shortcut: no encryption (hidden in the C# wizard too); the certificate is checked on Export, not by a Validate button.
+import { computed, onMounted, ref, watch } from "vue";
 import { api, type ExportChoices } from "./api/workspace";
 
 const props = defineProps<{ server: string; vm: string; vapp: string; name: string }>();
@@ -21,8 +22,14 @@ const manifest = ref(false);
 const ova = ref(false);
 const compress = ref(false);
 const verify = ref(false);
+const sign = ref(false);
+const certFile = ref("");
+const certPassword = ref("");
 const error = ref("");
 const pending = ref(false);
+// ExportOptionsPage: signing needs the manifest, no manifest no signing
+watch(sign, (v) => { if (v) manifest.value = true; });
+watch(manifest, (v) => { if (!v) sign.value = false; });
 
 onMounted(async () => {
   try {
@@ -44,6 +51,9 @@ async function addEula() {
     if (f && !eulas.value.includes(f) && eulas.value.length < 25) eulas.value.push(f);
   } catch (e) { error.value = String(e); }
 }
+async function browseCert() {
+  try { const f = await api.pickCertificateFile(); if (f) { certFile.value = f; sign.value = true; } } catch (e) { error.value = String(e); }
+}
 
 async function ok() {
   if (pending.value || !choices.value) return;
@@ -54,14 +64,18 @@ async function ok() {
   else if (xva.value && picked.length > 1)
     error.value = "Only one VM may be selected for export in XVA format. To export multiple VMs, select OVF/OVA Package as the export format.";
   else {
-    try { error.value = await api.applianceTargetError(d, n, xva.value); } catch (e) { error.value = String(e); }
+    try {
+      error.value = await api.applianceTargetError(d, n, xva.value);
+      if (!error.value && !xva.value && sign.value) error.value = await api.signingCertificateError(certFile.value, certPassword.value);
+    } catch (e) { error.value = String(e); }
   }
   if (error.value) { pending.value = false; return; }
   if (xva.value) {
     const file = `${d}/${n.endsWith(".xva") ? n : n + ".xva"}`, check = verify.value;
     emit("run", `Exporting '${picked[0].name}'`, async () => { await api.exportVm(props.server, picked[0].uuid, file, check); return file; });
   } else {
-    const e = { dir: d, name: n, vms: picked.map((v) => v.uuid), eulas: [...eulas.value], manifest: manifest.value, ova: ova.value, compress: compress.value, verify: verify.value };
+    const e = { dir: d, name: n, vms: picked.map((v) => v.uuid), eulas: [...eulas.value], manifest: manifest.value, ova: ova.value, compress: compress.value, verify: verify.value,
+      sign: sign.value, certificate: sign.value ? certFile.value : "", password: sign.value ? certPassword.value : "" };
     emit("run", `Exporting '${n}'`, () => api.exportAppliance(props.server, e));
   }
   emit("close");
@@ -116,8 +130,14 @@ A single VM can be exported as an OVF/OVA package or as an XVA file.</p>
           </div>
           <span class="block font-semibold">Advanced Options</span>
           <label class="flex items-center gap-2"><input v-model="manifest" type="checkbox" />Create a manifest</label>
-          <label class="flex items-center gap-2 text-neutral-400" title="Signing an OVF package is not available yet.">
-            <input type="checkbox" disabled />Sign the OVF package</label>
+          <label class="flex items-center gap-2"><input v-model="sign" type="checkbox" />Sign the OVF package</label>
+          <div class="grid grid-cols-[10rem_1fr_auto] items-center gap-x-2 gap-y-1 pl-6">
+            <label for="expcert">Certificate path:</label>
+            <input id="expcert" v-model="certFile" class="border border-line px-1 py-0.5" @input="sign = true" />
+            <button type="button" class="btn" @click="browseCert">Browse...</button>
+            <label for="expcertpw">Private key password:</label>
+            <input id="expcertpw" v-model="certPassword" type="password" autocomplete="off" class="col-span-2 border border-line px-1 py-0.5" @input="sign = true" />
+          </div>
           <label class="flex items-center gap-2"><input v-model="ova" type="checkbox" />Create OVA package (single .ova file)</label>
           <label class="flex items-center gap-2"><input v-model="compress" type="checkbox" />Compress package</label>
           <p v-if="compress" class="pl-6 text-neutral-600">{{ ova ? "The OVA package will be compressed to an .ova.gz file." : "Each of the disks of the OVF package will be compressed to a .vhd.gz file." }}</p>

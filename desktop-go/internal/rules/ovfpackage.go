@@ -30,13 +30,14 @@ import (
 
 // Package is an opened appliance package.
 type Package struct {
-	file       string
-	dir        string           // a folder package's folder ("" for an archive)
-	descriptor string           // the .ovf's name
-	entries    map[string]int64 // an archive's files and their sizes
-	manifest   []byte
-	hrefs      []string // the descriptor and the files it names (a folder's manifest must list them)
-	Appliance  *Appliance
+	file        string
+	dir         string           // a folder package's folder ("" for an archive)
+	descriptor  string           // the .ovf's name
+	entries     map[string]int64 // an archive's files and their sizes
+	manifest    []byte
+	certificate []byte   // "<name>.cert": the manifest's signature and the signer's certificate
+	hrefs       []string // the descriptor and the files it names (a folder's manifest must list them)
+	Appliance   *Appliance
 }
 
 const (
@@ -63,11 +64,16 @@ func OpenPackage(file string) (*Package, error) {
 		if desc, err = readLimited(file, ovfMaxDescriptor); err != nil {
 			return nil, err
 		}
-		if f, st, err := p.openInDir(p.name() + ".mf"); err == nil {
-			p.manifest, err = io.ReadAll(io.LimitReader(f, ovfMaxManifest+1))
-			f.Close()
-			if err != nil || st.Size() > ovfMaxManifest {
-				return nil, errors.New("the manifest of the appliance cannot be read or is too large")
+		for _, m := range []struct {
+			ext string
+			to  *[]byte
+		}{{".mf", &p.manifest}, {".cert", &p.certificate}} {
+			if f, st, err := p.openInDir(p.name() + m.ext); err == nil {
+				*m.to, err = io.ReadAll(io.LimitReader(f, ovfMaxManifest+1))
+				f.Close()
+				if err != nil || st.Size() > ovfMaxManifest {
+					return nil, fmt.Errorf("the file %s of the appliance cannot be read or is too large", p.name()+m.ext)
+				}
 			}
 		}
 	} else {
@@ -83,13 +89,18 @@ func OpenPackage(file string) (*Package, error) {
 					return err
 				}
 				desc = b
-			case ext == ".mf" && p.descriptor != "" && strings.EqualFold(name, p.name()+".mf"):
+			case (ext == ".mf" || ext == ".cert") && p.descriptor != "" && strings.EqualFold(name, p.name()+ext):
 				b, err := io.ReadAll(io.LimitReader(r, ovfMaxManifest+1))
 				if err != nil {
 					return err
 				}
-				if len(b) <= ovfMaxManifest {
+				if len(b) > ovfMaxManifest {
+					break
+				}
+				if ext == ".mf" {
 					p.manifest = b
+				} else {
+					p.certificate = b
 				}
 			}
 			return nil
@@ -107,6 +118,14 @@ func OpenPackage(file string) (*Package, error) {
 	}
 	if p.Appliance, err = describeAppliance(env, p.name(), p.has, p.manifest != nil); err != nil {
 		return nil, err
+	}
+	if p.certificate != nil { // ImportSecurityPage: HasSignature, and View Certificate's check
+		p.Appliance.HasSignature = true
+		if c, err := packageCertificate(p.certificate); err != nil {
+			p.Appliance.CertificateError = messages.Get("IMPORT_SECURITY_PAGE_ERROR_MISSING_CERTIFICATE")
+		} else {
+			p.Appliance.Certificate = describeCertificate(c)
+		}
 	}
 	p.hrefs = []string{p.descriptor}
 	for _, f := range env.Files {
@@ -263,6 +282,57 @@ func (p *Package) Open(href string) (io.ReadCloser, int64, error) {
 	}
 }
 
+// openAt is a file of the package with random access, which a hosted sparse VMDK needs: a folder's file, or a member
+// of an uncompressed OVA as a section of the archive (tar reads exactly up to a member's data).
+// shortcut: not from a compressed OVA (.ova.gz, .ova.bz2); the C# app extracts the archive first, extract it by hand.
+func (p *Package) openAt(href string) (io.ReaderAt, int64, io.Closer, error) {
+	if !SafeHref(href) {
+		return nil, 0, nil, fmt.Errorf("the appliance names a file outside the package: %q", href)
+	}
+	if !p.archive() {
+		f, st, err := p.openInDir(href)
+		if err != nil {
+			return nil, 0, nil, errors.New(messages.Format(messages.Get("ERROR_FILE_NOT_FOUND"), href))
+		}
+		return f, st.Size(), f, nil
+	}
+	if name := strings.ToLower(p.file); strings.HasSuffix(name, ".gz") || strings.HasSuffix(name, ".bz2") {
+		return nil, 0, nil, fmt.Errorf("the disk %s is a hosted sparse VMDK, which cannot be read from a compressed OVA; extract the OVA and import its .ovf", href)
+	}
+	f, err := os.Open(p.file)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	fail := func(err error) (io.ReaderAt, int64, io.Closer, error) { f.Close(); return nil, 0, nil, err }
+	tr := tar.NewReader(f)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return fail(errors.New(messages.Format(messages.Get("ERROR_FILE_NOT_FOUND"), href)))
+		}
+		if err != nil {
+			return fail(fmt.Errorf("the appliance is not a valid OVA archive: %w", err))
+		}
+		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA || entryName(h.Name) != href {
+			continue
+		}
+		for k := range h.PAXRecords { // a PAX sparse file's data is not the member's bytes as they lie
+			if strings.HasPrefix(k, "GNU.sparse.") {
+				return fail(fmt.Errorf("the file %s of the appliance is a sparse tar member", href))
+			}
+		}
+		at, err := f.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return fail(err)
+		}
+		st, err := f.Stat()
+		if err != nil || h.Size > st.Size()-at {
+			return fail(fmt.Errorf("the file %s of the appliance is truncated", href))
+		}
+		return io.NewSectionReader(f, at, h.Size), h.Size, f, nil
+	}
+}
+
 // fileDigest is a manifest line (FileDigest): "SHA256(disk.vmdk)= 0123...".
 type fileDigest struct{ algorithm, name, digest string }
 
@@ -369,7 +439,8 @@ type DiskStream struct {
 }
 
 // OpenDisk is ImportApplianceAction.ImportFile's "open disk" part: a VHD goes as VHD (its size from its footer), a
-// stream-optimized VMDK as its raw disk, a .raw or .img file as raw; a gzip-compressed file is uncompressed as it is
+// VMDK (stream-optimized, hosted sparse, or a descriptor of one flat extent) as its raw disk, a .raw or .img file as
+// raw (DiscUtils' disk classes there); a gzip-compressed file is uncompressed as it is
 // read (shortcut: its size is found by reading it once more, where the C# app uncompresses it to a temporary file).
 func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 	ext := strings.ToLower(d.Href)
@@ -399,6 +470,22 @@ func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 	br := bufio.NewReaderSize(r, 1<<20)
 	head, _ := br.Peek(sector)
 	fail := func(err error) (*DiskStream, error) { c.Close(); return nil, err }
+	if IsVMDK(head) && !isStreamVMDK(head) { // a hosted sparse VMDK: read again with random access
+		c.Close()
+		if d.Compression != "" {
+			return nil, fmt.Errorf("the disk %s is a hosted sparse VMDK, which cannot be read compressed", d.Href)
+		}
+		ra, size, rc, err := p.openAt(d.Href)
+		if err != nil {
+			return nil, err
+		}
+		v, err := NewSparseVMDKReader(ra, size)
+		if err != nil {
+			rc.Close()
+			return nil, err
+		}
+		return &DiskStream{Reader: v, Closer: rc, Length: v.Size(), VirtualSize: v.Size(), Format: "raw"}, nil
+	}
 	if IsVMDK(head) {
 		v, err := NewVMDKReader(br)
 		if err != nil {
@@ -408,8 +495,45 @@ func (p *Package) OpenDisk(d ApplianceDisk) (*DiskStream, error) {
 	}
 	switch ext {
 	case ".vhd", ".raw", ".img":
-	case ".vmdk":
-		return fail(errors.New("only stream-optimized VMDK disks can be imported in this version"))
+	case ".vmdk": // a descriptor: its flat extent, another file of the package, is the raw disk
+		desc, err := io.ReadAll(io.LimitReader(br, vmdkMaxDescriptor+1))
+		c.Close()
+		if err != nil {
+			return nil, err
+		}
+		if len(desc) > vmdkMaxDescriptor {
+			return nil, errors.New("only stream-optimized, hosted sparse and monolithic flat VMDK disks can be imported in this version")
+		}
+		file, offset, size, err := vmdkFlatExtent(desc)
+		if err != nil {
+			return nil, err
+		}
+		extent := path.Join(path.Dir(d.Href), file)
+		// the OVF does not name the extent: the manifest must, so that its check covers the disk's data (and the check
+		// skips a .mf or .cert file)
+		if ext := strings.ToLower(path.Ext(extent)); ext == ".mf" || ext == ".cert" || ext == ".ovf" {
+			return nil, fmt.Errorf("the extent %s of the disk %s is not a disk file", extent, d.Href)
+		}
+		if p.manifest != nil {
+			// a folder's check opens the manifest's name exactly; an OVA's matches its members' names in any case
+			same := func(x fileDigest) bool { return x.name == extent || p.archive() && strings.EqualFold(x.name, extent) }
+			if ds, err := p.digests(); err != nil || !slices.ContainsFunc(ds, same) {
+				return nil, fmt.Errorf("the extent %s of the disk %s is not listed in the appliance's manifest", extent, d.Href)
+			}
+		}
+		rc, n, err := p.Open(extent)
+		if err != nil {
+			return nil, err
+		}
+		if offset > n || size > n-offset {
+			rc.Close()
+			return nil, fmt.Errorf("the extent %s of the disk %s is truncated", extent, d.Href)
+		}
+		if _, err := io.CopyN(io.Discard, rc, offset); err != nil {
+			rc.Close()
+			return nil, err
+		}
+		return &DiskStream{Reader: io.LimitReader(rc, size), Closer: rc, Length: size, VirtualSize: size, Format: "raw"}, nil
 	default:
 		return fail(errors.New(messages.Format(messages.Get("UNSUPPORTED_FILE_TYPE"), ext)))
 	}

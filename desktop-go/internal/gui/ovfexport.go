@@ -6,6 +6,7 @@ import (
 
 	"xcpng-center/internal/app"
 	"xcpng-center/internal/ops"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
@@ -41,6 +42,24 @@ func (w *Workspace) PickEulaFile() (string, error) {
 		return "", errNoWindow
 	}
 	return w.Files(false, "Add EULA", "", [][2]string{{"Normal text file (*.txt)", "*.txt"}, {"Rich text file (*.rtf)", "*.rtf"}})
+}
+
+// PickCertificateFile asks for the certificate to sign the package with (EXPORT_SECURITY_PAGE_FILETYPES); "" when
+// cancelled.
+func (w *Workspace) PickCertificateFile() (string, error) {
+	if w.Files == nil {
+		return "", errNoWindow
+	}
+	return w.Files(false, "Certificate", "", [][2]string{{"Personal Certificate Files (*.pfx)", "*.pfx"}})
+}
+
+// SigningCertificateError is ExportOptionsPage.CheckSignature for the certificate file and its private key's password
+// ("" when the package can be signed with them); the password is not kept.
+func (w *Workspace) SigningCertificateError(file, password string) string {
+	if _, err := rules.LoadSigner(file, password, nil); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // ApplianceTargetError checks where the package (or the XVA file) goes: "" when it can be made.
