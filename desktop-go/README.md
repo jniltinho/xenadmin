@@ -52,7 +52,7 @@ Recovery: Configure (the SRs holding the pool's metadata) and the wizard (failov
 metadata on SRs attached to the pool, with the prechecks and the clean-up of a test)), the Memory
 (with the bars of each server's memory), Storage, Networking, NICs, GPU (placement policy and allowed vGPU types), USB
 (pass-through), Console and Performance tabs; on Networking the New Network wizard
-(External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU) and
+(External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU, NIC and VLAN, bond mode and LACP hashing) and
 Remove Network; on NICs Create Bond (active-active, active-passive, LACP), Delete Bond and Rescan, with the C#
 management interface and HA warnings; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
 question, `pool.join`); a server's Properties with Alerts (the perfmon thresholds), Multipathing and Log
@@ -70,9 +70,9 @@ Import... of `.xensearch` files the Windows app reads; searches by name, type, p
 fields, dates, IP addresses and the pool, server, vApp or network of an object; Notifications > Alerts with the
 severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: the other Properties pages (a VM's GPU and USB, a network's Network Settings), the Performance graph editor, SR-IOV networks, changing a network's NIC, VLAN or bond mode, OVF/OVA appliances, and saved searches
-that filter on a related object's properties (XenSearch Recursive queries; listed, not run). The Windows app has
-those.
+Not there yet: a VM's GPU and USB Properties pages, the Performance graph editor, SR-IOV networks, OVF/OVA
+appliances, and saved searches that filter on a related object's properties (XenSearch Recursive queries; listed,
+not run). The Windows app has those.
 
 ## Command line and MCP
 

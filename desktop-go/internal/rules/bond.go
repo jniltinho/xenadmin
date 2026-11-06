@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -203,4 +204,45 @@ func NetworkMTU(mtu int, tunnel, private, management bool, managementName string
 		m.Enabled = true
 	}
 	return m
+}
+
+// NICState is the NIC and VLAN fields of a network's Properties.
+type NICState struct {
+	Shown   bool   `json:"shown"`   // EditNetworkPage.Editable: a private network or a VLAN (not a NIC, bond, tunnel or SR-IOV network)
+	Enabled bool   `json:"enabled"` // HostPNICList.Enabled, and the VLAN's unless <internal> is picked
+	Note    string `json:"note"`    // warningText: why they cannot be changed
+}
+
+// NetworkNICs is EditNetworkPage.Editable and SetNetSettingsEnablement: a private network can always move to a NIC;
+// a VLAN cannot change while it is a management interface or VMs are attached to it (its PIFs would not unplug).
+func NetworkNICs(private, editable, management bool, managementName string, vmsAttached bool) NICState {
+	switch {
+	case private:
+		return NICState{Shown: true, Enabled: true}
+	case !editable:
+		return NICState{}
+	case management:
+		return NICState{Shown: true, Note: messages.Format(messages.Get("CANNOT_CONFIGURE_NET_DISTURB_MANAGEMENT"), managementName)}
+	case vmsAttached:
+		return NICState{Shown: true, Note: messages.Get("CANNOT_CONFIGURE_NET_VMS_ATTACHED")}
+	}
+	return NICState{Shown: true, Enabled: true}
+}
+
+// BondChanges is EditNetworkPage.BondModeHasChanged and HashingAlgorithmHasChanged: what to set on a bond network's
+// bonds for the picked mode and hashing algorithm. cur* are the bond's ("" hashing: none or unknown); the hashing
+// algorithm is set only with LACP on the vSwitch (the LACP choices are hidden otherwise).
+func BondChanges(curMode, curHashing, mode, hashing string, lacp bool) (setMode, setHashing bool, err error) {
+	switch {
+	case mode != "balance-slb" && mode != "active-backup" && mode != "lacp":
+		return false, false, errors.New("unknown bond mode " + strconv.Quote(mode))
+	case mode == "lacp" && !lacp && curMode != "lacp":
+		return false, false, errors.New("LACP needs the vSwitch") // Helpers.SupportsLinkAggregationBond
+	case mode == "lacp" && lacp && hashing != "src_mac" && hashing != "tcpudp_ports":
+		return false, false, errors.New("pick a load balancing method for LACP")
+	}
+	if mode != "lacp" || !lacp {
+		hashing = "" // Bond.hashing_algoritm.unknown: never set
+	}
+	return mode != curMode, hashing != "" && hashing != curHashing, nil
 }

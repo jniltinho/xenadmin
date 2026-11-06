@@ -102,3 +102,45 @@ func TestNetworkMTU(t *testing.T) {
 		t.Errorf("a CLI value widens the range: %+v", m)
 	}
 }
+
+func TestNetworkNICs(t *testing.T) {
+	if n := NetworkNICs(true, false, false, "", true); !n.Shown || !n.Enabled || n.Note != "" {
+		t.Errorf("a private network moves to a NIC even with VMs on it: %+v", n)
+	}
+	if n := NetworkNICs(false, false, false, "", false); n.Shown || n.Enabled {
+		t.Errorf("a NIC, bond or tunnel network: %+v", n)
+	}
+	if n := NetworkNICs(false, true, true, "Storage", true); n.Enabled || !strings.Contains(n.Note, "management interface 'Storage'") {
+		t.Errorf("management first: %+v", n)
+	}
+	if n := NetworkNICs(false, true, false, "", true); n.Enabled || !strings.Contains(n.Note, "active VMs attached") {
+		t.Errorf("VMs attached: %+v", n)
+	}
+	if n := NetworkNICs(false, true, false, "", false); !n.Shown || !n.Enabled {
+		t.Errorf("a VLAN: %+v", n)
+	}
+}
+
+func TestBondChanges(t *testing.T) {
+	for _, c := range []struct {
+		cur, curHash, mode, hash string
+		lacp, setMode, setHash   bool
+		err                      bool
+	}{
+		{"balance-slb", "", "balance-slb", "src_mac", true, false, false, false},  // nothing: the hashing only goes with LACP
+		{"balance-slb", "", "active-backup", "", true, true, false, false},        // a new mode
+		{"balance-slb", "", "lacp", "tcpudp_ports", true, true, true, false},      // to LACP, with its hashing
+		{"lacp", "src_mac", "lacp", "tcpudp_ports", true, false, true, false},     // the hashing only
+		{"lacp", "", "lacp", "src_mac", true, false, true, false},                 // an unknown hashing is set (as the radio shows src_mac)
+		{"lacp", "src_mac", "active-backup", "src_mac", true, true, false, false}, // from LACP
+		{"lacp", "", "lacp", "", false, false, false, false},                      // no vSwitch: LACP stays, hidden
+		{"balance-slb", "", "lacp", "src_mac", false, false, false, true},         // no vSwitch: no LACP
+		{"balance-slb", "", "lacp", "", true, false, false, true},                 // LACP needs a hashing
+		{"balance-slb", "", "802.3ad", "", true, false, false, true},
+	} {
+		m, h, err := BondChanges(c.cur, c.curHash, c.mode, c.hash, c.lacp)
+		if m != c.setMode || h != c.setHash || (err != nil) != c.err {
+			t.Errorf("%+v: %v %v %v", c, m, h, err)
+		}
+	}
+}

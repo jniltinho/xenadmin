@@ -9,6 +9,7 @@ import (
 
 	xenapi "go/xenapi"
 
+	"xcpng-center/internal/messages"
 	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
@@ -628,8 +629,19 @@ func RemoveNetwork(c *xapi.Connection, uuid string) error {
 	case !ok:
 		return errors.New("the network cannot be removed now")
 	}
-	calls := []string{"network.destroy"}
-	for _, r := range n.PIFs {
+	if err := permitted(s, append([]string{"network.destroy"}, d.destroyCalls(n.PIFs)...)...); err != nil {
+		return err
+	}
+	if err := d.destroyPIFs(n.PIFs); err != nil {
+		return err
+	}
+	return xapi.Sanitize(xenapi.Network.Destroy(s, ref))
+}
+
+// destroyCalls are the calls of destroyPIFs for these PIFs.
+func (d *netState) destroyCalls(pifs []xenapi.PIFRef) []string {
+	var calls []string
+	for _, r := range pifs {
 		switch p := d.pifs[r]; {
 		case len(p.TunnelAccessPIFOf) > 0:
 			calls = append(calls, "tunnel.destroy")
@@ -641,15 +653,21 @@ func RemoveNetwork(c *xapi.Connection, uuid string) error {
 			calls = append(calls, "network_sriov.destroy")
 		}
 	}
-	if err := permitted(s, calls...); err != nil {
-		return err
-	}
-	for _, r := range n.PIFs { // NetworkAction.destroyPIFs
-		p := d.pifs[r]
-		switch {
+	return calls
+}
+
+// destroyPIFs is NetworkAction.destroyPIFs: a tunnel access PIF goes with its tunnel, a VLAN with its VLAN, an SR-IOV
+// PIF with its SR-IOV network, a physical one is forgotten.
+func (d *netState) destroyPIFs(pifs []xenapi.PIFRef) error {
+	s := d.s
+	for _, r := range pifs {
+		var err error
+		switch p := d.pifs[r]; {
 		case len(p.TunnelAccessPIFOf) > 0:
 			for _, t := range p.TunnelAccessPIFOf {
-				err = xenapi.Tunnel.Destroy(s, t)
+				if err = xenapi.Tunnel.Destroy(s, t); err != nil {
+					break
+				}
 			}
 		case p.Physical:
 			err = xenapi.PIF.Forget(s, r)
@@ -662,55 +680,145 @@ func RemoveNetwork(c *xapi.Connection, uuid string) error {
 			return xapi.Sanitize(err)
 		}
 	}
-	return xapi.Sanitize(xenapi.Network.Destroy(s, ref))
+	return nil
 }
 
-// NetworkChanges are the network's Properties (GeneralEditPage's name and description, EditNetworkPage's auto-add and MTU).
+// NetworkChanges are the network's Properties (GeneralEditPage's name and description; EditNetworkPage's auto-add,
+// MTU, NIC and VLAN, bond mode and hashing algorithm).
 type NetworkChanges struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Auto        bool   `json:"auto"`
 	MTU         string `json:"mtu"`
+	NIC         string `json:"nic"`     // the PIF uuid of a NIC of the coordinator; "" <internal> (a private network)
+	VLAN        string `json:"vlan"`    // with a NIC
+	Mode        string `json:"mode"`    // a bond network's: balance-slb, active-backup or lacp
+	Hashing     string `json:"hashing"` // lacp: src_mac or tcpudp_ports
 }
 
-// NetworkMTU is EditNetworkPage.SetMTUControlEnablement for a network: whether its MTU is shown and can be changed.
-// noTools tells a running VM without I/O drivers (VM.GetVirtualizationStatus).
-func NetworkMTU(s *xenapi.Session, uuid string, noTools func(xenapi.VMRecord) bool) (rules.MTUState, error) {
+// SettingsNIC is a NIC of the NIC list (populateHostNicList) with the VLANs other networks use on its device.
+type SettingsNIC struct {
+	UUID  string `json:"uuid"`
+	Name  string `json:"name"`
+	VLANs []int  `json:"vlans"`
+}
+
+// NetworkSettings is the Network Settings page of a network (EditNetworkPage) but its auto-add.
+type NetworkSettings struct {
+	MTUState rules.MTUState `json:"mtu_state"`
+	VLANMTU  rules.MTUState `json:"vlan_mtu_state"` // the MTU of a new VLAN (GetSelectedPIF null): fixed by running VMs without tools
+	NICState rules.NICState `json:"nic_state"`      // the NIC and VLAN fields
+	NICs     []SettingsNIC  `json:"nics"`
+	NIC      string         `json:"nic"` // FindAssociatedPhysicalPIF: the NIC under the network; "" <internal>
+	VLAN     int            `json:"vlan"`
+	MinVLAN  int            `json:"min_vlan"` // Helpers.VLAN0Allowed
+	Bond     bool           `json:"bond"`     // groupBoxBondMode: a bond network
+	LACP     bool           `json:"lacp"`     // the LACP choices (Helpers.SupportsLinkAggregationBond)
+	Mode     string         `json:"mode"`     // the bond's (NetworkBondMode)
+	Hashing  string         `json:"hashing"`  // the bond's (HashingAlgorithm; "" unknown)
+}
+
+// ReadNetworkSettings reads a network's Network Settings page. noTools tells a running VM without I/O drivers
+// (VM.GetVirtualizationStatus).
+func ReadNetworkSettings(s *xenapi.Session, uuid string, noTools func(xenapi.VMRecord) bool) (NetworkSettings, error) {
 	d, err := readNet(s)
 	if err != nil {
-		return rules.MTUState{}, err
+		return NetworkSettings{}, err
 	}
 	_, n, err := d.network(uuid)
 	if err != nil {
-		return rules.MTUState{}, err
+		return NetworkSettings{}, err
 	}
-	return d.mtu(n, noTools), nil
+	st, _ := d.settings(n, noTools)
+	return st, nil
 }
 
-func (d *netState) mtu(n xenapi.NetworkRecord, noTools func(xenapi.VMRecord) bool) rules.MTUState {
-	var tunnel, mgmt bool
-	var mgmtName string
+// managementOf is the network's management interface (blockDueToManagement), its PIF on the coordinator first.
+func (d *netState) managementOf(n xenapi.NetworkRecord) (mgmt bool, name string) {
+	for _, r := range n.PIFs {
+		if p := d.pifs[r]; d.management(p) && (!mgmt || p.Host == d.coordinator) {
+			mgmt, name = true, managementName(p)
+		}
+	}
+	return mgmt, name
+}
+
+// settings is EditNetworkPage.Repopulate and its enablement, with the coordinator's PIFs by uuid for the NIC list.
+func (d *netState) settings(n xenapi.NetworkRecord, noTools func(xenapi.VMRecord) bool) (NetworkSettings, map[string]xenapi.PIFRef) {
+	st := NetworkSettings{NICs: []SettingsNIC{}, VLAN: 1, MinVLAN: rules.MinVLAN(d.vswitch()), LACP: d.vswitch()}
+	var tunnel, attached, vmsNoTools bool
+	var pif *xenapi.PIFRecord // GetNetworksPIF: the network's PIF on the coordinator
 	for _, r := range n.PIFs {
 		p := d.pifs[r]
 		tunnel = tunnel || len(p.TunnelAccessPIFOf) > 0
-		// GetSelectedPIF looks at the coordinator's PIF only; every PIF counts here, as the new MTU replugs them all
-		if d.management(p) && (!mgmt || p.Host == d.coordinator) {
-			mgmt, mgmtName = true, managementName(p)
+		if p.Host == d.coordinator {
+			pif = &p
 		}
 	}
-	vmsNoTools := false
 	for _, v := range n.VIFs {
-		vm, err := xenapi.VIF.GetVM(d.s, v)
-		rec, err2 := xenapi.VM.GetRecord(d.s, vm)
-		if err != nil || err2 != nil || rec.PowerState == xenapi.VMPowerStateRunning && noTools(rec) { // unknown: as without tools
-			vmsNoTools = true
+		vif, err := xenapi.VIF.GetRecord(d.s, v)
+		var rec xenapi.VMRecord
+		if err == nil {
+			rec, err = xenapi.VM.GetRecord(d.s, vif.VM)
+		}
+		attached = attached || err != nil || vif.CurrentlyAttached                                            // unknown: as attached
+		vmsNoTools = vmsNoTools || err != nil || rec.PowerState == xenapi.VMPowerStateRunning && noTools(rec) // and as without tools
+	}
+	mgmt, mgmtName := d.managementOf(n)
+	// GetSelectedPIF looks at the coordinator's PIF only; every PIF counts here, as the new MTU replugs them all
+	st.MTUState = rules.NetworkMTU(n.MTU, tunnel, len(n.PIFs) == 0, mgmt, mgmtName, vmsNoTools)
+	st.VLANMTU = rules.NetworkMTU(n.MTU, false, false, false, "", vmsNoTools)
+
+	editable := pif != nil && !physical(*pif) && len(pif.TunnelAccessPIFOf) == 0 && len(pif.SriovLogicalPIFOf) == 0 // Editable(pif)
+	nics := map[string]xenapi.PIFRef{}
+	for r, p := range d.pifs { // populateHostNicList: the coordinator's shown physical PIFs, not bond members
+		if p.Host != d.coordinator || !physical(p) || !p.Managed || p.OtherConfig["HideFromXenCenter"] == "true" || valid(p.BondSlaveOf) {
+			continue
+		}
+		nic := SettingsNIC{UUID: p.UUID, Name: d.nicName(p), VLANs: []int{}}
+		for _, o := range d.pifs { // NetworkAction's PIF_VLAN_EXISTS check, this network's own VLANs too
+			if o.Device == p.Device && o.VLAN >= 0 {
+				nic.VLANs = append(nic.VLANs, o.VLAN)
+			}
+		}
+		if editable && p.Device == pif.Device { // FindAssociatedPhysicalPIF
+			st.NIC, st.VLAN = p.UUID, pif.VLAN
+		}
+		nics[p.UUID] = r
+		st.NICs = append(st.NICs, nic)
+	}
+	slices.SortFunc(st.NICs, func(a, b SettingsNIC) int { return strings.Compare(a.Name, b.Name) })
+	// a network with PIFs on other servers only, or a VLAN whose NIC is gone, shows no NIC: <internal> would be
+	// picked for it, and OK would make it private (EditNetworkPage does)
+	st.NICState = rules.NetworkNICs(len(n.PIFs) == 0, editable && st.NIC != "", mgmt, mgmtName, attached)
+
+	if bond, ok := d.bondOf(n); ok {
+		b := d.bonds[bond]
+		st.Bond, st.Mode = true, string(b.Mode)
+		if h := b.Properties["hashing_algorithm"]; h == "src_mac" || h == "tcpudp_ports" { // Bond.HashingAlgoritm
+			st.Hashing = h
 		}
 	}
-	return rules.NetworkMTU(n.MTU, tunnel, len(n.PIFs) == 0, mgmt, mgmtName, vmsNoTools)
+	return st, nics
 }
 
-// UpdateNetwork saves the network's Properties: name, description and auto-add (Network.SetAutoPlug); a new MTU is
-// set and the network's PIFs and running VMs' VIFs are unplugged and plugged again (UnplugPlugNetworkAction).
+// nicName is PIF.Name of a physical PIF: "NIC 1", or "Bond 1+2" for a bond interface.
+func (d *netState) nicName(p xenapi.PIFRecord) string {
+	if len(p.BondMasterOf) == 0 {
+		return messages.Format(messages.Get("PIF_NIC"), strings.TrimPrefix(p.Device, "eth"))
+	}
+	var devices []string
+	for _, sl := range d.bonds[p.BondMasterOf[0]].Slaves {
+		devices = append(devices, d.pifs[sl].Device)
+	}
+	return rules.BondName(devices)
+}
+
+// UpdateNetwork is EditNetworkPage.SaveSettings (and GeneralEditPage's name and description): name, description and
+// auto-add (Network.SetAutoPlug); a new MTU; a bond network's mode and hashing algorithm on each of its bonds
+// (SetBondModeActions, SetBondPropertiesActions); a new NIC or VLAN, or <internal>, destroys the network's PIFs and
+// makes the VLAN again on the pool (NetworkAction's update); without one a new MTU unplugs and plugs the network's PIFs
+// and running VMs' VIFs (UnplugPlugNetworkAction). Everything is checked before the first write.
 func UpdateNetwork(c *xapi.Connection, uuid string, ch NetworkChanges, noTools func(xenapi.VMRecord) bool) error {
 	s := c.Session
 	d, err := readNet(s)
@@ -728,14 +836,62 @@ func UpdateNetwork(c *xapi.Connection, uuid string, ch NetworkChanges, noTools f
 	if name == "" {
 		return errors.New("enter a name for the network")
 	}
-	mtu := n.MTU
-	if m := d.mtu(n, noTools); m.Shown && m.Enabled {
+	st, nics := d.settings(n, noTools)
+
+	// InternalToExternal, ExternalToInternal, ExternalChangedDeviceOrVlan
+	var nic xenapi.PIFRef
+	vlan, newPIFs := -1, false
+	if st.NICState.Shown {
+		if ch.NIC != "" {
+			i := slices.IndexFunc(st.NICs, func(x SettingsNIC) bool { return x.UUID == ch.NIC })
+			if i < 0 {
+				return errors.New("select a NIC")
+			}
+			if v, err := strconv.Atoi(strings.TrimSpace(ch.VLAN)); err == nil && ch.NIC == st.NIC && v == st.VLAN {
+				vlan = v // unchanged: not checked, as NetworkAction checks only a new VLAN
+			} else {
+				var msg string
+				var ok bool
+				if vlan, msg, ok = rules.ValidateVLAN(ch.VLAN, st.MinVLAN, st.NICs[i].VLANs); !ok {
+					return errors.New(msg)
+				}
+			}
+			nic = nics[ch.NIC]
+		}
+		newPIFs = ch.NIC != st.NIC || ch.NIC != "" && vlan != st.VLAN
+		if newPIFs && !st.NICState.Enabled {
+			return errors.New(strings.Trim(st.NICState.Note, "()"))
+		}
+	}
+
+	mtu, m := n.MTU, st.MTUState
+	if newPIFs { // SetMTUControlEnablement for the new choice: fixed on <internal>, a new VLAN is no management interface
+		m = st.VLANMTU
+		if nic == "" {
+			m = rules.NetworkMTU(n.MTU, false, true, false, "", false)
+		}
+	}
+	if m.Shown && m.Enabled {
 		var msg string
 		var ok bool
 		if mtu, msg, ok = rules.ValidateMTU(ch.MTU, m.Min, m.Max); !ok {
 			return errors.New(msg)
 		}
 	}
+
+	var setMode, setHashing bool
+	var bonds []xenapi.BondRef // Network.TheBonds
+	if st.Bond {
+		if setMode, setHashing, err = rules.BondChanges(st.Mode, st.Hashing, ch.Mode, ch.Hashing, st.LACP); err != nil {
+			return err
+		}
+		for _, r := range n.PIFs {
+			if p := d.pifs[r]; len(p.BondMasterOf) > 0 {
+				bonds = append(bonds, p.BondMasterOf[0])
+			}
+		}
+	}
+
 	auto := n.OtherConfig["automatic"] != "false" // Network.GetAutoPlug
 	var calls []string
 	if name != n.NameLabel {
@@ -748,7 +904,22 @@ func UpdateNetwork(c *xapi.Connection, uuid string, ch NetworkChanges, noTools f
 		calls = append(calls, "network.add_to_other_config", "network.remove_from_other_config")
 	}
 	if mtu != n.MTU {
-		calls = append(calls, "network.set_MTU", "pif.unplug", "pif.plug", "vif.unplug", "vif.plug")
+		calls = append(calls, "network.set_MTU")
+		if !newPIFs {
+			calls = append(calls, "pif.unplug", "pif.plug", "vif.unplug", "vif.plug")
+		}
+	}
+	if setMode {
+		calls = append(calls, "bond.set_mode")
+	}
+	if setHashing {
+		calls = append(calls, "bond.set_property")
+	}
+	if newPIFs {
+		calls = append(calls, d.destroyCalls(n.PIFs)...)
+		if nic != "" {
+			calls = append(calls, "pool.create_VLAN_from_PIF")
+		}
 	}
 	if len(calls) == 0 {
 		return nil
@@ -772,15 +943,44 @@ func UpdateNetwork(c *xapi.Connection, uuid string, ch NetworkChanges, noTools f
 			return xapi.Sanitize(err)
 		}
 	}
-	if mtu == n.MTU {
+	var pifs []xenapi.PIFRef
+	var vifs []xenapi.VIFRef
+	if mtu != n.MTU && !newPIFs {
+		if pifs, vifs, err = attached(s, n); err != nil {
+			return err
+		}
+	}
+	if mtu != n.MTU {
+		if err := xenapi.Network.SetMTU(s, ref, mtu); err != nil {
+			return xapi.Sanitize(err)
+		}
+	}
+	for _, b := range bonds {
+		if setMode {
+			if err := xenapi.Bond.SetMode(s, b, xenapi.BondMode(ch.Mode)); err != nil {
+				return xapi.Sanitize(err)
+			}
+		}
+	}
+	for _, b := range bonds {
+		if setHashing {
+			if err := xenapi.Bond.SetProperty(s, b, "hashing_algorithm", ch.Hashing); err != nil {
+				return xapi.Sanitize(err)
+			}
+		}
+	}
+	if newPIFs { // the new PIFs come with the network's MTU, nothing to replug
+		if err := d.destroyPIFs(n.PIFs); err != nil {
+			return err
+		}
+		if nic != "" {
+			_, err := xenapi.Pool.CreateVLANFromPIF(s, nic, ref, vlan)
+			return xapi.Sanitize(err)
+		}
 		return nil
 	}
-	pifs, vifs, err := attached(s, n)
-	if err != nil {
-		return err
-	}
-	if err := xenapi.Network.SetMTU(s, ref, mtu); err != nil {
-		return xapi.Sanitize(err)
+	if mtu == n.MTU {
+		return nil
 	}
 	return unplugPlug(s, pifs, vifs)
 }
