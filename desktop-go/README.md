@@ -37,7 +37,7 @@ the Home and Search tabs; XAPI errors in the Windows app's words (`FriendlyError
 Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
-(General, CPU, Home Server); the General, Memory, Storage (add, attach, activate, detach and delete disks; the DVD
+(General, CPU, Boot Options, Home Server, Advanced); the General, Memory, Storage (add, attach, activate, detach and delete disks; the DVD
 drive and its ISO), Networking, Console (noVNC), Performance and Snapshots (take, revert, delete) tabs.
 
 **Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), the Console
@@ -48,12 +48,13 @@ question, `pool.join`).
 ISO libraries, Scan and Reattach of an existing SR; Repair, Set as Default, Detach, Forget and Destroy, with the C#
 icons of a default, broken or detached SR.
 
-**Views and notifications.** Organization Views (Tags, Folders, Custom Fields, vApps) and the default Saved Searches
-over every connected server; Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
+**Views and notifications.** Organization Views (Tags, Folders, Custom Fields, vApps), the default Saved Searches
+and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;
+Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: the other Properties pages (Boot Options, Custom Fields, Alerts...), editing Memory and Networking,
-the Performance graph editor, HA, disaster recovery, NICs and bonds, import/export, and searches saved in pools
-(listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.
+Not there yet: the other Properties pages (Custom Fields, HA, Alerts, GPU, USB), editing Memory and Networking, the
+Performance graph editor, HA, disaster recovery, NICs and bonds, import/export, and saved searches with the rarer
+XenSearch filters (dates, IP addresses, object references; listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.
 
 ## Command line and MCP
 

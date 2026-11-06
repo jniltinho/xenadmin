@@ -909,12 +909,33 @@ func (w *Workspace) Views() (organization, searches []app.ViewInfo, err error) {
 	return organization, searches, nil
 }
 
-// View is one view over every connected server (OrganizationalView / a default search), the servers' groups joined.
+// View is one view over every connected server (OrganizationalView / a default search / a search saved in a pool,
+// which runs on every server, as the C# app), the servers' groups joined.
 func (w *Workspace) View(id string) ([]*app.ViewNode, error) {
+	saved := ""
+	if uuid, ok := strings.CutPrefix(id, "saved:"); ok {
+		for _, k := range w.connectedKeys() {
+			_ = w.with(k, func(c *xapi.Connection) error { var err error; saved, err = app.PoolSearch(c, uuid); return err })
+			if saved != "" {
+				break
+			}
+		}
+		if saved == "" {
+			return nil, errors.New("this search is not saved in a connected pool any more")
+		}
+	}
 	var parts [][]*app.ViewNode
 	for _, k := range w.connectedKeys() {
 		var nodes []*app.ViewNode
-		err := w.with(k, func(c *xapi.Connection) error { var err error; nodes, err = app.ReadView(c, k, id); return err })
+		err := w.with(k, func(c *xapi.Connection) error {
+			var err error
+			if saved != "" {
+				nodes, err = app.RunSearch(c, k, saved)
+			} else {
+				nodes, err = app.ReadView(c, k, id)
+			}
+			return err
+		})
 		if errors.Is(err, errNotConnected) {
 			continue
 		}

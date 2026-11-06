@@ -13,3 +13,11 @@ func TestCreateVMHelpers(t *testing.T) {
 		t.Error("hasRecommendation")
 	}
 }
+
+func TestValidBootOrder(t *testing.T) {
+	for order, want := range map[string]bool{"CDN": true, "DC": true, "": true, "CC": false, "CX": false, "cdn": false} {
+		if validBootOrder(order) != want {
+			t.Errorf("%q", order)
+		}
+	}
+}

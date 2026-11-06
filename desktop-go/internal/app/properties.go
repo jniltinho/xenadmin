@@ -8,13 +8,16 @@ import (
 
 	xenapi "go/xenapi"
 
+	"xcpng-center/internal/messages"
 	"xcpng-center/internal/ops"
 	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
-// VMProperties is what the VM's Properties dialog shows (PropertiesDialog: GeneralPage, CpuPage, HomeServerPage).
-// shortcut: General has the name and description only (no tags, folder or custom fields yet); no Boot Options page.
+// VMProperties is what the VM's Properties dialog shows (PropertiesDialog: GeneralPage, CpuPage, BootOptionsEditPage,
+// HomeServerPage, VMAdvancedEditPage).
+// shortcut: General has the name and description only (no tags, folder or custom fields yet); no HA, Alerts, GPU or
+// USB pages yet.
 type VMProperties struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -35,6 +38,17 @@ type VMProperties struct {
 	HomeServer  string       `json:"home_server"` // host uuid, "" for none
 	Servers     []ServerPick `json:"servers"`
 	CanHaveNone bool         `json:"can_have_none"` // VmRules.CanHaveNoHomeServer
+
+	// Boot Options (BootOptionsEditPage) and Advanced Options (VMAdvancedEditPage, HVM only)
+	HVM              bool              `json:"hvm"`
+	AutoPowerOn      bool              `json:"auto_power_on"` // other_config auto_poweron
+	BootOrder        string            `json:"boot_order"`    // VM.GetBootOrder: "CDN" letters, upper case
+	BootDevices      map[string]string `json:"boot_devices"`  // C, D, N and their names
+	PVArgs           string            `json:"pv_args"`
+	HasCD            bool              `json:"has_cd"`
+	PVBootFromCD     bool              `json:"pv_boot_from_cd"`   // a bootable CD drive
+	ShadowMultiplier float64           `json:"shadow_multiplier"` // HVM_shadow_multiplier
+	Frozen           bool              `json:"frozen"`            // suspended or paused: no shadow multiplier change
 }
 
 // VCPUChoice is one vCPU count and its topologies.
@@ -130,7 +144,21 @@ func ReadVMProperties(c *xapi.Connection, vmUUID string) (VMProperties, error) {
 	if n, err := strconv.ParseInt(vm.Platform["cores-per-socket"], 10, 64); err == nil {
 		cores = n
 	}
+	order := strings.ToUpper(vm.HVMBootParams["order"]) // VM.GetBootOrder
+	if _, ok := vm.HVMBootParams["order"]; !ok {
+		order = "CD"
+	}
+	hasCD, cdBoots := false, false
+	for _, b := range vm.VBDs {
+		if vbd, err := xenapi.VBD.GetRecord(s, b); err == nil && vbd.Type == xenapi.VbdTypeCD {
+			hasCD, cdBoots = true, cdBoots || vbd.Bootable
+		}
+	}
 	p := VMProperties{Name: vm.NameLabel, Description: vm.NameDescription, Halted: vm.PowerState == xenapi.VMPowerStateHalted,
+		HVM: vm.HVMBootPolicy != "", AutoPowerOn: vm.OtherConfig["auto_poweron"] == "true", BootOrder: order, PVArgs: vm.PVArgs,
+		BootDevices: map[string]string{"C": messages.Get("BOOT_HARD_DISK"), "D": messages.Get("BOOT_DVD_DRIVE"), "N": messages.Get("NETWORK")},
+		HasCD:       hasCD, PVBootFromCD: cdBoots, ShadowMultiplier: vm.HVMShadowMultiplier,
+		Frozen:  vm.PowerState == xenapi.VMPowerStateSuspended || vm.PowerState == xenapi.VMPowerStatePaused,
 		Running: vm.PowerState == xenapi.VMPowerStateRunning, Hotplug: !isWindows(s, vm) && !ops.VCPUHotplugRestricted(hosts),
 		VCPUsMax: max(vm.VCPUsMax, 1), VCPUsAtStartup: max(vm.VCPUsAtStartup, 1), CoresPerSocket: cores, Priority: rules.Priority(weight),
 		MinVCPUs: restriction(vm.Recommendations, "vcpus-min", "min", 1), Servers: []ServerPick{}}

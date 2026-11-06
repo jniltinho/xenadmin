@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -938,5 +939,85 @@ func TestLabPause(t *testing.T) {
 	}
 	if err := ops.VMPower(c, uuid, rules.VMUnpause); err != nil || state() != xenapi.VMPowerStateRunning {
 		t.Fatal(err, state())
+	}
+}
+
+// TestLabBootAndAdvanced changes the running XCP_LAB_VM's autostart, boot order and shadow memory multiplier (live)
+// through the Properties pages, reads them back and puts them back (XCP_ALLOW_WRITE=1).
+func TestLabBootAndAdvanced(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	refs, err := xenapi.VM.GetByNameLabel(c.Session, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %v", name, err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+	before, err := ReadVMProperties(c, uuid)
+	if err != nil || !before.HVM || before.BootOrder == "" || len(before.BootDevices) != 3 {
+		t.Fatalf("%+v %v", before, err)
+	}
+	t.Cleanup(func() {
+		auto, order, shadow := before.AutoPowerOn, before.BootOrder, before.ShadowMultiplier
+		if err := ops.SaveVMProperties(c, uuid, ops.VMChanges{AutoPowerOn: &auto, BootOrder: &order, ShadowMultiplier: &shadow}); err != nil {
+			t.Errorf("not restored: %v", err)
+		}
+	})
+	auto, order, shadow := !before.AutoPowerOn, "NDC", before.ShadowMultiplier+0.5
+	if err := ops.SaveVMProperties(c, uuid, ops.VMChanges{AutoPowerOn: &auto, BootOrder: &order, ShadowMultiplier: &shadow}); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := ReadVMProperties(c, uuid)
+	// a live change: Xen rounds the shadow memory to whole MB, so the multiplier read back is close, not equal
+	if after.AutoPowerOn != auto || after.BootOrder != "NDC" || math.Abs(after.ShadowMultiplier-shadow) > 0.2 {
+		t.Fatalf("%v %q %v", after.AutoPowerOn, after.BootOrder, after.ShadowMultiplier)
+	}
+	bad := "CC"
+	if err := ops.SaveVMProperties(c, uuid, ops.VMChanges{BootOrder: &bad}); err == nil {
+		t.Fatal("a bad boot order was saved")
+	}
+}
+
+// TestLabSavedSearch saves a search in the pool's gui_config as the C# app does (running VMs named after XCP_LAB_VM,
+// grouped by power state), lists and runs it, then removes it (XCP_ALLOW_WRITE=1).
+func TestLabSavedSearch(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	pools, _ := xenapi.Pool.GetAll(s)
+	key := searchPrefix + "go-test-search"
+	text := `<Search uuid="go-test-search" name="Go test search" major_version="2" minor_version="0"><Query><QueryScope><VM /></QueryScope>` +
+		`<GroupQuery type="And"><EnumPropertyQuery property="power_state" equals="yes" query="Running" />` +
+		`<StringPropertyQuery property="label" casesensitive="no" query="` + name + `" type="exactmatch" /></GroupQuery></Query>` +
+		`<PropertyGrouping property="power_state" /></Search>`
+	if err := xenapi.Pool.AddToGuiConfig(s, pools[0], key, text); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := xenapi.Pool.RemoveFromGuiConfig(s, pools[0], key); err != nil {
+			t.Errorf("not removed: %v", err)
+		}
+	})
+	list, err := PoolSearches(c)
+	if err != nil || len(list) == 0 {
+		t.Fatalf("%+v %v", list, err)
+	}
+	for _, v := range list {
+		if v.ID == "saved:go-test-search" && (!v.Supported || v.Name != "Go test search") {
+			t.Fatalf("%+v", v)
+		}
+	}
+	saved, err := PoolSearch(c, "go-test-search")
+	if err != nil || saved != text {
+		t.Fatalf("%q %v", saved, err)
+	}
+	nodes, err := RunSearch(c, "lab", saved)
+	if err != nil || len(nodes) != 1 || nodes[0].Name != "Running" || len(nodes[0].Children) != 1 || nodes[0].Children[0].Name != name {
+		t.Fatalf("%+v %v", nodes, err)
 	}
 }

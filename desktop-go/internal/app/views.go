@@ -29,7 +29,7 @@ type ViewInfo struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Icon      string `json:"icon"`
-	Supported bool   `json:"supported"` // a search saved in a pool uses the XenSearch query language: listed, not run yet
+	Supported bool   `json:"supported"` // a saved search this port can run (app.SearchSupported); the others are listed only
 }
 
 // OrganizationViews are the views of the Organization Views button, in the C# app's order.
@@ -81,10 +81,25 @@ func PoolSearches(c *xapi.Connection) ([]ViewInfo, error) {
 			if xml.Unmarshal([]byte(v), &s) != nil || s.Name == "" {
 				continue
 			}
-			out = append(out, ViewInfo{ID: "saved:" + strings.TrimPrefix(k, searchPrefix), Name: s.Name, Icon: "000_Search_h32bit_16"})
+			out = append(out, ViewInfo{ID: "saved:" + strings.TrimPrefix(k, searchPrefix), Name: s.Name, Icon: "000_Search_h32bit_16",
+				Supported: SearchSupported(v) == nil})
 		}
 	}
 	return out, nil
+}
+
+// PoolSearch is the XML of a search saved in this server's pool ("" when it is not there).
+func PoolSearch(c *xapi.Connection, uuid string) (string, error) {
+	pools, err := xenapi.Pool.GetAllRecords(c.Session)
+	if err != nil {
+		return "", xapi.Sanitize(err)
+	}
+	for _, p := range pools {
+		if v, ok := p.GuiConfig[searchPrefix+uuid]; ok {
+			return v, nil
+		}
+	}
+	return "", nil
 }
 
 // group is one level of a view's path: a group node's name, icon and identity ("" groups by name).
@@ -101,7 +116,10 @@ type item struct {
 type inventory struct {
 	pools map[xenapi.PoolRef]xenapi.PoolRecord
 	hosts map[xenapi.HostRef]xenapi.HostRecord
-	vms   map[xenapi.VMRef]xenapi.VMRecord
+	vms   map[xenapi.VMRef]xenapi.VMRecord // the VMs shown (VM.Show)
+	all   map[xenapi.VMRef]xenapi.VMRecord // every VM record, to follow references (a snapshot's hidden VM)
+	srs   map[xenapi.SRRef]xenapi.SRRecord
+	vdis  map[xenapi.VDIRef]xenapi.VDIRecord
 	items []item
 	real  map[string]Object // the real VMs (IsRealVm) by uuid, with the window's state
 }
@@ -109,7 +127,7 @@ type inventory struct {
 // ReadView is one server's part of a view: the objects it holds grouped as the C# groupings do (tags, folder path,
 // custom field and value, vApp; the default searches' properties).
 func ReadView(c *xapi.Connection, server, view string) ([]*ViewNode, error) {
-	inv, err := readInventory(c)
+	inv, err := readInventory(c, false)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +154,10 @@ func ReadView(c *xapi.Connection, server, view string) ([]*ViewNode, error) {
 		for _, f := range customFields(inv.pools) {
 			for _, it := range inv.items {
 				if v, key := customFieldValue(f, it.other["XenCenter.CustomFields."+f.name]); v != "" {
-					add(root, []group{{f.name, "000_Fields_h32bit_16", ""}, {v, "000_Fields_h32bit_16", key}}, it.obj, server)
+					if key == "" {
+						key = "cf:" + f.name + "=" + v
+					}
+					add(root, []group{{f.name, "000_Fields_h32bit_16", "cf:" + f.name}, {v, "000_Fields_h32bit_16", key}}, it.obj, server)
 				}
 			}
 		}
@@ -148,8 +169,9 @@ func ReadView(c *xapi.Connection, server, view string) ([]*ViewNode, error) {
 	return root.Children, nil
 }
 
-// readInventory reads the pools, servers, VMs, SRs, networks and disks of a server once, and the window's objects.
-func readInventory(c *xapi.Connection) (*inventory, error) {
+// readInventory reads the pools, servers, VMs, SRs, networks and disks of a server once, and the window's objects;
+// the disks are those a view can show (organized ones), or with allVDIs every disk VDI.Show allows (a search).
+func readInventory(c *xapi.Connection, allVDIs bool) (*inventory, error) {
 	s := c.Session
 	inv := &inventory{real: map[string]Object{}}
 	var err error
@@ -162,8 +184,13 @@ func readInventory(c *xapi.Connection) (*inventory, error) {
 	if inv.vms, err = xenapi.VM.GetAllRecords(s); err != nil {
 		return nil, xapi.Sanitize(err)
 	}
-	for ref, r := range inv.vms { // VM.Show: a VM hidden from XCP-ng Center is in no view
-		if r.OtherConfig["HideFromXenCenter"] == "true" {
+	inv.all = make(map[xenapi.VMRef]xenapi.VMRecord, len(inv.vms))
+	for ref, r := range inv.vms {
+		inv.all[ref] = r
+	}
+	for ref, r := range inv.vms { // VM.Show: no internal template, no "__gui__" object, nothing hidden from XCP-ng Center
+		_, internal := r.OtherConfig["xensource_internal"]
+		if internal || strings.HasPrefix(r.NameLabel, "__gui__") || r.OtherConfig["HideFromXenCenter"] == "true" {
 			delete(inv.vms, ref)
 		}
 	}
@@ -213,14 +240,25 @@ func readInventory(c *xapi.Connection) (*inventory, error) {
 	if err != nil {
 		return nil, xapi.Sanitize(err)
 	}
+	inv.srs = srs
 	for _, r := range srs {
+		if !srShown(r) { // SR.Show
+			continue
+		}
 		keep(r.UUID, r.Tags, r.OtherConfig)
 	}
 	nets, err := xenapi.Network.GetAllRecords(s)
 	if err != nil {
 		return nil, xapi.Sanitize(err)
 	}
+	pifs, err := xenapi.PIF.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
 	for _, r := range nets {
+		if !networkShown(r, pifs) {
+			continue
+		}
 		objs[r.UUID] = Object{Kind: "networks", UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription}
 		keep(r.UUID, r.Tags, r.OtherConfig)
 	}
@@ -228,11 +266,12 @@ func readInventory(c *xapi.Connection) (*inventory, error) {
 	if err != nil {
 		return nil, xapi.Sanitize(err)
 	}
+	inv.vdis = vdis
 	for _, r := range vdis { // ObjectTypes.VDI: those VDI.Show allows (not missing, managed, not hidden) and organized
 		if r.Missing || !r.Managed || r.OtherConfig["HideFromXenCenter"] == "true" {
 			continue
 		}
-		if len(r.Tags) > 0 || r.OtherConfig["folder"] != "" || hasCustomField(r.OtherConfig) {
+		if allVDIs || len(r.Tags) > 0 || r.OtherConfig["folder"] != "" || hasCustomField(r.OtherConfig) {
 			name := r.NameLabel
 			if name == "" {
 				name = messages.Get("NO_NAME")
@@ -244,6 +283,21 @@ func readInventory(c *xapi.Connection) (*inventory, error) {
 	return inv, nil
 }
 
+// networkShown is Network.Show without the hidden objects: not the guest installer network, not hidden, not a bond
+// member's network, every PIF shown.
+func networkShown(n xenapi.NetworkRecord, pifs map[xenapi.PIFRef]xenapi.PIFRecord) bool {
+	if n.OtherConfig["is_guest_installer_network"] == "true" || n.OtherConfig["HideFromXenCenter"] == "true" {
+		return false
+	}
+	for _, p := range n.PIFs {
+		pif := pifs[p]
+		if !pif.Managed || pif.OtherConfig["HideFromXenCenter"] == "true" || pif.BondSlaveOf != "" && pif.BondSlaveOf != nullRef { // PIF.Show
+			return false
+		}
+	}
+	return true
+}
+
 func hasCustomField(other map[string]string) bool {
 	for k, v := range other {
 		if strings.HasPrefix(k, "XenCenter.CustomFields.") && v != "" {
@@ -253,12 +307,15 @@ func hasCustomField(other map[string]string) bool {
 	return false
 }
 
-// folderPath is Folders.PointToPath: "/a/b" as its groups.
+// folderPath is Folders.PointToPath: "/a/b" as its groups, each keyed by its whole path (never a custom field or a
+// tag of the same name).
 func folderPath(path string) []group {
 	var out []group
+	at := ""
 	for _, f := range strings.Split(path, "/") {
 		if f != "" {
-			out = append(out, group{f, "000_Folder_open_h32bit_16", ""})
+			at += "/" + f
+			out = append(out, group{f, "000_Folder_open_h32bit_16", "folder:" + at})
 		}
 	}
 	return out
@@ -473,33 +530,40 @@ func osName(gm xenapi.VMGuestMetricsRecord) string {
 // by their I/O drivers and management agent (feature-static-ip-setting), the others by their PV drivers' version;
 // Unknown in a VM's first two minutes. optimized: nothing to install.
 func toolsStatus(s *xenapi.Session, vm xenapi.VMRecord, gm xenapi.VMGuestMetricsRecord, m xenapi.VMMetricsRecord) (string, bool) {
+	label, _, optimized := virtualizationStatus(s, vm, gm, m)
+	return label, optimized
+}
+
+// virtualizationStatus is toolsStatus with the VM.VirtualizationStatus name a search compares ("NotInstalled",
+// "IoDriversInstalled, ManagementInstalled", "PvDriversOutOfDate", "Unknown"...).
+func virtualizationStatus(s *xenapi.Session, vm xenapi.VMRecord, gm xenapi.VMGuestMetricsRecord, m xenapi.VMMetricsRecord) (string, string, bool) {
 	early := !m.StartTime.IsZero() && time.Since(m.StartTime) < 2*time.Minute // GetBodgeStartupTime: the guest may not have reported yet
 	if isWindows(s, vm) {
 		io := gm.PVDriversDetected
 		agent := gm.Other["feature-static-ip-setting"] != "" && gm.Other["feature-static-ip-setting"] != "0"
 		switch {
 		case io && agent:
-			return messages.Get("VIRTUALIZATION_STATE_VM_OPTIMIZED"), true
+			return messages.Get("VIRTUALIZATION_STATE_VM_OPTIMIZED"), "IoDriversInstalled, ManagementInstalled", true
 		case io:
-			return messages.Get("VIRTUALIZATION_STATE_VM_IO_OPTIMIZED_ONLY"), false
+			return messages.Get("VIRTUALIZATION_STATE_VM_IO_OPTIMIZED_ONLY"), "IoDriversInstalled", false
 		case early:
-			return messages.Get("UNKNOWN"), false
+			return messages.Get("UNKNOWN"), "Unknown", false
 		case agent:
-			return messages.Get("VIRTUALIZATION_STATE_VM_MANAGEMENT_AGENT_INSTALLED_ONLY"), false
+			return messages.Get("VIRTUALIZATION_STATE_VM_MANAGEMENT_AGENT_INSTALLED_ONLY"), "ManagementInstalled", false
 		}
-		return messages.Get("VIRTUALIZATION_STATE_VM_NOT_OPTIMIZED"), false
+		return messages.Get("VIRTUALIZATION_STATE_VM_NOT_OPTIMIZED"), "NotInstalled", false
 	}
 	_, major := gm.PVDriversVersion["major"]
 	_, minor := gm.PVDriversVersion["minor"]
 	switch {
 	case (!major || !minor) && early: // VM_guest_metrics.PV_drivers_installed
-		return messages.Get("UNKNOWN"), false
+		return messages.Get("UNKNOWN"), "Unknown", false
 	case !major || !minor:
-		return messages.Get("VIRTUALIZATION_STATE_VM_NOT_OPTIMIZED"), false
+		return messages.Get("VIRTUALIZATION_STATE_VM_NOT_OPTIMIZED"), "NotInstalled", false
 	case !gm.PVDriversUpToDate:
-		return messages.Get("OUT_OF_DATE"), false
+		return messages.Get("OUT_OF_DATE"), "PvDriversOutOfDate", false
 	}
-	return messages.Get("VIRTUALIZATION_STATE_VM_OPTIMIZED"), true
+	return messages.Get("VIRTUALIZATION_STATE_VM_OPTIMIZED"), "IoDriversInstalled, ManagementInstalled", true
 }
 
 // addGroups makes the groups of a path that are missing and returns the last one (root for none).

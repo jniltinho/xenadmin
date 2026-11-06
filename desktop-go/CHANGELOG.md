@@ -4,7 +4,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
-—
+### Added
+- Searches saved in pools run, for the XenSearch filters and groupings they use most (GroupQuery, string, enum,
+  boolean, integer, tag and null queries; type, power state, OS, tags, tools, folder, custom field, pool, server,
+  network and vApp groupings), with the C# semantics; a search with another filter is still listed, not run.
+- VM Properties: Boot Options (autostart, the HVM boot order, the PV boot device and parameters) and, for HVM VMs,
+  Advanced (the shadow memory multiplier, changed live on a running VM).
+
+### Changed
+- The Organization Views and searches follow the C# visibility rules (VM.Show, SR.Show, Network.Show).
 
 ## [0.1.0] — 2026-11-05
 

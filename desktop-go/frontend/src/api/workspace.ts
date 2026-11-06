@@ -19,7 +19,9 @@ export interface VMStorage { table: Table; disks: Disk[];
 export interface VMProperties { name: string; description: string; halted: boolean; running: boolean; hotplug: boolean; vcpus_max: number;
   vcpus_at_startup: number; cores_per_socket: number; priority: number; min_vcpus: number; max_physical: number;
   vcpu_choices: { vcpus: number; topologies: { sockets: number; cores: number; text: string }[] }[];
-  home_server: string; servers: { uuid: string; name: string; live: boolean }[]; can_have_none: boolean }
+  home_server: string; servers: { uuid: string; name: string; live: boolean }[]; can_have_none: boolean;
+  hvm: boolean; auto_power_on: boolean; boot_order: string; boot_devices: Record<string, string>; pv_args: string; has_cd: boolean;
+  pv_boot_from_cd: boolean; shadow_multiplier: number; frozen: boolean }
 export interface Performance { times: number[]; start: number; end: number;
   graphs: { title: string; max: number; divisor: number; label: string; series: { name: string; values: (number | null)[] }[] }[];
   events: { time: string; name: string; text: string }[] }
