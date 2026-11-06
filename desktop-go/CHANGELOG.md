@@ -15,6 +15,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   maximum with ballooning), with the C# limits and questions; a new static maximum restarts a running VM on its server.
 - Servers and pools: the Memory, Storage, Networking and NICs (a server) tabs; SRs: the Storage tab (its disks and
   the VMs using them).
+- The Search tab of a VM, server or pool: the overview of its connection ("<pool>: Overview").
 - Networking tab: Add Interface, Properties, Remove Interface and Activate/Deactivate (network, generated or typed MAC
   with the duplicate MAC question, QoS limit), plugged live when the server allows it.
 

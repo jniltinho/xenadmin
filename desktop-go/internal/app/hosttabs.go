@@ -25,6 +25,8 @@ type hostTabData struct {
 	pifs  map[xenapi.PIFRef]xenapi.PIFRecord
 	pm    map[xenapi.PIFMetricsRef]xenapi.PIFMetricsRecord
 	bonds map[xenapi.BondRef]xenapi.BondRecord
+	// the pool's coordinator (Network.Name prefers its PIF)
+	coordinator xenapi.HostRef
 }
 
 func readHostTabData(s *xenapi.Session) (*hostTabData, error) {
@@ -41,6 +43,11 @@ func readHostTabData(s *xenapi.Session) (*hostTabData, error) {
 	}
 	if d.bonds, err = xenapi.Bond.GetAllRecords(s); err != nil {
 		return nil, xapi.Sanitize(err)
+	}
+	if pools, err := xenapi.Pool.GetAllRecords(s); err == nil {
+		for _, p := range pools {
+			d.coordinator = p.Master
+		}
 	}
 	return d, nil
 }
@@ -60,7 +67,7 @@ func (d *hostTabData) pifName(p xenapi.PIFRecord) string {
 				nums = append(nums, strings.TrimPrefix(d.pifs[sl].Device, "eth"))
 			}
 		}
-		sort.Slice(nums, func(i, j int) bool { a, _ := strconv.Atoi(nums[i]); b, _ := strconv.Atoi(nums[j]); return a < b })
+		sort.Strings(nums) // PIF.BondSuffix
 		return "Bond " + strings.Join(nums, "+")
 	}
 	if pifPhysical(p) {
@@ -164,7 +171,12 @@ func (d *hostTabData) memory(only xenapi.HostRef) (Table, error) {
 				}
 				continue
 			}
-			dynMin += int64(vm.MemoryDynamicMin)
+			dynMin += int64(vm.MemoryStaticMax) // Host.tot_dyn_min: the static maximum of a VM without ballooning
+			if gm, err := xenapi.VMGuestMetrics.GetRecord(s, vm.GuestMetrics); err == nil {
+				if _, balloon := gm.Other["feature-balloon"]; balloon { // VM.SupportsBallooning
+					dynMin += int64(vm.MemoryDynamicMin) - int64(vm.MemoryStaticMax)
+				}
+			}
 			if merr == nil { // ResidentVMMemoryUsageString
 				used = append(used, fmt.Sprintf("%s: using %s", vm.NameLabel, rules.MemoryText(int64(m.MemoryActual))))
 			}
@@ -190,7 +202,7 @@ func (d *hostTabData) storage(host xenapi.HostRef) (Table, error) {
 		Rows: [][]string{}, Keys: []string{}}
 	var list []xenapi.SRRecord
 	for _, sr := range srs {
-		if !srShown(sr) || sr.IsToolsSr || sr.NameLabel == "XenServer Tools" {
+		if !srShown(sr) || sr.IsToolsSr || sr.NameLabel == "XenServer Tools" { // SR.IsToolsSR
 			continue
 		}
 		if host != "" && !sr.Shared { // SR.Home: the server of its one PBD
@@ -203,13 +215,17 @@ func (d *hostTabData) storage(host xenapi.HostRef) (Table, error) {
 		}
 		list = append(list, sr)
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].NameLabel < list[j].NameLabel })
+	names := map[string][2]string{}
+	for _, sr := range list {
+		names[sr.UUID] = [2]string{srI18N(s, d.hosts, sr, "name_label", sr.NameLabel), srI18N(s, d.hosts, sr, "name_description", sr.NameDescription)}
+	}
+	sort.Slice(list, func(i, j int) bool { return names[list[i].UUID][0] < names[list[j].UUID][0] })
 	for _, sr := range list {
 		usage := ""
 		if sr.PhysicalSize > 0 {
 			usage = fmt.Sprintf("%d%% (%s used)", int64(sr.PhysicalUtilisation)*100/int64(sr.PhysicalSize), diskSize(sr.PhysicalUtilisation))
 		}
-		t.Rows = append(t.Rows, []string{sr.NameLabel, sr.NameDescription, srTypeName(sr.Type), yesNo(sr.Shared), usage,
+		t.Rows = append(t.Rows, []string{names[sr.UUID][0], names[sr.UUID][1], srTypeName(sr.Type), yesNo(sr.Shared), usage,
 			diskSize(sr.PhysicalSize), diskSize(sr.VirtualAllocation)})
 		t.Keys = append(t.Keys, sr.UUID)
 	}
@@ -230,7 +246,7 @@ func (d *hostTabData) networking(host xenapi.HostRef) (Table, error) {
 			list = append(list, n)
 		}
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].NameLabel < list[j].NameLabel })
+	sort.Slice(list, func(i, j int) bool { return d.networkName(list[i]) < d.networkName(list[j]) })
 	for _, n := range list {
 		var pif *xenapi.PIFRecord // Helpers.FindPIF
 		for _, r := range n.PIFs {
@@ -257,7 +273,7 @@ func (d *hostTabData) networking(host xenapi.HostRef) (Table, error) {
 		if slices.ContainsFunc(n.PIFs, func(r xenapi.PIFRef) bool { return len(d.pifs[r].TunnelAccessPIFOf) > 0 }) { // CanUseJumboFrames
 			mtu = " - "
 		}
-		t.Rows = append(t.Rows, []string{n.NameLabel, n.NameDescription, nic, vlan, yesNo(n.OtherConfig["automatic"] != "false"), link, mac, mtu})
+		t.Rows = append(t.Rows, []string{d.networkName(n), n.NameDescription, nic, vlan, yesNo(n.OtherConfig["automatic"] != "false"), link, mac, mtu})
 		t.Keys = append(t.Keys, n.UUID)
 	}
 	return t, nil
@@ -277,7 +293,7 @@ func (d *hostTabData) networkLink(n xenapi.NetworkRecord) string {
 		return "Partially connected"
 	case states["Connected"]:
 		return "Connected"
-	case states["Disconnected"]:
+	case states["Disconnected"] && !states["Unknown"]:
 		return "Disconnected"
 	}
 	return "Unknown"
@@ -336,15 +352,11 @@ func srDisks(s *xenapi.Session, uuid string) (Table, error) {
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].NameLabel < list[j].NameLabel })
 	for _, v := range list {
-		var vms []string // VDI.VMsOfVDI
-		for _, b := range v.VBDs {
-			if vm, err := xenapi.VBD.GetVM(s, b); err == nil {
-				if name, err := xenapi.VM.GetNameLabel(s, vm); err == nil {
-					vms = append(vms, name)
-				}
-			}
+		size := diskSize(v.VirtualSize) // VDI.SizeText: none for a snapshot
+		if v.IsASnapshot {
+			size = ""
 		}
-		t.Rows = append(t.Rows, []string{v.NameLabel, v.NameDescription, diskSize(v.VirtualSize), strings.Join(vms, ", ")})
+		t.Rows = append(t.Rows, []string{v.NameLabel, v.NameDescription, size, vmsOfVDI(s, v)})
 		t.Keys = append(t.Keys, v.UUID)
 	}
 	return t, nil
@@ -356,4 +368,120 @@ func srTypeName(t string) string {
 		return n
 	}
 	return t
+}
+
+// vmsOfVDI is VDI.VMsOfVDI: the VMs of the disk (VDI.GetVMs: a crash dump's VM, the VM suspended to it, else the VMs of
+// its VBDs), sorted, the shown ones, a snapshot as "name (snapshot)".
+func vmsOfVDI(s *xenapi.Session, v xenapi.VDIRecord) string {
+	var refs []xenapi.VMRef
+	switch v.Type {
+	case xenapi.VdiTypeCrashdump:
+		for _, cd := range v.CrashDumps {
+			if vm, err := xenapi.Crashdump.GetVM(s, cd); err == nil {
+				refs = append(refs, vm)
+			}
+		}
+	case xenapi.VdiTypeSuspend:
+		if all, err := xenapi.VM.GetAllRecords(s); err == nil {
+			for r, vm := range all {
+				if suspend, err := xenapi.VDI.GetUUID(s, vm.SuspendVDI); err == nil && suspend == v.UUID {
+					refs = append(refs, r)
+				}
+			}
+		}
+	default:
+		for _, b := range v.VBDs {
+			if vm, err := xenapi.VBD.GetVM(s, b); err == nil {
+				refs = append(refs, vm)
+			}
+		}
+	}
+	var names []string
+	for _, r := range refs {
+		vm, err := xenapi.VM.GetRecord(s, r)
+		if err != nil || !vmShownHidden(vm) {
+			continue
+		}
+		if vm.IsASnapshot {
+			names = append(names, messages.Format(messages.Get("SNAPSHOT_BRACKETS"), vm.NameLabel))
+		} else {
+			names = append(names, vm.NameLabel)
+		}
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// vmShownHidden is VM.Show(true): not an internal template (xensource_internal) nor a GUI temporary object.
+func vmShownHidden(vm xenapi.VMRecord) bool {
+	_, internal := vm.OtherConfig["xensource_internal"]
+	return !internal && !strings.HasPrefix(vm.NameLabel, "__gui__")
+}
+
+// srI18N is SR.I18N for SR.Name and SR.Description: an SR the server made and nobody renamed shows the translated
+// name, with its server's name for a local SR ("Local storage on host-a").
+func srI18N(s *xenapi.Session, hosts map[xenapi.HostRef]xenapi.HostRecord, sr xenapi.SRRecord, field, value string) string {
+	key, ok := sr.OtherConfig["i18n-key"]
+	if !ok || sr.OtherConfig["i18n-original-value-"+field] != value {
+		return value
+	}
+	host := "" // SR.GetStorageHost: the server of its one PBD, for an SR that is not shared
+	if !sr.Shared && len(sr.PBDs) == 1 {
+		if h, err := xenapi.PBD.GetHost(s, sr.PBDs[0]); err == nil {
+			host = hosts[h].NameLabel
+		}
+	}
+	if host == "" {
+		if pattern := messages.Friendly("SR." + field + "-" + key); pattern != "" {
+			return messages.Format(pattern, "XCP-ng")
+		}
+		return value
+	}
+	if pattern := messages.Friendly("SR." + field + "-" + key + "-host"); pattern != "" {
+		return messages.Format(pattern, host)
+	}
+	return value
+}
+
+// networkName is Network.Name: a default name ("Network associated with eth0") as "Network 0" or "Network 0 on VLAN 5"
+// after the coordinator's PIF (else the first one), the host internal management network translated.
+func (d *hostTabData) networkName(n xenapi.NetworkRecord) string {
+	if n.NameLabel == "Host internal management network" {
+		return messages.Get("HOST_INTERNAL_MANAGEMENT_NETWORK")
+	}
+	if !strings.HasPrefix(n.NameLabel, "Network associated with ") && !strings.HasPrefix(n.NameLabel, "Pool-wide network associated with ") {
+		return n.NameLabel
+	}
+	var first, coord *xenapi.PIFRecord
+	for _, r := range n.PIFs {
+		p, ok := d.pifs[r]
+		if !ok {
+			continue
+		}
+		if first == nil {
+			first = &p
+		}
+		if d.coordinator != "" && p.Host == d.coordinator && coord == nil {
+			coord = &p
+		}
+	}
+	if coord == nil {
+		coord = first
+	}
+	if coord == nil {
+		return n.NameLabel
+	}
+	id := d.nicIdentifier(*coord)
+	if coord.VLAN >= 0 {
+		return messages.Format(messages.Get("VLAN_NETWORK_NAME"), id, coord.VLAN)
+	}
+	return messages.Format(messages.Get("NETWORK_NAME"), id)
+}
+
+// nicIdentifier is PIF.NICIdentifier: the device number, or the bond's members.
+func (d *hostTabData) nicIdentifier(p xenapi.PIFRecord) string {
+	if len(p.BondMasterOf) == 0 {
+		return strings.TrimPrefix(p.Device, "eth")
+	}
+	return strings.TrimPrefix(d.pifName(p), "Bond ")
 }

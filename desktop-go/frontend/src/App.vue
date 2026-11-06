@@ -275,6 +275,7 @@ const tabs = computed<Tab[]>(() => {
   if (consoleVm.value) t.push("console");
   if (selected.value?.object?.kind === "vms" || selected.value?.object?.kind === "hosts") t.push("performance");
   if (selected.value?.object?.kind === "vms") t.push("snapshots");
+  if (kind === "vms" || kind === "hosts" || kind === "pools") t.push("search"); // SearchView over the object's connection
   return t;
 });
 function onTabStatus(text: string, error: boolean) {
@@ -589,7 +590,14 @@ const overview = computed(() => {
     walk(n);
     return rows;
   }
+  if (n?.object && n.server) return everything.value.filter((r) => r.key === n.server); // an object: its connection's
   return everything.value;
+});
+// OverviewColumns.Title: "<pool>: Overview" for an object's connection, "XCP-ng Center: Overview" for everything
+const overviewTitle = computed(() => {
+  const n = selected.value;
+  if (!n?.object || !n.server) return "XCP-ng Center: Overview";
+  return `${everything.value.find((r) => r.key === n.server && r.type === "Pool")?.o.name ?? n.server}: Overview`;
 });
 // the tree node a row of the Search tab opens: a view's own node, else the Infrastructure tree's
 const rowId = (r: { key: string; type: string; o: XenObject; id?: string }) => r.id ?? (r.type === "Pool" ? r.key : `${r.key}/${r.o.uuid}`);
@@ -794,7 +802,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
           <a class="cursor-pointer font-serif text-[15px] text-blue-700 underline" @click="openAdd()">Add a Server</a>
         </div>
         <div v-else-if="tab === 'search'" class="min-h-0 flex-1 overflow-auto">
-          <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">Overview</div>
+          <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">{{ overviewTitle }}</div>
           <table class="w-full border-collapse">
             <thead class="sticky top-0 bg-pane text-left"><tr>
               <th class="border-b border-line px-2 py-1 font-normal">Name</th><th class="border-b border-line px-2 py-1 font-normal">Type</th>
