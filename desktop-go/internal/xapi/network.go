@@ -34,13 +34,18 @@ func current() Network {
 // Proxy is the proxy of a request to a server (nil for none).
 func Proxy(req *http.Request) (*url.URL, error) {
 	n := current()
-	switch {
-	case n.Bypass || n.Proxy == "direct":
-		return nil, nil
-	case n.Proxy == "specified" && n.Address != "":
+	switch n.Proxy {
+	case "specified":
+		if n.Bypass || n.Address == "" { // the bypass belongs to the specified proxy only (OptionsDialog)
+			return nil, nil
+		}
 		return &url.URL{Scheme: "http", Host: net.JoinHostPort(n.Address, strconv.Itoa(n.Port))}, nil
+	case "system":
+		// shortcut: the system's proxy is read from HTTP_PROXY/HTTPS_PROXY/NO_PROXY (the Linux convention), not from the
+		// Windows or macOS proxy settings; read those natively if users need it
+		return http.ProxyFromEnvironment(req)
 	}
-	return http.ProxyFromEnvironment(req)
+	return nil, nil
 }
 
 // Dialer is the dialer of a connection to a server, with the options' timeout.
@@ -59,3 +64,7 @@ func HandshakeTimeout() time.Duration {
 	}
 	return 20 * time.Second
 }
+
+// RequestTimeout is the limit of one API call: the options' timeout, never under a minute (long calls such as
+// event.from wait up to 30 s on the server).
+func RequestTimeout() time.Duration { return max(time.Minute, HandshakeTimeout()) }

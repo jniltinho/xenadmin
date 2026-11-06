@@ -89,7 +89,7 @@ func Connect(ctx context.Context, policy *trust.Policy, host string, port int, u
 			return nil, err
 		}
 		key := HostKey(host, port)
-		session, err := xenapi.NewSessionE(&xenapi.ClientOpts{URL: "https://" + key, HTTPClient: HTTPClient(policy, host, key, 60*time.Second)})
+		session, err := xenapi.NewSessionE(&xenapi.ClientOpts{URL: "https://" + key, HTTPClient: HTTPClient(policy, host, key, RequestTimeout())})
 		if err != nil {
 			return nil, err
 		}

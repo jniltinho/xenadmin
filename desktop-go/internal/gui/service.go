@@ -118,11 +118,13 @@ func (w *Workspace) Connect(address, user, password string) ConnectResult {
 	}
 	conn, err := xapi.Connect(context.Background(), w.policy, host, port, user, password)
 	var untrusted *trust.UntrustedError
-	if errors.As(err, &untrusted) && untrusted.Previous == "" && w.settings.GetOptions().NoNewCertificateWarning {
-		// Tools > Options: "Warn me when a new certificate is found" off; a changed certificate always asks
-		if perr := w.settings.PinNew(untrusted.HostKey, trust.Normalize(untrusted.Fingerprint)); perr == nil {
-			conn, err = xapi.Connect(context.Background(), w.policy, host, port, user, password)
+	// Tools > Options: "Warn me when a new certificate is found" off: a first certificate is pinned without asking, for
+	// the server and then the coordinator it redirects to; a changed certificate always asks
+	for tries := 0; tries < 3 && errors.As(err, &untrusted) && untrusted.Previous == "" && w.settings.GetOptions().NoNewCertificateWarning; tries++ {
+		if perr := w.settings.PinNew(untrusted.HostKey, trust.Normalize(untrusted.Fingerprint)); perr != nil {
+			break
 		}
+		conn, err = xapi.Connect(context.Background(), w.policy, host, port, user, password)
 	}
 	if errors.As(err, &untrusted) {
 		return ConnectResult{Key: untrusted.HostKey, Fingerprint: untrusted.Fingerprint, Previous: untrusted.Previous}
@@ -158,7 +160,19 @@ func (w *Workspace) reconnect(key, user string) error {
 	// the agent restarts after the call returns: wait for the old session to fail first (a login before that would die
 	// with it), for at most a minute
 	for deadline := time.Now().Add(time.Minute); old != nil && time.Now().Before(deadline); time.Sleep(2 * time.Second) {
-		if _, err := xenapi.Pool.GetAll(old.Session); err != nil {
+		w.use.RLock() // a Disconnect or Close logging the session out waits for this call
+		w.mu.Lock()
+		gone := w.closed || w.conns[key] != old
+		w.mu.Unlock()
+		var err error
+		if !gone {
+			_, err = xenapi.Pool.GetAll(old.Session)
+		}
+		w.use.RUnlock()
+		if gone {
+			return nil
+		}
+		if err != nil {
 			break
 		}
 	}

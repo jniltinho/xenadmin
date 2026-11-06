@@ -304,9 +304,15 @@ async function optionsClosed(saved: boolean) {
 // MainWindow's tab: the last tab used anywhere, or (Remember the last selected Tab for a resource) the last one of
 // this object, else its first tab
 const lastTabOf = new Map<string, Tab>();
-watch(tab, (t) => { if (selected.value) lastTabOf.set(selected.value.id, t); });
+let lastResourceTab: Tab = "general"; // _lastTabAny: the last tab of any resource (Home and groups do not count)
+watch(tab, (t) => {
+  if (!selected.value) return;
+  lastTabOf.set(selected.value.id, t);
+  if (selected.value.object) lastResourceTab = t;
+});
 watch(tabs, (t) => {
-  const want = appOptions.value.no_remember_last_tab ? tab.value : selected.value ? lastTabOf.get(selected.value.id) : undefined;
+  const any = selected.value?.object ? lastResourceTab : tab.value;
+  const want = appOptions.value.no_remember_last_tab ? any : selected.value ? lastTabOf.get(selected.value.id) : undefined;
   tab.value = want && t.includes(want) ? want : t[0];
 }, { immediate: true });
 

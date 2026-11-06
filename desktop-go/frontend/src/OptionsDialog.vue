@@ -15,7 +15,7 @@ const pages: { id: Page; label: string; sub: string; icon: string }[] = [
   { id: "display", label: "Display", sub: "Graphs and tabs", icon: "001_PerformanceGraph_h32bit_16" },
 ];
 const page = ref<Page>("security");
-const f = reactive({ newCert: true, remind: true, proxy: "direct", address: "", port: "", bypass: false, timeout: 20, dismiss: true, area: false, rememberTab: true });
+const f = reactive({ newCert: true, remind: true, proxy: "direct", address: "", port: "80", bypass: false, timeout: 20, dismiss: true, area: false, rememberTab: true });
 const error = ref("");
 const pending = ref(false);
 
@@ -23,7 +23,7 @@ onMounted(async () => {
   try {
     const o = await api.options();
     Object.assign(f, { newCert: !o.no_new_certificate_warning, remind: !o.no_rotate_secret_reminder, proxy: o.proxy || "direct", address: o.proxy_address ?? "",
-      port: o.proxy_port ? String(o.proxy_port) : "", bypass: !!o.bypass_proxy_for_servers, timeout: o.connection_timeout || 20,
+      port: o.proxy_port ? String(o.proxy_port) : "80", // AppOptions.ProxyPort's default bypass: !!o.bypass_proxy_for_servers, timeout: o.connection_timeout || 20,
       dismiss: !o.no_dismiss_confirmation, area: !!o.area_graphs, rememberTab: !o.no_remember_last_tab });
   } catch (e) { error.value = String(e); }
 });
