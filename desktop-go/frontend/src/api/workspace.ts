@@ -49,8 +49,10 @@ export interface MemoryBars { used: number; dynamic_min: number; dynamic_max: nu
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
   in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
-  graphs: { title: string; max: number; divisor: number; label: string; series: { name: string; values: (number | null)[] }[] }[];
-  events: { time: string; name: string; text: string }[] }
+  graphs: { title: string; max: number; divisor: number; label: string; sources: string[]; series: { name: string; colour: string; values: (number | null)[] }[] }[];
+  events: { time: string; name: string; text: string }[]; default: boolean; new_blocker?: string; edit_blocker?: string; new_name: string }
+export interface DesignedGraph { name: string; sources: string[] }
+export interface DataSource { name: string; text: string; description: string; type: string; enabled: boolean; standard: boolean; hidden: boolean; colour?: string }
 export interface NewVMOptions { templates: { uuid: string; name: string; custom: boolean }[]; isos: { vdi: string; text: string }[];
   servers: { uuid: string; name: string; live: boolean }[]; networks: { vdi: string; text: string }[]; srs: { uuid: string; text: string }[]; default_sr: string }
 export interface NewVMDefaults { name: string; description: string; hvm: boolean; boot_mode: string; install: string; vcpus: number; cores: number;
@@ -174,6 +176,11 @@ export const api = {
   revertSnapshot: (key: string, snapshot: string) => call<void>("RevertSnapshot", key, snapshot),
   deleteSnapshot: (key: string, snapshot: string) => call<void>("DeleteSnapshot", key, snapshot),
   performance: (key: string, kind: string, uuid: string, zoom: string) => call<Performance>("Performance", key, kind, uuid, zoom),
+  graphDataSources: (key: string, kind: string, uuid: string) => call<DataSource[]>("GraphDataSources", key, kind, uuid),
+  saveGraphs: (key: string, kind: string, uuid: string, base: DesignedGraph[], graphs: DesignedGraph[], colours: Record<string, string>) =>
+    call<void>("SaveGraphs", key, kind, uuid, base, graphs, colours),
+  enableDataSource: (key: string, kind: string, uuid: string, name: string, text: string) => call<void>("EnableDataSource", key, kind, uuid, name, text),
+  graphTexts: (name: string) => call<{ new_title: string; edit_title: string; delete: string; restore: string }>("GraphTexts", name),
   newVmOptions: (key: string) => call<NewVMOptions>("NewVMOptions", key),
   newVmDefaults: (key: string, template: string, home: string) => call<NewVMDefaults>("NewVMDefaults", key, template, home),
   createVm: (key: string, spec: Record<string, unknown>) => call<{ uuid: string; start_error?: string }>("CreateVM", key, spec),
