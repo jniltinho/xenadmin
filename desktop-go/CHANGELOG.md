@@ -16,6 +16,17 @@ recovery, vApps, XVA and OVF/OVA import, the search editor and its filters, the 
 filters and export, and Tools > Options.**
 
 ### Added
+- A VM's GPU page in its Properties (GpuEditPage): its vGPUs with their PCI slot, type, vGPUs per GPU and video RAM,
+  Add (the types each GPU group allows beside the VM's other vGPUs, whole-GPU pass-through only when vGPUs are
+  restricted) and Delete, with the C# warnings (Remote Desktop, drivers, a VM that is running or protected by HA,
+  multiple vGPU support, Tech Preview types); shown when the VM can have a GPU and the pool has one. Saved on OK.
+- A VM's USB page in its Properties (USBEditPage): its USB devices, Attach (the free pass-through devices of the
+  servers the VM can start on; the first one moves the VM to the upstream QEMU) and Detach; for an HVM VM when a
+  server has a USB device and the licence allows it.
+- SR-IOV networks: the New Network wizard's SR-IOV Network (a NIC that can enable SR-IOV, the disruption question,
+  then SR-IOV on that device of every server, the coordinator first), offered only with an SR-IOV capable NIC; the
+  NICs tab's SR-IOV Capable column (virtual functions left, a reboot needed, an unplugged logical PIF). The vGPU, USB
+  and SR-IOV writes were not run on hardware (the lab has none).
 
 - Searches by address (XenSearch IPAddressQuery: a VM's guest addresses, a server's interfaces, full or partial such
   as 10.77.58.*), also from the search editor's text filter.

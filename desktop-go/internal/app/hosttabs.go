@@ -302,8 +302,24 @@ func (d *hostTabData) networkLink(n xenapi.NetworkRecord) string {
 // nics is Details.Nics (NICPage): the server's physical NICs, by name.
 // shortcut: no SR-IOV Capable column.
 func (d *hostTabData) nics(host xenapi.HostRef) Table {
-	t := Table{Title: "Network Interface Cards", Headers: []string{"NIC", "MAC", "Link Status", "Speed", "Duplex", "Vendor", "Device", "PCI Bus Path", "FCoE Capable"},
+	t := Table{Title: "Network Interface Cards", Headers: []string{"NIC", "MAC", "Link Status", "Speed", "Duplex", "Vendor", "Device", "PCI Bus Path", "FCoE Capable", "SR-IOV Capable"},
 		Rows: [][]string{}, Keys: []string{}}
+	sriovs, _ := xenapi.NetworkSriov.GetAllRecords(d.s) // unreadable: as a network_sriov that is gone
+	sriov := func(p xenapi.PIFRecord) string {          // NICPage.NicRow.UpdateDetails
+		enabled := len(p.SriovPhysicalPIFOf) > 0
+		if !enabled {
+			return rules.SriovNIC(rules.SriovCapable(p.Capabilities), false, false, false, 0)
+		}
+		ns, ok := sriovs[p.SriovPhysicalPIFOf[0]]
+		logical, lok := d.pifs[ns.LogicalPIF]
+		remaining := -1
+		if ok && !ns.RequiresReboot && lok && logical.CurrentlyAttached {
+			if n, err := xenapi.NetworkSriov.GetRemainingCapacity(d.s, p.SriovPhysicalPIFOf[0]); err == nil {
+				remaining = n
+			}
+		}
+		return rules.SriovNIC(rules.SriovCapable(p.Capabilities), true, !ok || ns.RequiresReboot, lok && logical.CurrentlyAttached, remaining)
+	}
 	var list []xenapi.PIFRecord
 	for _, p := range d.pifs {
 		if p.Host == host && pifPhysical(p) {
@@ -321,7 +337,7 @@ func (d *hostTabData) nics(host xenapi.HostRef) Table {
 		if ok {
 			vendor, device, bus = m.VendorName, m.DeviceName, m.PciBusPath
 		}
-		t.Rows = append(t.Rows, []string{d.pifName(p), p.MAC, link, speed, duplex, vendor, device, bus, yesNo(slices.Contains(p.Capabilities, "fcoe"))})
+		t.Rows = append(t.Rows, []string{d.pifName(p), p.MAC, link, speed, duplex, vendor, device, bus, yesNo(slices.Contains(p.Capabilities, "fcoe")), sriov(p)})
 		t.Keys = append(t.Keys, p.UUID)
 	}
 	return t

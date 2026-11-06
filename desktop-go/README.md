@@ -37,7 +37,9 @@ the Home and Search tabs (the overview with live CPU, memory, disk, network, add
 Export to an XVA file and Import (File > Import...) of an XVA file or an OVF/OVA appliance (.ovf, .ova, .ova.gz, .ova.bz2; raw, VHD and stream-optimized VMDK disks; its EULA, manifest verification, the server of each VM, the SR of each disk and the network of each interface); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
-(General, Custom Fields, CPU, Boot Options, Start Options, Alerts, Home Server, Advanced); the General (the C# sections: General, Boot
+(General, Custom Fields, CPU, Boot Options, Start Options, Alerts, Home Server, GPU, USB, Advanced; GPU when the VM can
+have a GPU and the pool has one: add and delete vGPUs of the types allowed beside the others; USB for an HVM VM when a
+server has a USB device: attach and detach); the General (the C# sections: General, Boot
 Options, CPUs, Read Caching; for servers, pools and SRs Certificates, Version Details, Management Interfaces, Memory,
 CPUs, Status, Multipathing), Memory (Memory Settings: fixed, range or static
 maximum), Storage (add, attach, activate, detach and delete disks; the DVD drive and its ISO), Networking (add,
@@ -50,9 +52,9 @@ server, Manage vApps, High Availability: the HA wizard with the heartbeat SR, th
 order and delay and the failures to tolerate, the restart priorities of a pool with HA on, and Disable; Disaster
 Recovery: Configure (the SRs holding the pool's metadata) and the wizard (failover, failback and test failover from the
 metadata on SRs attached to the pool, with the prechecks and the clean-up of a test)), the Memory
-(with the bars of each server's memory), Storage, Networking, NICs, GPU (placement policy and allowed vGPU types), USB
-(pass-through), Console and Performance tabs; on Networking the New Network wizard
-(External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU, NIC and VLAN, bond mode and LACP hashing) and
+(with the bars of each server's memory), Storage, Networking, NICs (with their SR-IOV state), GPU (placement policy and allowed vGPU
+types), USB (pass-through), Console and Performance tabs; on Networking the New Network wizard
+(External/VLAN, Single-Server Private, Bonded and SR-IOV networks), network Properties (name, description, auto-add, MTU, NIC and VLAN, bond mode and LACP hashing) and
 Remove Network; on NICs Create Bond (active-active, active-passive, LACP), Delete Bond and Rescan, with the C#
 management interface and HA warnings; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling
 question, `pool.join`); a server's Properties with Alerts (the perfmon thresholds), Multipathing and Log
@@ -71,8 +73,12 @@ fields, dates, IP addresses, the pool, server, vApp or network of an object, and
 VMs on an SR, the servers running a VM); Notifications > Alerts with the
 severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: a VM's GPU and USB Properties pages, SR-IOV networks, the OS fixup, encrypted packages and VMDKs
-that are not stream-optimized when importing an OVF/OVA appliance, and OVF/OVA export. The Windows app has those.
+The vGPU, USB and SR-IOV writes (adding and removing vGPUs, attaching and detaching USB devices, making an SR-IOV
+network) were not run on hardware: the lab has no GPU that does vGPU, no USB device and no SR-IOV NIC, so only their
+rules (unit tests) and the read side (hidden pages, no SR-IOV offered) are checked.
+
+Not there yet: a VLAN on an SR-IOV network, the OS fixup, encrypted packages and VMDKs that are not stream-optimized
+when importing an OVF/OVA appliance, and OVF/OVA export. The Windows app has those.
 
 ## Command line and MCP
 

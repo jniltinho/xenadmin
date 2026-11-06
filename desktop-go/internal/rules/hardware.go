@@ -6,11 +6,13 @@ import "sort"
 
 // VGPUType is what the GPU tab shows of a vGPU type.
 type VGPUType struct {
-	Ref         string
-	Model       string // model_name; "passthrough" for a whole GPU (VGPU_type.IsPassthrough)
-	Capacity    int64  // vGPUs per GPU (VGPU_type.Capacity)
-	Resolution  int64  // max_resolution_x * max_resolution_y
-	Framebuffer int64
+	Ref          string
+	Model        string // model_name; "passthrough" for a whole GPU (VGPU_type.IsPassthrough)
+	Capacity     int64  // vGPUs per GPU (VGPU_type.Capacity)
+	Resolution   int64  // max_resolution_x * max_resolution_y
+	Framebuffer  int64
+	Compatible   []string // compatible_types_in_vm: the types another vGPU of the VM may have beside this one
+	Experimental bool
 }
 
 // Passthrough is VGPU_type.IsPassthrough.
