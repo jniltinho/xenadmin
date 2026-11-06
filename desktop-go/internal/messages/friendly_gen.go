@@ -451,6 +451,7 @@ var friendly = map[string]string{
 	"Message.name-wlb_optimization_alert":                      "WLB optimization alert",
 	"Message.name-wlb_server_time_discrepancy":                 "WLB Server Time Discrepancy",
 	"Message.name-wlb_vm_relocation":                           "WLB VM Relocation",
+	"OPERATIONAL_METRICS_HOSTLOAD":                             "Host CPU Load",
 	"SR.name_description-ebs":                                  "EBS volumes",
 	"SR.name_description-ebs-host":                             "EBS volumes in Availability Zone {0}",
 	"SR.name_description-local-hotplug-cd":                     "Physical DVD drives",

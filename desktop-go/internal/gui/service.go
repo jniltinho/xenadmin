@@ -675,6 +675,30 @@ func (w *Workspace) Performance(key, kind, uuid, zoom string) (out app.Performan
 	return out, err
 }
 
+// GraphDataSources are the data sources Graph Details offers for a VM or a server.
+func (w *Workspace) GraphDataSources(key, kind, uuid string) (out []app.DataSource, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.GraphDataSources(c, kind, uuid); return err })
+	return out, err
+}
+
+// SaveGraphs saves the Performance graphs of a VM or a server (none: the default graphs) made from base (the layout
+// shown) and data source colours.
+func (w *Workspace) SaveGraphs(key, kind, uuid string, base, graphs []rules.DesignedGraph, colours map[string]string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SaveGraphs(c, kind, uuid, base, graphs, colours) })
+}
+
+// GraphTexts are the Performance tab's dialog titles and questions about the graph named name (GraphDetailsDialog,
+// PerformancePage.DeleteGraph and RestoreDefaultGraphs).
+func (w *Workspace) GraphTexts(name string) map[string]string {
+	return map[string]string{"new_title": messages.Get("GRAPHS_NEW_TITLE"), "edit_title": messages.Format(messages.Get("GRAPHS_EDIT_TITLE"), name),
+		"delete": messages.Format(messages.Get("DELETE_GRAPH_MESSAGE"), name), "restore": strings.TrimSpace(messages.Get("GRAPHS_RESTORE_DEFAULT_MESSAGE"))}
+}
+
+// EnableDataSource turns recording on for a data source of a VM or a server (text: its name, for the error).
+func (w *Workspace) EnableDataSource(key, kind, uuid, name, text string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.EnableDataSource(c, kind, uuid, name, text) })
+}
+
 // NewVMOptions is what the New VM wizard offers.
 func (w *Workspace) NewVMOptions(key string) (out app.NewVMOptions, err error) {
 	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadNewVMOptions(c); return err })

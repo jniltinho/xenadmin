@@ -21,6 +21,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   external on a NIC and back (the network's PIFs destroyed and its VLAN made again on every server), and a bond
   network's mode (active-active, active-passive, LACP) and LACP load balancing; fixed, with the C# reason, on a
   management interface or with VMs attached, and the disruption warning shown first.
+- Performance tab: the graph editor of the Windows app — Actions > New Graph, Edit Graph, Delete Graph, Restore Default
+  Graphs, Move Up / Move Down (also in the graphs' context menu; a double click edits) and Graph Details (the graph's
+  name; its data sources with their type, recording state and colour, the hidden and disabled ones on demand, Enable).
+  The layout and colours are kept in the pool's gui_config where the Windows app keeps them, so both apps show the
+  same graphs for a VM or a server; a non-standard data source put on a graph is recorded. Each change checks the
+  role first and is refused when the graphs changed meanwhile.
 - Server Properties: the Multipathing page (editable in maintenance mode; the SRs are unplugged and plugged again
   around the change) and the Log Destination page (a remote syslog server, then syslog_reconfigure).
 

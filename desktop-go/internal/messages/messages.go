@@ -12,7 +12,7 @@ import (
 
 //go:generate go run ../../tools/resx2go -o messages_gen.go -var texts -prefix @messages.prefixes ../../../XenModel/Messages.resx
 //go:generate go run ../../tools/resx2go -o errors_gen.go -var errorTexts -prefix A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z ../../../XenModel/XenAPI/FriendlyErrorNames.resx
-//go:generate go run ../../tools/resx2go -o friendly_gen.go -var friendly -prefix Message.name-,Message.body-,Label-performance.,Label-SR.SRTypes-,SR.name_label-,SR.name_description-,Label-VM.ha_restart_priority.,Label-host.,Label-VM.,Label-SR.,VM.TemplateDescription- ../../../XenModel/FriendlyNames.resx
+//go:generate go run ../../tools/resx2go -o friendly_gen.go -var friendly -prefix Message.name-,Message.body-,Label-performance.,Label-SR.SRTypes-,SR.name_label-,SR.name_description-,Label-VM.ha_restart_priority.,Label-host.,Label-VM.,Label-SR.,VM.TemplateDescription-,OPERATIONAL_METRICS_HOSTLOAD ../../../XenModel/FriendlyNames.resx
 
 // Get is a Messages.resx text ("" when the key is not generated).
 func Get(key string) string { return texts[key] }

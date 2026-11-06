@@ -70,7 +70,7 @@ Import... of `.xensearch` files the Windows app reads; searches by name, type, p
 fields, dates, IP addresses and the pool, server, vApp or network of an object; Notifications > Alerts with the
 severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: a VM's GPU and USB Properties pages, the Performance graph editor, SR-IOV networks, a disk and
+Not there yet: a VM's GPU and USB Properties pages, SR-IOV networks, a disk and
 network choice per VM, disk and interface when importing an OVF/OVA appliance (and its OS fixup, encrypted packages
 and VMDKs that are not stream-optimized), OVF/OVA export, and saved searches that filter on a related object's
 properties (XenSearch Recursive queries; listed, not run). The Windows app has those.

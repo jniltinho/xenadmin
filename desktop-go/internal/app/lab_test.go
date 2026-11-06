@@ -3061,3 +3061,127 @@ func TestLabObjectSearch(t *testing.T) {
 		t.Fatal("search by network")
 	}
 }
+
+// TestLabGraphEditor adds a graph of two data sources to the Performance tab of XCP_LAB_VM and of the server
+// xcp-lab-2 (as New Graph: the graphs shown plus the new one), reads it back with its series and colours, restores
+// the default graphs, and puts every gui_config key of the two objects back as it was (also on failure).
+func TestLabGraphEditor(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	vms, err := xenapi.VM.GetByNameLabel(s, name)
+	if err != nil || len(vms) != 1 {
+		t.Fatalf("%s: %v", name, err)
+	}
+	hosts, err := xenapi.Host.GetByNameLabel(s, "xcp-lab-2")
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("xcp-lab-2: %v", err)
+	}
+	vmUUID, _ := xenapi.VM.GetUUID(s, vms[0])
+	hostUUID, _ := xenapi.Host.GetUUID(s, hosts[0])
+	pools, err := xenapi.Pool.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pool xenapi.PoolRef
+	original := map[string]string{}
+	for r, p := range pools {
+		pool, original = r, p.GuiConfig
+	}
+	ours := func(k string) bool {
+		return strings.HasPrefix(k, "XenCenter.") && (strings.Contains(k, vmUUID) || strings.Contains(k, hostUUID))
+	}
+	t.Cleanup(func() {
+		now, err := xenapi.Pool.GetGuiConfig(s, pool)
+		if err != nil {
+			t.Errorf("gui_config not restored: %v", err)
+			return
+		}
+		for k, v := range now {
+			if ov, ok := original[k]; ours(k) && (!ok || ov != v) {
+				if err := xenapi.Pool.RemoveFromGuiConfig(s, pool, k); err != nil {
+					t.Errorf("%s: %v", k, err)
+				}
+			}
+		}
+		for k, v := range original {
+			if nv, ok := now[k]; ours(k) && (!ok || nv != v) {
+				if err := xenapi.Pool.AddToGuiConfig(s, pool, k, v); err != nil {
+					t.Errorf("%s: %v", k, err)
+				}
+			}
+		}
+		after, _ := xenapi.Pool.GetGuiConfig(s, pool)
+		for k := range after {
+			if ov, ok := original[k]; ours(k) && (!ok || after[k] != ov) {
+				t.Errorf("%s left as %q", k, after[k])
+			}
+		}
+	})
+	graph := "xcpng-center-go-test-graph"
+	for _, o := range []struct{ kind, uuid string }{{"vms", vmUUID}, {"hosts", hostUUID}} {
+		before, err := ReadPerformance(c, labPolicy(t), o.kind, o.uuid, "10m")
+		if err != nil {
+			t.Fatalf("%s: %v", o.kind, err)
+		}
+		// two data sources the object records already, so saving turns no recording on
+		var picked []DataSource
+		sources, err := GraphDataSources(c, o.kind, o.uuid)
+		if err != nil {
+			t.Fatalf("%s data sources: %v", o.kind, err)
+		}
+		for _, d := range sources {
+			if d.Enabled && d.Standard && !d.Hidden && strings.HasPrefix(d.Name, "cpu") && len(picked) < 2 {
+				picked = append(picked, d)
+			}
+		}
+		if len(picked) < 2 {
+			t.Fatalf("%s: no two CPU data sources in %+v", o.kind, sources)
+		}
+		var layout, base []rules.DesignedGraph
+		for _, g := range before.Graphs {
+			layout = append(layout, rules.DesignedGraph{Name: g.Title, Sources: g.Sources})
+		}
+		if !before.Default {
+			base = slices.Clone(layout)
+		}
+		layout = append(layout, rules.DesignedGraph{Name: graph, Sources: []string{picked[0].Name, picked[1].Name}})
+		colours := map[string]string{picked[0].Name: "#123456", picked[1].Name: "#abcdef"}
+		if err := ops.SaveGraphs(c, o.kind, o.uuid, base, layout, colours); err != nil {
+			t.Fatalf("%s save: %v", o.kind, err)
+		}
+		gui, _ := xenapi.Pool.GetGuiConfig(s, pool)
+		short := strings.TrimSuffix(o.kind, "s")
+		i := len(layout) - 1
+		if gui[rules.GraphLayoutKey(i, short, o.uuid)] != picked[0].Name+","+picked[1].Name || gui[rules.GraphNameKey(i, short, o.uuid)] != graph ||
+			gui[rules.DataSourceColourKey(short, o.uuid, picked[0].Name)] != "-15584170" { // Color.FromArgb(0x12,0x34,0x56).ToArgb()
+			t.Errorf("%s: not saved as the Windows app does", o.kind)
+		}
+		after, err := ReadPerformance(c, labPolicy(t), o.kind, o.uuid, "10m")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Default || len(after.Graphs) != len(layout) {
+			t.Fatalf("%s: %d graphs, default %v", o.kind, len(after.Graphs), after.Default)
+		}
+		g := after.Graphs[i]
+		if g.Title != graph || !slices.Equal(g.Sources, layout[i].Sources) || len(g.Series) != 2 || g.Series[0].Name != picked[0].Text ||
+			g.Series[0].Colour != "#123456" || g.Series[1].Colour != "#abcdef" || g.Label != "%" {
+			t.Errorf("%s: %+v", o.kind, g)
+		}
+		t.Logf("%s: %q %v %s/%s", o.kind, g.Title, g.Sources, g.Series[0].Name, g.Series[1].Name)
+		if err := ops.SaveGraphs(c, o.kind, o.uuid, base, nil, nil); err == nil {
+			t.Fatal("a layout changed meanwhile was overwritten")
+		}
+		if err := ops.SaveGraphs(c, o.kind, o.uuid, layout, nil, nil); err != nil { // Restore Default Graphs
+			t.Fatal(err)
+		}
+		restored, err := ReadPerformance(c, labPolicy(t), o.kind, o.uuid, "10m")
+		if err != nil || !restored.Default || slices.ContainsFunc(restored.Graphs, func(g Graph) bool { return g.Title == graph }) {
+			t.Errorf("%s: defaults not restored: %v", o.kind, err)
+		}
+	}
+}
