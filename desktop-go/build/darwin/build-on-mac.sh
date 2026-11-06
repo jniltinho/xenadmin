@@ -16,7 +16,10 @@ make icons
 out=dist/macos-$ARCH
 app="$out/XCP-ng Center (Go).app"
 rm -rf "$out" && mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-CGO_ENABLED=1 GOOS=darwin GOARCH=$ARCH MACOSX_DEPLOYMENT_TARGET=14.0 go build -tags production -trimpath \
+# the minimum macOS for clang's objects and for Go's external link (else ld links for 10.13 and warns on each object)
+min=-mmacosx-version-min=14.0
+CGO_ENABLED=1 GOOS=darwin GOARCH=$ARCH MACOSX_DEPLOYMENT_TARGET=14.0 CGO_CFLAGS="${CGO_CFLAGS:-} $min" \
+  CGO_LDFLAGS="${CGO_LDFLAGS:-} $min" go build -tags production -trimpath \
   -ldflags "-s -w -X xcpng-center/internal/buildinfo.Version=$VERSION -X xcpng-center/internal/buildinfo.Commit=$(git rev-parse --short HEAD)" \
   -o "$app/Contents/MacOS/xcp-ng-center-go" .
 cp ../XenAdmin.Desktop/packaging/macos/xcp-ng-center.icns "$app/Contents/Resources/"

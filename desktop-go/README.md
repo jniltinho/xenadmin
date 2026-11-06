@@ -131,6 +131,11 @@ It builds the frontend, the app with the native (CGO) backend, the same `.app` b
 the XCP-ng icon) and its zip in `dist/`; with `SIGN_IDENTITY` it signs with the hardened runtime, and with
 `NOTARY_PROFILE` (`xcrun notarytool store-credentials`) it notarizes and staples.
 
+Checked on macOS 15.8 (Intel, x86_64, in a KVM virtual machine): the native build with this script (Go 1.27.3 and
+Node 24 from their official archives, the Xcode command line tools) and the published cross-built zip both run (the
+window, its menus and dialogs, the CLI). Not checked yet: an Apple Silicon Mac, signing and notarization (they need an
+Apple Developer ID), and connecting to a server from the Mac.
+
 ## More
 
 - [docs/architecture.md](docs/architecture.md): the packages, the core/UI split, live updates.

@@ -4,7 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
-—
+### Fixed
+
+- `build/darwin/build-on-mac.sh` passes the minimum macOS (14.0) to clang and to the external link too, so `ld` no
+  longer links for macOS 10.13 and warns on every object. Checked natively on macOS 15.8 (Intel).
 
 ## [0.3.2] — 2026-11-06
 
