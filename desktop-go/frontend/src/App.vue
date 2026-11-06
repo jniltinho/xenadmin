@@ -21,6 +21,7 @@ import ImportVmDialog from "./ImportVmDialog.vue";
 import OptionsDialog from "./OptionsDialog.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
+import HaDialog from "./HaDialog.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
 
@@ -516,6 +517,7 @@ async function newSrClosed(uuid: string) {
 
 // New Pool (NewPoolCommand); Add New Server from it connects another server, then the dialog reads the servers again
 const newPool = ref(false);
+const haOn = ref<{ key: string; disable: boolean } | null>(null); // the Pool > High Availability dialog
 const poolDialog = ref<InstanceType<typeof NewPoolDialog> | null>(null);
 async function newPoolClosed(coordinator: string, error: string) {
   newPool.value = false;
@@ -700,7 +702,11 @@ const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
     ? { label: b.label, enabled: true, sub: () => viewItems(b.v as "organization" | "saved") }
     : { label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } }) },
   { label: "Pool", items: [{ label: "New Pool...", icon: "000_PoolNew_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); newPool.value = true; } },
-    { label: "", sep: true }, ...poolItems(selectedPool.value)] },
+    { label: "", sep: true }, ...poolItems(selectedPool.value),
+    // Pool > High Availability (MainWindow's _haConfigure and _haDisable, HaRules.CanConfigure / CanDisable)
+    { label: "", sep: true }, { label: "High Availability", enabled: !!selectedPool.value, sub: async () => [
+      { label: "Configure...", enabled: true, run: () => { closeMenus(); haOn.value = { key: selectedPool.value!, disable: false }; } },
+      { label: "Disable", enabled: !!data[selectedPool.value!]?.pools?.some((p) => p.ha_enabled), run: () => { closeMenus(); haOn.value = { key: selectedPool.value!, disable: true }; } }] }] },
   { label: "Server", items: [
     { label: "Add...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
     { label: "Connect", enabled: !!serverNode.value?.disconnected, run: () => { closeMenus(); connectTo(serverNode.value!); } },
@@ -1003,6 +1009,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <OptionsDialog v-if="optionsOpen" @close="optionsClosed" />
     <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
+    <HaDialog v-if="haOn" :server="haOn.key" :disable="haOn.disable" @close="haOn = null" @run="(label, f) => poolRun(label, haOn!.key, f)" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />
     <NewSrWizard v-if="newSrOn" :server="newSrOn" :pool="poolLabel(newSrOn)" @close="newSrClosed" />
     <PropertiesDialog v-if="propsOf?.object && propsOf.server" :server="propsOf.server" :vm="propsOf.object.uuid" @close="propertiesClosed" />

@@ -31,6 +31,8 @@ type VMChanges struct {
 	// Start Options
 	Order      *int `json:"order,omitempty"`
 	StartDelay *int `json:"start_delay,omitempty"`
+	// HARestartPriority is the VM's restart priority (rules.HARestart...), on a pool with HA on only
+	HARestartPriority *string `json:"ha_restart_priority,omitempty"`
 }
 
 // SaveVMProperties is the pages' SaveSettings: name and description, the vCPU weight and cores per socket (only on a
@@ -89,7 +91,7 @@ func SaveVMProperties(c *xapi.Connection, vmUUID string, ch VMChanges) error {
 	if err := saveBootOptions(s, ref, vm, ch); err != nil {
 		return err
 	}
-	if err := saveStartOptions(s, ref, ch); err != nil {
+	if err := saveStartOptions(s, ref, vm, ch); err != nil {
 		return err
 	}
 	if ch.HomeServer != nil {
@@ -261,21 +263,35 @@ func setPVBootable(s *xenapi.Session, vm xenapi.VMRecord, fromCD bool) error {
 	return nil
 }
 
-// saveStartOptions is SetVMStartupOptionsAction: the start order and delay, then pool.sync_database so every server
-// keeps them. shortcut: with HA on, SetHaPrioritiesAction (the restart priority) is not ported; the order and delay
-// are refused then rather than saved without the plan.
-func saveStartOptions(s *xenapi.Session, ref xenapi.VMRef, ch VMChanges) error {
-	if ch.Order == nil && ch.StartDelay == nil {
+// saveStartOptions is StartOptionsPage.SaveSettings: SetVMStartupOptionsAction (the start order and delay, then
+// pool.sync_database so every server keeps them), or on a pool with HA on SetHaPrioritiesAction with the restart
+// priority too, keeping the pool's failures to tolerate.
+func saveStartOptions(s *xenapi.Session, ref xenapi.VMRef, vm xenapi.VMRecord, ch VMChanges) error {
+	if ch.Order == nil && ch.StartDelay == nil && ch.HARestartPriority == nil {
 		return nil
 	}
-	pools, err := xenapi.Pool.GetAllRecords(s)
+	_, p, _, err := poolOf(s)
 	if err != nil {
-		return xapi.Sanitize(err)
+		return err
 	}
-	for _, p := range pools {
-		if p.HaEnabled {
-			return errors.New("HA is enabled on this pool: change the start options with the HA settings")
+	// a template or a hidden VM is not in the HA plan: only its order and delay, as without HA
+	protectable := rules.HAProtectable(vm.IsATemplate, vm.IsASnapshot, vm.IsControlDomain, vm.OtherConfig["HideFromXenCenter"] == "true", vm.NameLabel)
+	if p.HaEnabled && protectable {
+		e := HAStartup{VM: vm.UUID, Priority: rules.HANormalPriority(vm.HaRestartPriority), Order: vm.Order, StartDelay: vm.StartDelay}
+		if ch.HARestartPriority != nil {
+			e.Priority = *ch.HARestartPriority
 		}
+		if ch.Order != nil {
+			e.Order = *ch.Order
+		}
+		if ch.StartDelay != nil {
+			e.StartDelay = *ch.StartDelay
+		}
+		return setHAPriorities(s, []HAStartup{e}, 0, true)
+	}
+	if ch.HARestartPriority != nil {
+		text, _ := messages.FailureText("HA_NOT_ENABLED", nil)
+		return errors.New(text)
 	}
 	if ch.Order != nil && *ch.Order < 0 || ch.StartDelay != nil && *ch.StartDelay < 0 { // both checked before either is set
 		return errors.New("the start order and the delay must be 0 or more")

@@ -17,7 +17,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   network and vApp groupings), with the C# semantics; a search with another filter is still listed, not run.
 - VM Properties: Boot Options (autostart, the HVM boot order, the PV boot device and parameters) and, for HVM VMs,
   Advanced (the shadow memory multiplier, changed live on a running VM).
-- VM Properties: Start Options (the start order and the delay before the next VM starts; read-only on an HA pool).
+- Pool > High Availability: Configure... (with HA off the HA wizard: the heartbeat SR, each VM's restart priority,
+  start order and delay, a VM that is not agile only restarted if possible, and the failures to tolerate up to the
+  maximum the pool computes for the priorities, then EnableHAAction; with HA on the restart priorities and the
+  failures to tolerate, SetHaPrioritiesAction) and Disable, with the C# questions and an RBAC check first.
+- VM Properties: Start Options (the start order and the delay before the next VM starts; on an HA pool the restart
+  priority too, saved with the pool's failures to tolerate).
 - VM Properties: Custom Fields (the pool's fields with the VM's values, dates as the C# app stores them) and Edit
   Custom Fields (add a text or date field to the pool, delete one with its values on every object).
 - Memory tab: Edit... opens Memory Settings (a fixed memory or a range, or the dynamic minimum, maximum and static

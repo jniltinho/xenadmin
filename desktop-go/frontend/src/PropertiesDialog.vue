@@ -2,8 +2,7 @@
 // The VM's Properties dialog (PropertiesDialog): General, Custom Fields, CPU, Boot Options, Start Options, Home Server
 // and (HVM) Advanced Options
 // pages on the left, OK and Cancel.
-// shortcut: General has name and description only; no Alerts, GPU or USB pages yet, and Start Options is
-// read-only on an HA pool (no restart priority).
+// shortcut: General has name and description only; no Alerts, GPU or USB pages yet.
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type VMProperties } from "./api/workspace";
 
@@ -15,7 +14,7 @@ const page = ref<Page>("general");
 const orig = ref<VMProperties | null>(null);
 const f = reactive({ name: "", description: "", vcpus: 1, atStartup: 1, cores: 1, priority: 4, home: "",
   autoPowerOn: false, devices: [] as { code: string; on: boolean }[], picked: -1, pvArgs: "", pvFromCd: false, shadow: "1",
-  shadowMode: "general" as "general" | "apps" | "manual", order: 0, delay: 0 });
+  shadowMode: "general" as "general" | "apps" | "manual", order: 0, delay: 0, haPriority: "" });
 const error = ref("");
 const busy = ref(false);
 
@@ -63,7 +62,7 @@ onMounted(async () => {
     orig.value = p;
     Object.assign(f, { name: p.name, description: p.description, vcpus: p.hotplug ? p.vcpus_max : p.vcpus_at_startup, atStartup: p.vcpus_at_startup,
       cores: p.cores_per_socket, priority: p.priority, home: p.home_server, autoPowerOn: p.auto_power_on, pvArgs: p.pv_args,
-      pvFromCd: p.pv_boot_from_cd && p.has_cd, shadow: String(p.shadow_multiplier), order: p.order, delay: p.start_delay,
+      pvFromCd: p.pv_boot_from_cd && p.has_cd, shadow: String(p.shadow_multiplier), order: p.order, delay: p.start_delay, haPriority: p.ha_restart_priority,
       shadowMode: p.shadow_multiplier === 1 ? "general" : p.shadow_multiplier === 4 ? "apps" : "manual",
       // BootOptionsEditPage: the boot order first, checked, then the devices it leaves out
       devices: [...p.boot_order.split(""), ..."CDN".split("").filter((c) => !p.boot_order.includes(c))].map((code) => ({ code, on: p.boot_order.includes(code) })) });
@@ -126,9 +125,12 @@ async function save() {
     if (!(Number.isFinite(shadow) && shadow >= 1)) { error.value = "Value should be a number greater than or equal to 1.0"; page.value = "advanced"; return; }
     ch.shadow_multiplier = shadow;
   }
-  if (!orig.value!.ha_enabled && (f.order !== p.order || f.delay !== p.start_delay)) {
+  // StartOptionsPage: with HA on, saved with the restart priority (SetHaPrioritiesAction, the pool's failures to tolerate kept)
+  const haVm = p.ha_priorities.length > 0; // a VM in the HA plan (not a template)
+  if (f.order !== p.order || f.delay !== p.start_delay || haVm && f.haPriority !== p.ha_restart_priority) {
     if (![f.order, f.delay].every((n) => Number.isInteger(n) && n >= 0)) { error.value = "Enter a whole number of 0 or more."; page.value = "start"; return; }
     ch.order = f.order; ch.start_delay = f.delay;
+    if (haVm) ch.ha_restart_priority = f.haPriority;
   }
   if (!f.name.trim()) { error.value = "Enter a name for the VM."; page.value = "general"; return; }
   const fc = fieldChanges();
@@ -198,11 +200,17 @@ async function save() {
             <button class="btn" @click="editFields = { name: '', type: 'String', error: '', confirm: '' }">Edit Custom Fields...</button>
           </template>
           <template v-else-if="page === 'start'">
-            <p class="mb-3">{{ orig.ha_enabled ? "HA is enabled on this pool: the start order and delay are part of its restart plan."
+            <p class="mb-3">{{ orig.ha_priorities.length ? "HA is enabled on this pool: set this VM's restart priority, its start order and the delay before the next VM starts."
               : "Set the order in which this VM starts in a vApp or when HA restarts it, and the delay before the next VM starts." }}</p>
-            <div class="grid grid-cols-[auto_8rem_auto] items-center gap-x-3 gap-y-2">
-              <label for="order">Start order:</label><input id="order" v-model.number="f.order" type="number" min="0" step="1" :disabled="orig.ha_enabled" class="border border-line px-1 py-0.5" /><span />
-              <label for="delay">Attempt to start next VM after:</label><input id="delay" v-model.number="f.delay" type="number" min="0" step="1" :disabled="orig.ha_enabled" class="border border-line px-1 py-0.5" /><span>seconds</span>
+            <div class="grid grid-cols-[auto_14rem_auto] items-center gap-x-3 gap-y-2">
+              <label for="order">Start order:</label><input id="order" v-model.number="f.order" type="number" min="0" step="1" class="w-32 border border-line px-1 py-0.5" /><span />
+              <label for="delay">Attempt to start next VM after:</label><input id="delay" v-model.number="f.delay" type="number" min="0" step="1" class="w-32 border border-line px-1 py-0.5" /><span>seconds</span>
+              <template v-if="orig.ha_priorities.length">
+                <label for="harestart">HA restart priority:</label>
+                <select id="harestart" v-model="f.haPriority" class="border border-line bg-white px-1 py-0.5">
+                  <option v-for="p in orig.ha_priorities" :key="p.value" :value="p.value">{{ p.text }}</option>
+                </select><span />
+              </template>
             </div>
           </template>
           <template v-else-if="page === 'boot'">

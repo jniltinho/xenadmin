@@ -176,4 +176,21 @@ export const api = {
   saveNetwork: (key: string, uuid: string, changes: NetworkChanges) => call<void>("SaveNetwork", key, uuid, changes),
   removeNetworkQuestion: () => call<Confirm>("RemoveNetworkQuestion"),
   removeNetwork: (key: string, uuid: string) => call<void>("RemoveNetwork", key, uuid),
+  // Pool > High Availability (internal/gui/ha.go)
+  haConfig: (key: string) => call<HAConfig>("HAConfig", key),
+  haMaxFailures: (key: string, priorities: Record<string, string>) => call<{ max: number; info: string }>("HAMaxFailures", key, priorities),
+  heartbeatSrs: (key: string) => call<HeartbeatSR[]>("HeartbeatSRs", key),
+  enableHa: (key: string, sr: string, plan: HAStartup[], ntol: number) => call<void>("EnableHA", key, sr, plan, ntol),
+  setHaPriorities: (key: string, plan: HAStartup[], ntol: number) => call<void>("SetHAPriorities", key, plan, ntol),
+  haDisableQuestion: (key: string) => call<HostQuestion>("HADisableQuestion", key),
+  disableHa: (key: string) => call<void>("DisableHA", key),
 };
+export interface HAPriority { value: string; text: string }
+export interface HAConfig { pool: string; ha_enabled: boolean; blocker?: string; ntol: number; hosts: number; priorities: HAPriority[] | null;
+  vms: { uuid: string; name: string; priority: string; order: number; start_delay: number; not_agile?: string }[] | null;
+  overcommit: string; ntol_zero_query: string }
+export interface HeartbeatSR { uuid: string; name: string; reason?: string }
+export interface HAStartup { vm: string; priority: string; order: number; start_delay: number }
+// a pool's HA state (app.Object) and the Start Options page's restart priority (app.VMProperties)
+export interface XenObject { ha_enabled?: boolean }
+export interface VMProperties { ha_restart_priority: string; ha_priorities: HAPriority[] }

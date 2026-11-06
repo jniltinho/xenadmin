@@ -1726,3 +1726,141 @@ func TestLabNetworks(t *testing.T) {
 		t.Fatalf("after the networks: %d networks, %d bonds", n, b)
 	}
 }
+
+// TestLabHA turns HA on with the throwaway VM (XCP_LAB_VM) protected and the shared NFS SR as heartbeat, changes its
+// priority, order, delay and the failures to tolerate (the HA dialog and the Start Options page), then turns HA off
+// (XCP_ALLOW_WRITE=1). HA ends off and the VM's and the pool's settings as they were, even when the test fails.
+func TestLabHA(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	vms, err := xenapi.VM.GetByNameLabel(s, name)
+	if err != nil || len(vms) != 1 {
+		t.Fatalf("VM %q: %v %v", name, vms, err)
+	}
+	ref := vms[0]
+	vm, err := xenapi.VM.GetRecord(s, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pools, err := xenapi.Pool.GetAllRecords(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var poolRef xenapi.PoolRef
+	var pool xenapi.PoolRecord
+	for r, p := range pools {
+		poolRef, pool = r, p
+	}
+	if pool.HaEnabled {
+		t.Fatal("HA is already on in the lab: this test only runs from HA off")
+	}
+	t.Cleanup(func() { // HA off, then the VM's and the pool's own settings back
+		if on, _ := xenapi.Pool.GetHaEnabled(s, poolRef); on {
+			if err := ops.DisableHA(c); err != nil {
+				t.Errorf("cleanup: HA is still on: %v", err)
+			}
+		}
+		for _, err := range []error{xenapi.VM.SetHaRestartPriority(s, ref, vm.HaRestartPriority), xenapi.VM.SetOrder(s, ref, vm.Order),
+			xenapi.VM.SetStartDelay(s, ref, vm.StartDelay), xenapi.Pool.SetHaHostFailuresToTolerate(s, poolRef, pool.HaHostFailuresToTolerate)} {
+			if err != nil {
+				t.Errorf("cleanup: %v", err)
+			}
+		}
+	})
+
+	// refused with HA off
+	if err := ops.DisableHA(c); err == nil || !strings.Contains(err.Error(), "HA is not enabled") {
+		t.Errorf("Disable with HA off: %v", err)
+	}
+	if err := ops.SetHAPriorities(c, []ops.HAStartup{{VM: vm.UUID, Priority: rules.HARestart}}, 0); err == nil {
+		t.Error("priorities with HA off")
+	}
+	if err := ops.SaveVMProperties(c, vm.UUID, ops.VMChanges{HARestartPriority: new(string)}); err == nil {
+		t.Error("a restart priority on the Start Options page with HA off")
+	}
+
+	cfg, err := ReadHAConfig(c, true)
+	if err != nil || cfg.Blocker != "" || cfg.HAEnabled {
+		t.Fatalf("HA config: %+v %v", cfg, err)
+	}
+	i := slices.IndexFunc(cfg.VMs, func(v HAPlanVM) bool { return v.UUID == vm.UUID })
+	if i < 0 {
+		t.Fatalf("%s is not in the plan: %+v", name, cfg.VMs)
+	}
+	t.Logf("plan: %+v (hosts %d)", cfg.VMs[i], cfg.Hosts)
+	if cfg.VMs[i].NotAgile != "" {
+		t.Fatalf("%s is not agile: %s", name, cfg.VMs[i].NotAgile)
+	}
+	srs, err := ops.HeartbeatSRs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("heartbeat SRs: %+v", srs)
+	hb := slices.IndexFunc(srs, func(h ops.HeartbeatSR) bool { return h.Name == "lab-nfs" && h.Reason == "" })
+	if hb < 0 {
+		t.Fatal("lab-nfs cannot hold the heartbeat")
+	}
+	plan := []ops.HAStartup{{VM: vm.UUID, Priority: rules.HARestart, Order: 2, StartDelay: 10}}
+	max, err := ops.HAMaxFailures(c, map[string]string{vm.UUID: rules.HARestart})
+	if err != nil || max < 0 {
+		t.Fatalf("max failures: %d %v", max, err)
+	}
+	t.Logf("max failures with %s restarted: %d", name, max)
+	if err := ops.EnableHA(c, srs[hb].UUID, plan, max+1); err == nil || !strings.Contains(err.Error(), "HA cannot be guaranteed") {
+		t.Fatalf("overcommitted plan: %v", err)
+	}
+	if on, _ := xenapi.Pool.GetHaEnabled(s, poolRef); on {
+		t.Fatal("HA on after a refused plan")
+	}
+	ntol := min(1, max)
+	if err := ops.EnableHA(c, srs[hb].UUID, plan, ntol); err != nil {
+		p, _ := xenapi.Pool.GetRecord(s, poolRef)
+		t.Fatalf("enable HA: %v (HA on: %v)", err, p.HaEnabled)
+	}
+	cfg, err = ReadHAConfig(c, true)
+	if err != nil || !cfg.HAEnabled || cfg.Blocker != "" || cfg.Ntol != ntol {
+		t.Fatalf("after enabling: %+v %v", cfg, err)
+	}
+	if v, _ := xenapi.VM.GetRecord(s, ref); v.HaRestartPriority != rules.HARestart || v.Order != 2 || v.StartDelay != 10 {
+		t.Errorf("after enabling: priority %q order %d delay %d", v.HaRestartPriority, v.Order, v.StartDelay)
+	}
+	if err := ops.EnableHA(c, srs[hb].UUID, plan, ntol); err == nil {
+		t.Error("enable HA twice")
+	}
+
+	// the restart priorities dialog: best effort, another order and delay, no failure tolerated
+	if err := ops.SetHAPriorities(c, []ops.HAStartup{{VM: vm.UUID, Priority: rules.HABestEffort, Order: 3, StartDelay: 5}}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := xenapi.VM.GetRecord(s, ref); v.HaRestartPriority != rules.HABestEffort || v.Order != 3 || v.StartDelay != 5 {
+		t.Errorf("after the priorities: %q %d %d", v.HaRestartPriority, v.Order, v.StartDelay)
+	}
+	if n, _ := xenapi.Pool.GetHaHostFailuresToTolerate(s, poolRef); n != 0 {
+		t.Errorf("failures to tolerate %d, want 0", n)
+	}
+	// the Start Options page: restart again, the pool's failures to tolerate kept
+	restart, order := rules.HARestart, 4
+	if err := ops.SaveVMProperties(c, vm.UUID, ops.VMChanges{HARestartPriority: &restart, Order: &order}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := xenapi.VM.GetRecord(s, ref); v.HaRestartPriority != rules.HARestart || v.Order != 4 || v.StartDelay != 5 {
+		t.Errorf("after Start Options: %q %d %d", v.HaRestartPriority, v.Order, v.StartDelay)
+	}
+	if props, err := ReadVMProperties(c, vm.UUID); err != nil || !props.HAEnabled || props.HARestartPriority != rules.HARestart || len(props.HAPriorities) != 3 {
+		t.Errorf("Start Options read: %+v %v", props.HAPriorities, err)
+	}
+
+	if why := ops.DisableHABlocker(c); why != "" {
+		t.Fatal(why)
+	}
+	if err := ops.DisableHA(c); err != nil {
+		t.Fatal(err)
+	}
+	if on, _ := xenapi.Pool.GetHaEnabled(s, poolRef); on {
+		t.Fatal("HA still on")
+	}
+}

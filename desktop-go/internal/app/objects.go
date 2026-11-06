@@ -27,6 +27,7 @@ type Object struct {
 	HostUUID    string   `json:"host_uuid,omitempty"` // the resident host of a VM (names may repeat)
 	Allowed     []string `json:"allowed,omitempty"`   // a VM's allowed_operations, an SR's commands (what the menus enable)
 	HAProtected bool     `json:"ha_protected,omitempty"`
+	HAEnabled   bool     `json:"ha_enabled,omitempty"`  // a pool with HA on (the Pool > High Availability items)
 	Maintenance bool     `json:"maintenance,omitempty"` // a host that is disabled (HostRules.InMaintenance)
 	Coordinator bool     `json:"coordinator,omitempty"`
 	Live        bool     `json:"live,omitempty"` // a host that answers
@@ -51,7 +52,7 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 			return nil, xapi.Sanitize(err)
 		}
 		for _, r := range recs {
-			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription})
+			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, HAEnabled: r.HaEnabled})
 		}
 	case "hosts":
 		recs, err := xenapi.Host.GetAllRecords(s)
