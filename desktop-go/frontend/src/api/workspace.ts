@@ -68,8 +68,11 @@ export interface VMDelete { title: string; text: string; disks: DeleteItem[]; sn
 export interface VMCopy { name: string; description: string; clone: boolean; copy: boolean; srs: { uuid: string; text: string; reason?: string }[]; default_sr: string }
 export interface IQN { index: number; iqn: string; address: string; port: number; text: string }
 export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
-export interface Appliance { name: string; warnings: string[] | null; vms: { name: string }[] | null; disks: number; interfaces: number;
+export interface Appliance { name: string; warnings: string[] | null; disks: number; interfaces: number;
+  vms: { sys_id: string; name: string; disks: { name: string; capacity: number }[] | null; macs: string[] | null }[] | null;
   eulas: string[] | null; has_manifest: boolean; required_space: number }
+// a VM's server ("" for the pool), the SR of each of its disks and the network of each of its interfaces
+export interface ApplianceMapping { sys_id: string; host: string; srs: string[]; networks: string[] }
 export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
 export interface ViewInfo { id: string; name: string; icon: string; supported: boolean }
 export interface ViewNode { name: string; key?: string; icon?: string; server?: string; object?: XenObject; children: ViewNode[] }
@@ -177,9 +180,9 @@ export const api = {
   importVm: (key: string, file: string, host: string, sr: string, start: boolean) => call<string>("ImportVM", key, file, host, sr, start),
   isAppliance: (file: string) => call<boolean>("IsAppliance", file),
   applianceInfo: (file: string) => call<Appliance>("ApplianceInfo", file),
-  applianceSpaceError: (key: string, sr: string, required: number) => call<string>("ApplianceSpaceError", key, sr, required),
-  importAppliance: (key: string, file: string, sr: string, network: string, verify: boolean, start: boolean) =>
-    call<string>("ImportAppliance", key, file, sr, network, verify, start),
+  applianceMappingsError: (key: string, a: Appliance, maps: ApplianceMapping[]) => call<string>("ApplianceMappingsError", key, a, maps),
+  importAppliance: (key: string, file: string, maps: ApplianceMapping[], verify: boolean, start: boolean) =>
+    call<string>("ImportAppliance", key, file, maps, verify, start),
   memoryEdit: (key: string, vm: string) => call<MemoryEdit>("MemoryEdit", key, vm),
   memoryQuestion: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<string>("MemoryQuestion", key, vm, dynMin, dynMax, staticMax),
   changeMemory: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<void>("ChangeMemory", key, vm, dynMin, dynMax, staticMax),

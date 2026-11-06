@@ -55,6 +55,11 @@ filters and export, and Tools > Options.**
   each VM's vCPUs, memory, Xen settings, disks, DVD drive and interfaces. Raw, VHD and stream-optimized VMDK disks
   (converted to raw as they are read), streamed from the archive without extracting it; a failed import removes what
   it made. The package is checked as untrusted input (file names inside it, sizes, no DOCTYPE).
+- The import wizard's per-VM choices when importing an OVF/OVA appliance (ImportSelectHostPage, ImportSelectStoragePage,
+  ImportSelectNetworkPage, VmMapping): the server of each VM (to put its disks on that server's local storage), all
+  the disks on one SR or each disk on its own, and the network of each interface; the defaults keep it one click. The
+  choices are checked against the package and the pool when the dialog closes and again by the import (an SR the
+  server cannot see, a full one, one too small for the disks put on it, a network the server does not see).
 - General tab of VMs, templates, servers, pools, SRs and networks as in the C# app (Details.General): collapsible
   sections with Expand all / Collapse all and the Properties button; General (tags, folder, OS, virtualization mode and
   state, uptime, home server, pool coordinator, enabled, autoboot, certificate verification, iSCSI IQN, log
