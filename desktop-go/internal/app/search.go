@@ -9,13 +9,15 @@ import (
 	xenapi "go/xenapi"
 
 	"xcpng-center/internal/messages"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
 // A search saved in a pool (XenModel/XenSearch: SearchMarshalling XML, major version 2) is a query (the object
 // types of QueryScope and a filter) and a grouping, each element named after its C# class. This is the part of
 // XenSearch the saved searches use most; a search with any other filter, property or grouping is listed, not run.
-// shortcut: no DatePropertyQuery, IPAddressQuery, XenModelObject*Query, Recursive*Query or CustomField*Query yet;
+// shortcut: no DatePropertyQuery, XenModelObject*Query, Recursive*Query or CustomField*Query yet; IPAddressQuery
+// reads VM and server addresses (not an SR's target);
 // port them from QueryTypes.cs when a saved search needs one.
 
 // xmlNode is any element of a search, with its attributes and children.
@@ -58,6 +60,7 @@ var filterProperties = map[string]map[string]bool{
 	"StringListContainsQuery": {"tags": true},
 	"IntPropertyQuery":        {"memory": true, "size": true},
 	"NullQuery":               {"pool": true, "folder": true, "appliance": true},
+	"IPAddressQuery":          {"ip_address": true},
 }
 
 // groupingProperties are the properties each grouping reads here.
@@ -174,6 +177,8 @@ type facts struct {
 	self   string              // the object's group key when it is a pool, a server or a network (BelongsAsGroupNotMember)
 	folder []group
 	fields []customFieldGroup
+	ips    []string // IPAddressProperty: a VM's guest addresses, a server's PIF addresses; none is null
+	noIPs  bool     // ...except a template's or snapshot's, an empty list (IsRealVm is false)
 }
 
 type customFieldGroup struct{ name, value, key string }
@@ -199,6 +204,10 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 		return nil, xapi.Sanitize(err)
 	}
 	apps, err := xenapi.VMAppliance.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	pifs, err := xenapi.PIF.GetAllRecords(s)
 	if err != nil {
 		return nil, xapi.Sanitize(err)
 	}
@@ -302,10 +311,15 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 			}
 		case "hosts":
 			f.values["type"] = "Server"
-			for _, h := range inv.hosts {
+			for ref, h := range inv.hosts {
 				if h.UUID == it.obj.UUID {
 					hosts = []group{hostGroup(h)}
 					f.self = hostGroup(h).key
+					for _, p := range pifs {
+						if p.Host == ref && p.IP != "" {
+							f.ips = append(f.ips, p.IP)
+						}
+					}
 				}
 			}
 		case "vms", "templates", "snapshots":
@@ -314,15 +328,16 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 			switch {
 			case r.IsASnapshot:
 				f.values["type"] = "Snapshot"
+				f.noIPs = true
 				if src, ok := inv.all[r.SnapshotOf]; ok { // VM.Home of a snapshot: its VM's, hidden or not
 					if h, ok := inv.hosts[home(src)]; ok {
 						hosts = []group{hostGroup(h)}
 					}
 				}
 			case r.IsATemplate && defaultTemplate:
-				f.values["type"] = "DefaultTemplate"
+				f.values["type"], f.noIPs = "DefaultTemplate", true
 			case r.IsATemplate:
-				f.values["type"] = "UserTemplate"
+				f.values["type"], f.noIPs = "UserTemplate", true
 			default: // IsRealVm: these properties are a real VM's only
 				f.values["type"] = "VM"
 				f.values["power_state"] = string(r.PowerState)
@@ -335,6 +350,15 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 				}
 				if m, ok := metrics[r.Metrics]; ok {
 					f.ints["memory"] = int64(m.MemoryActual)
+				}
+				if gm, ok := gms[r.GuestMetrics]; ok { // Helpers.FindIpAddresses for each VIF
+					for _, v := range r.VIFs {
+						for k, addr := range gm.Networks {
+							if strings.HasPrefix(k, vifs[v].Device+"/ip") {
+								f.ips = append(f.ips, strings.FieldsFunc(strings.ReplaceAll(addr, "%n", "\n"), func(c rune) bool { return c == '\n' })...)
+							}
+						}
+					}
 				}
 				if h, ok := inv.hosts[home(r)]; ok {
 					hosts = []group{hostGroup(h)}
@@ -476,6 +500,18 @@ func match(q xmlNode, f facts) tri {
 			return no
 		}
 		return of((len(list) == 0) == parseBool(q.attr("empty")))
+	case "IPAddressQuery": // ListContainsQuery<ComparableAddress>: a null list matches nothing
+		want, ok := rules.ParseAddress(q.attr("address"), true, true)
+		if !ok || len(f.ips) == 0 && !f.noIPs {
+			return no
+		}
+		found := false
+		for _, v := range f.ips {
+			if a, ok := rules.ParseAddress(v, false, true); ok && want.Matches(a) {
+				found = true
+			}
+		}
+		return of(found == parseBool(q.attr("contains")))
 	case "StringListContainsQuery":
 		list, ok := f.lists[prop]
 		if !ok {

@@ -2678,3 +2678,39 @@ func TestLabPerfmonAlerts(t *testing.T) {
 		t.Fatal("an interval that is not a multiple of 5 was taken")
 	}
 }
+
+// TestLabAddressSearch runs searches by address (IPAddressQuery, read-only): a partial address finds both lab servers,
+// another subnet none.
+func TestLabAddressSearch(t *testing.T) {
+	c := labConnection(t)
+	run := func(address string) map[string]bool {
+		text := `<Search Name="by address" major_version="2" minor_version="1" show_expanded="yes"><Query>` +
+			`<QueryScope><Server /></QueryScope><IPAddressQuery property="ip_address" contains="yes" address="` + address + `" />` +
+			`</Query></Search>`
+		nodes, err := RunSearch(c, "lab", text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]bool{}
+		var walk func([]*ViewNode)
+		walk = func(ns []*ViewNode) {
+			for _, n := range ns {
+				if n.Object != nil {
+					found[n.Object.Name] = true
+				}
+				walk(n.Children)
+			}
+		}
+		walk(nodes)
+		return found
+	}
+	if got := run("10.77.58.*"); !got["xcp-lab-1"] || !got["xcp-lab-2"] {
+		t.Fatal(got)
+	}
+	if got := run("10.77.58.12"); !got["xcp-lab-2"] || got["xcp-lab-1"] {
+		t.Fatal(got)
+	}
+	if got := run("192.0.2.*"); len(got) != 0 {
+		t.Fatal(got)
+	}
+}

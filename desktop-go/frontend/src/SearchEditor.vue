@@ -66,7 +66,7 @@ function remove() { askDelete.value = false; run(async () => { await api.deleteS
         <!-- shortcut: no IP address query (RunSearch does not read addresses), so the hint leaves addresses out -->
         <div class="grid grid-cols-[110px_1fr] items-center"><label for="setext">Filter:</label>
           <input id="setext" v-model="text" class="border border-line px-1 py-0.5"
-                 :placeholder="form?.has_filter ? 'Add a text filter to the current conditions' : 'Name or description contains...'" /></div>
+                 :placeholder="form?.has_filter ? 'Add a text filter to the current conditions' : 'Name, description or IP address contains...'" /></div>
         <p v-if="form?.has_filter" class="text-neutral-500">The search's current conditions are kept.</p>
         <div class="grid grid-cols-[110px_1fr] items-center"><label for="segroup">Group by:</label>
           <select id="segroup" v-model.number="grouping" class="w-56 border border-line px-1 py-0.5" @change="groupingChanged = true">

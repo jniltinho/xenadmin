@@ -204,9 +204,8 @@ func EditSearchForm(text string) (SearchForm, error) {
 	return f, nil
 }
 
-// fullQueryFor is Search.FullQueryFor: each word in the name or the description (contains, any case), any of them.
-// shortcut: no IPAddressQuery for a word that is an address (RunSearch does not read addresses yet); port it with
-// IPAddressQuery's matching.
+// fullQueryFor is Search.FullQueryFor: each word in the name or the description (contains, any case), or an address
+// when the word is one (ComparableAddress.TryParse, partial addresses allowed), any of them.
 func fullQueryFor(text string) xmlNode {
 	q := element("GroupQuery", attr("type", "Or"))
 	str := func(prop, word string) xmlNode {
@@ -215,6 +214,10 @@ func fullQueryFor(text string) xmlNode {
 	for _, w := range strings.Split(text, " ") {
 		if w != "" {
 			q.Children = append(q.Children, str("label", w), str("description", w))
+			if addr, ok := rules.ParseAddress(w, true, false); ok {
+				q.Children = append(q.Children, element("IPAddressQuery", attr("property", "ip_address"), attr("contains", "yes"),
+					attr("address", addr.String())))
+			}
 		}
 	}
 	if len(q.Children) == 0 {
