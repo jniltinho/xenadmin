@@ -2714,3 +2714,37 @@ func TestLabAddressSearch(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// TestLabDateSearch runs searches by start time (DatePropertyQuery, read-only) over the lab VM.
+func TestLabDateSearch(t *testing.T) {
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" {
+		t.Skip("XCP_LAB_VM not set")
+	}
+	c := labConnection(t)
+	found := func(kind, day string) bool {
+		text := `<Search Name="by date" major_version="2" minor_version="1" show_expanded="yes"><Query><QueryScope><VM /></QueryScope>` +
+			`<DatePropertyQuery property="start_time" query="` + day + `" type="` + kind + `" /></Query></Search>`
+		nodes, err := RunSearch(c, "lab", text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hit := false
+		var walk func([]*ViewNode)
+		walk = func(ns []*ViewNode) {
+			for _, n := range ns {
+				hit = hit || n.Object != nil && n.Object.Name == name
+				walk(n.Children)
+			}
+		}
+		walk(nodes)
+		return hit
+	}
+	if !found("after", "20000101") || found("before", "20000101") || found("exact", "20000101") {
+		t.Fatal("the lab VM's start time does not match as expected")
+	}
+	if err := SearchSupported(`<Search Name="x" major_version="2"><Query><QueryScope><VM /></QueryScope>` +
+		`<DatePropertyQuery property="start_time" query="20000101" type="someday" /></Query></Search>`); err == nil {
+		t.Fatal("an unknown date query type was taken")
+	}
+}

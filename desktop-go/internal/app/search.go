@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	xenapi "go/xenapi"
 
@@ -16,7 +17,7 @@ import (
 // A search saved in a pool (XenModel/XenSearch: SearchMarshalling XML, major version 2) is a query (the object
 // types of QueryScope and a filter) and a grouping, each element named after its C# class. This is the part of
 // XenSearch the saved searches use most; a search with any other filter, property or grouping is listed, not run.
-// shortcut: no DatePropertyQuery, XenModelObject*Query, Recursive*Query or CustomField*Query yet; IPAddressQuery
+// shortcut: no XenModelObject*Query, Recursive*Query or CustomField*Query yet; IPAddressQuery
 // reads VM and server addresses (not an SR's target);
 // port them from QueryTypes.cs when a saved search needs one.
 
@@ -61,6 +62,7 @@ var filterProperties = map[string]map[string]bool{
 	"IntPropertyQuery":        {"memory": true, "size": true},
 	"NullQuery":               {"pool": true, "folder": true, "appliance": true},
 	"IPAddressQuery":          {"ip_address": true},
+	"DatePropertyQuery":       {"start_time": true},
 }
 
 // groupingProperties are the properties each grouping reads here.
@@ -147,6 +149,12 @@ func checkFilter(f xmlNode) error {
 		if props, ok := filterProperties[name]; !ok || !props[f.attr("property")] {
 			return fmt.Errorf("%s on %q", name, f.attr("property"))
 		}
+		if t := f.attr("type"); name == "DatePropertyQuery" && !strings.Contains(" today yesterday thisweek lastweek before after exact ", " "+t+" ") {
+			return fmt.Errorf("date query type %q", t) // Enum.Parse refuses it
+		}
+		if _, err := rules.ParseDateQuery(f.attr("query")); name == "DatePropertyQuery" && err != nil {
+			return fmt.Errorf("date %q", f.attr("query"))
+		}
 		return nil
 	}
 }
@@ -177,8 +185,9 @@ type facts struct {
 	self   string              // the object's group key when it is a pool, a server or a network (BelongsAsGroupNotMember)
 	folder []group
 	fields []customFieldGroup
-	ips    []string // IPAddressProperty: a VM's guest addresses, a server's PIF addresses; none is null
-	noIPs  bool     // ...except a template's or snapshot's, an empty list (IsRealVm is false)
+	ips    []string             // IPAddressProperty: a VM's guest addresses, a server's PIF addresses; none is null
+	noIPs  bool                 // ...except a template's or snapshot's, an empty list (IsRealVm is false)
+	dates  map[string]time.Time // start_time of a real VM (VM_metrics.start_time; the zero time without metrics)
 }
 
 type customFieldGroup struct{ name, value, key string }
@@ -348,8 +357,10 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 					label, value, _ := virtualizationStatus(s, r, gms[r.GuestMetrics], metrics[r.Metrics])
 					f.values["virtualisation_status"], f.labels["virtualisation_status"] = value, label
 				}
+				f.dates = map[string]time.Time{"start_time": {}}
 				if m, ok := metrics[r.Metrics]; ok {
 					f.ints["memory"] = int64(m.MemoryActual)
+					f.dates["start_time"] = m.StartTime
 				}
 				if gm, ok := gms[r.GuestMetrics]; ok { // Helpers.FindIpAddresses for each VIF
 					for _, v := range r.VIFs {
@@ -500,6 +511,13 @@ func match(q xmlNode, f facts) tri {
 			return no
 		}
 		return of((len(list) == 0) == parseBool(q.attr("empty")))
+	case "DatePropertyQuery":
+		v, ok := f.dates[prop]
+		if !ok {
+			return no
+		}
+		day, _ := rules.ParseDateQuery(q.attr("query")) // checked by checkFilter
+		return of(rules.MatchDate(v, day, q.attr("type"), time.Now()))
 	case "IPAddressQuery": // ListContainsQuery<ComparableAddress>: a null list matches nothing
 		want, ok := rules.ParseAddress(q.attr("address"), true, true)
 		if !ok || len(f.ips) == 0 && !f.noIPs {

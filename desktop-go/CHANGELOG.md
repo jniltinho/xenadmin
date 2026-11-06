@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 - Searches by address (XenSearch IPAddressQuery: a VM's guest addresses, a server's interfaces, full or partial such
   as 10.77.58.*), also from the search editor's text filter.
+- Searches by a VM's start time (XenSearch DatePropertyQuery: today, yesterday, this or last week, before, after or
+  on a day).
 
 - The Alerts page of a VM's, server's and SR's Properties (CPU, network, disk, free memory, control domain memory and
   storage throughput alerts with their repeat interval, in the perfmon other_config key), then perfmon's refresh.
