@@ -4,6 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+—
+
+## [0.3.1] — 2026-11-06
+
+**The final release of the port: a VLAN on an SR-IOV network, hosted sparse and flat VMDKs, and signed OVF/OVA
+packages.**
+
 ### Added
 
 - A VLAN on an SR-IOV network (NetWDetails' checkBoxSriov, NewNetworkWizard.CreateNonBonded): on a NIC with an
