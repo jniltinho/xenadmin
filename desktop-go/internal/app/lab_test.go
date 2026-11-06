@@ -3205,3 +3205,60 @@ func TestLabGraphEditor(t *testing.T) {
 		}
 	}
 }
+
+// TestLabRecursiveSearch runs searches on a related object's properties (RecursiveXMO(List)PropertyQuery, read-only):
+// VMs by their SR, server and disk names, servers by their VMs, and the pool by its name.
+func TestLabRecursiveSearch(t *testing.T) {
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" {
+		t.Skip("XCP_LAB_VM not set")
+	}
+	c := labConnection(t)
+	run := func(scope, filter string) map[string]bool {
+		nodes, err := RunSearch(c, "lab", `<Search Name="recursive" major_version="2" minor_version="1" show_expanded="yes"><Query>`+
+			`<QueryScope><`+scope+` /></QueryScope>`+filter+`</Query></Search>`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]bool{}
+		var walk func([]*ViewNode)
+		walk = func(ns []*ViewNode) {
+			for _, n := range ns {
+				if n.Object != nil {
+					found[n.Object.Name] = true
+				}
+				walk(n.Children)
+			}
+		}
+		walk(nodes)
+		return found
+	}
+	label := func(q string) string {
+		return `<StringPropertyQuery property="label" query="` + q + `" type="exactmatch" casesensitive="no" />`
+	}
+	list := func(prop, inner string) string {
+		return `<RecursiveXMOListPropertyQuery property="` + prop + `">` + inner + `</RecursiveXMOListPropertyQuery>`
+	}
+	if got := run("VM", list("storage", label("lab-nfs"))); !got[name] {
+		t.Fatalf("by SR: %v", got)
+	}
+	if got := run("VM", list("storage", label("no such SR"))); got[name] {
+		t.Fatalf("by an unknown SR: %v", got)
+	}
+	if got := run("VM", list("host", label("xcp-lab-2"))); !got[name] {
+		t.Fatalf("by server: %v", got)
+	}
+	if got := run("VM", list("disks", label(name))); !got[name] {
+		t.Fatalf("by disk: %v", got)
+	}
+	if got := run("Server", list("vm", label(name))); !got["xcp-lab-2"] || got["xcp-lab-1"] {
+		t.Fatalf("servers by VM: %v", got)
+	}
+	if got := run("VM", `<RecursiveXMOPropertyQuery property="pool">`+label("xcp-lab")+`</RecursiveXMOPropertyQuery>`); !got[name] {
+		t.Fatalf("by pool: %v", got)
+	}
+	if err := SearchSupported(`<Search Name="x" major_version="2"><Query><QueryScope><VM /></QueryScope>` +
+		list("folder", label("x")) + `</Query></Search>`); err == nil {
+		t.Fatal("a recursive query on folders was taken")
+	}
+}

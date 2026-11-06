@@ -19,7 +19,8 @@ import (
 // A search saved in a pool (XenModel/XenSearch: SearchMarshalling XML, major version 2) is a query (the object
 // types of QueryScope and a filter) and a grouping, each element named after its C# class. This is the part of
 // XenSearch the saved searches use most; a search with any other filter, property or grouping is listed, not run.
-// shortcut: no Recursive*Query (a filter on a related object's properties) yet; XenModelObject*Query reads the pool,
+// Recursive*Query runs its inner filter on the related objects (pool, servers, VMs, networks, SRs, disks).
+// shortcut: no recursive query on folders (there are no Folder objects here); XenModelObject*Query reads the pool,
 // server, vApp and networks of an object; IPAddressQuery
 // reads VM and server addresses (not an SR's target);
 // port them from QueryTypes.cs when a saved search needs one.
@@ -142,6 +143,15 @@ func checkFilter(f xmlNode) error {
 	switch name := f.XMLName.Local; name {
 	case "DummyQuery":
 		return nil
+	case "RecursiveXMOPropertyQuery", "RecursiveXMOListPropertyQuery": // the inner filter is the only child
+		props := map[string]bool{"pool": name == "RecursiveXMOPropertyQuery"}
+		if name == "RecursiveXMOListPropertyQuery" { // QueryElement's list types (property type Host, VM, Network, SR, VDI)
+			props = map[string]bool{"host": true, "vm": true, "networks": true, "storage": true, "disks": true}
+		}
+		if !props[f.attr("property")] || len(f.Children) != 1 {
+			return fmt.Errorf("%s on %q", name, f.attr("property"))
+		}
+		return checkFilter(f.Children[0])
 	case "CustomFieldQuery", "CustomFieldDateQuery": // the field is the CustomFieldDefinition child
 		if len(f.Children) == 0 || f.Children[0].attr("name") == "" {
 			return fmt.Errorf("%s without its field", name)
@@ -223,6 +233,8 @@ type facts struct {
 	dates  map[string]time.Time // start_time of a real VM (VM_metrics.start_time; the zero time without metrics)
 	other  map[string]string    // other_config, for the custom field queries (CustomFieldsManager.GetCustomFieldValue)
 	known  map[string]bool      // the pools and vApps of the connection: an object query finds its object (FindByUUID)
+	rel    map[string][]string  // the related objects' uuids of the recursive queries (pool, host, vm, networks, storage, disks)
+	peers  map[string]*facts    // every object's facts by uuid, shared: what a recursive query's inner filter reads
 }
 
 type customFieldGroup struct{ name, value, key string }
@@ -235,9 +247,14 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 		return nil, err
 	}
 	s := c.Session
-	inv, err := readInventory(c, sr.types["VDI"])
+	// a recursive query on disks needs the VDIs, whatever the search's types
+	inv, err := readInventory(c, sr.types["VDI"] || sr.filter != nil && recursiveOn(*sr.filter, "disks"))
 	if err != nil {
 		return nil, err
+	}
+	vbds, err := xenapi.VBD.GetAllRecords(s)
+	if err != nil {
+		return nil, xapi.Sanitize(err)
 	}
 	gms, err := xenapi.VMGuestMetrics.GetAllRecords(s)
 	if err != nil {
@@ -325,10 +342,16 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 		known[a.UUID] = true
 	}
 	root := &ViewNode{}
+	peers := map[string]*facts{}
+	type entry struct {
+		it item
+		f  *facts
+	}
+	var entries []entry
 	for _, it := range inv.items {
 		f := facts{values: map[string]string{"label": it.obj.Name, "uuid": it.obj.UUID, "description": it.obj.Description},
 			labels: map[string]string{}, ints: map[string]int64{}, lists: map[string][]string{"tags": it.tags}, groups: map[string][]group{},
-			folder: folderPath(it.other["folder"]), other: it.other, known: known}
+			folder: folderPath(it.other["folder"]), other: it.other, known: known, peers: peers}
 		if pool != nil {
 			f.values["pool"], f.groups["pool"] = poolUUID, []group{*pool}
 		}
@@ -456,6 +479,12 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 			hosts = allHosts
 		}
 		f.groups["host"] = hosts
+		f.rel = relations(it, f, inv, vbds, vifs, netByUUID)
+		peers[it.obj.UUID] = &f
+		entries = append(entries, entry{it, &f})
+	}
+	for _, e := range entries { // matched once every object's facts are known (the recursive queries read them)
+		it, f := e.it, *e.f
 		if !sr.types[f.values["type"]] || sr.filter != nil && match(*sr.filter, f) == no {
 			continue
 		}
@@ -553,6 +582,30 @@ func match(q xmlNode, f facts) tri {
 			return no
 		}
 		return of((len(list) == 0) == parseBool(q.attr("empty")))
+	case "RecursiveXMOPropertyQuery", "RecursiveXMOListPropertyQuery":
+		// RecursiveXMOPropertyQuery: the one related object (none: no match); RecursiveXMOListPropertyQuery.MatchProperty:
+		// any related object matching, indeterminate when only indeterminate ones, no match for an empty list
+		// shortcut: a related object hidden from the window (VM.Show) has no facts here and is skipped; the C# accessors
+		// resolve it too. Read the hidden objects' facts if a search needs them.
+		seenFalse, seenNull := false, false
+		for _, u := range f.rel[prop] {
+			p, ok := f.peers[u]
+			if !ok {
+				continue
+			}
+			switch match(q.Children[0], *p) {
+			case yes:
+				return yes
+			case no:
+				seenFalse = true
+			default:
+				seenNull = true
+			}
+		}
+		if seenNull && !seenFalse {
+			return none
+		}
+		return no
 	case "XenModelObjectPropertyQuery": // the object it is (a missing one: nothing matches; uuid "invalid": no object)
 		gs := f.groups[prop]
 		if len(gs) == 0 || !f.known[q.attr("uuid")] { // no object, or the queried one is gone: nothing matches
@@ -725,3 +778,101 @@ func groupPaths(groupings []xmlNode, f facts) [][]group {
 
 // groupUUID is the uuid of the object a group is (its key is "server/uuid").
 func groupUUID(g group) string { return g.key[strings.LastIndex(g.key, "/")+1:] }
+
+// relations are the related objects of the recursive queries, as the C# property accessors give them (Common.cs:
+// VMProperty, StorageProperty, DisksProperty, HostProperty, NetworksProperty; the pool from PoolProperty).
+func relations(it item, f facts, inv *inventory, vbds map[xenapi.VBDRef]xenapi.VBDRecord, vifs map[xenapi.VIFRef]xenapi.VIFRecord,
+	nets map[string]xenapi.NetworkRecord) map[string][]string {
+	rel := map[string][]string{}
+	for _, prop := range []string{"pool", "host", "networks"} {
+		for _, g := range f.groups[prop] {
+			rel[prop] = append(rel[prop], groupUUID(g))
+		}
+	}
+	realVM := func(ref xenapi.VMRef) (string, bool) { // VM.IsRealVm
+		r, ok := inv.all[ref]
+		return r.UUID, ok && !r.IsATemplate && !r.IsASnapshot && !r.IsControlDomain
+	}
+	addVM := func(ref xenapi.VMRef) {
+		if u, ok := realVM(ref); ok && !slices.Contains(rel["vm"], u) {
+			rel["vm"] = append(rel["vm"], u)
+		}
+	}
+	vdiVMs := func(v xenapi.VDIRecord) {
+		for _, b := range v.VBDs {
+			addVM(vbds[b].VM)
+		}
+	}
+	switch it.obj.Kind {
+	case "pools":
+		for ref := range inv.all {
+			addVM(ref)
+		}
+	case "hosts":
+		for _, h := range inv.hosts {
+			if h.UUID == it.obj.UUID {
+				for _, ref := range h.ResidentVMs {
+					addVM(ref)
+				}
+			}
+		}
+	case "srs":
+		rel["storage"] = []string{it.obj.UUID}
+		for _, v := range inv.vdis {
+			if sr, ok := inv.srs[v.SR]; ok && sr.UUID == it.obj.UUID {
+				vdiVMs(v)
+			}
+		}
+	case "networks":
+		if n, ok := nets[it.obj.UUID]; ok {
+			for _, v := range n.VIFs {
+				addVM(vifs[v].VM)
+			}
+		}
+	case "vdis":
+		rel["disks"] = []string{it.obj.UUID}
+		for _, v := range inv.vdis {
+			if v.UUID == it.obj.UUID {
+				vdiVMs(v)
+				if sr, ok := inv.srs[v.SR]; ok {
+					rel["storage"] = []string{sr.UUID}
+				}
+			}
+		}
+	default: // a VM, template or snapshot
+		for ref, r := range inv.all {
+			if r.UUID != it.obj.UUID {
+				continue
+			}
+			if r.IsASnapshot {
+				addVM(r.SnapshotOf)
+				break
+			}
+			addVM(ref)
+			if _, real := realVM(ref); !real {
+				break
+			}
+			for _, b := range r.VBDs {
+				v, ok := inv.vdis[vbds[b].VDI]
+				if !ok {
+					continue
+				}
+				if !slices.Contains(rel["disks"], v.UUID) {
+					rel["disks"] = append(rel["disks"], v.UUID)
+				}
+				if sr, ok := inv.srs[v.SR]; ok && !slices.Contains(rel["storage"], sr.UUID) {
+					rel["storage"] = append(rel["storage"], sr.UUID)
+				}
+			}
+		}
+	}
+	return rel
+}
+
+// recursiveOn tells whether a filter has a recursive query on the property.
+func recursiveOn(q xmlNode, prop string) bool {
+	if strings.HasPrefix(q.XMLName.Local, "Recursive") && q.attr("property") == prop {
+		return true
+	}
+	return slices.ContainsFunc(q.Children, func(c xmlNode) bool { return recursiveOn(c, prop) })
+}

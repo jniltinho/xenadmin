@@ -4,7 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
-—
+### Added
+
+- Searches on a related object's properties (XenSearch RecursiveXMOPropertyQuery and RecursiveXMOListPropertyQuery:
+  the VMs on an SR or a server, the servers running a VM, the VMs of a disk or a pool), run on every object's facts.
 
 ## [0.2.0] — 2026-11-06
 

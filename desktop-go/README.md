@@ -67,13 +67,13 @@ Repair, Set as Default, Detach, Forget and Destroy, with the C# icons of a defau
 and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;
 the Search tab's New Search, Edit Search (types, a text filter, a grouping; Save to a pool, Delete), Export... and
 Import... of `.xensearch` files the Windows app reads; searches by name, type, power state, OS, tags, folder, custom
-fields, dates, IP addresses and the pool, server, vApp or network of an object; Notifications > Alerts with the
+fields, dates, IP addresses, the pool, server, vApp or network of an object, and a related object's properties (the
+VMs on an SR, the servers running a VM); Notifications > Alerts with the
 severity, server and date filters, Export (CSV), Dismiss, Dismiss Selected and Dismiss All.
 
 Not there yet: a VM's GPU and USB Properties pages, SR-IOV networks, a disk and
 network choice per VM, disk and interface when importing an OVF/OVA appliance (and its OS fixup, encrypted packages
-and VMDKs that are not stream-optimized), OVF/OVA export, and saved searches that filter on a related object's
-properties (XenSearch Recursive queries; listed, not run). The Windows app has those.
+and VMDKs that are not stream-optimized), and OVF/OVA export. The Windows app has those.
 
 ## Command line and MCP
 
