@@ -1,7 +1,6 @@
 package app
 
 import (
-	"encoding/xml"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +48,11 @@ type VMProperties struct {
 	PVBootFromCD     bool              `json:"pv_boot_from_cd"`   // a bootable CD drive
 	ShadowMultiplier float64           `json:"shadow_multiplier"` // HVM_shadow_multiplier
 	Frozen           bool              `json:"frozen"`            // suspended or paused: no shadow multiplier change
+
+	// Start Options (VMHAEditPage without HA): the start order and the delay before the next VM starts
+	Order      int  `json:"order"`
+	StartDelay int  `json:"start_delay"`
+	HAEnabled  bool `json:"ha_enabled"` // the pool has HA on: the page is read-only here (no restart priority yet)
 }
 
 // VCPUChoice is one vCPU count and its topologies.
@@ -62,32 +66,6 @@ type ServerPick struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
 	Live bool   `json:"live"`
-}
-
-// restriction reads a "vcpus-max"/"vcpus-min" restriction of the VM's recommendations (VM.GetMaxRestrictionValue).
-// shortcut: the value of a matching template with the same reference_label (CP-44766) is not looked up.
-func restriction(recommendations, field, attr string, def int) int {
-	var doc struct {
-		R []struct {
-			Field string `xml:"field,attr"`
-			Max   string `xml:"max,attr"`
-			Min   string `xml:"min,attr"`
-			Value string `xml:"value,attr"`
-		} `xml:"restriction"`
-	}
-	if xml.Unmarshal([]byte(recommendations), &doc) != nil {
-		return def
-	}
-	for _, r := range doc.R {
-		if r.Field != field {
-			continue
-		}
-		v := map[string]string{"max": r.Max, "min": r.Min, "value": r.Value}[attr]
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return def
 }
 
 // linuxDistros are VM.LinuxDistros: a guest agent reporting one of them is not Windows, whatever the platform flags.
@@ -158,10 +136,11 @@ func ReadVMProperties(c *xapi.Connection, vmUUID string) (VMProperties, error) {
 		HVM: vm.HVMBootPolicy != "", AutoPowerOn: vm.OtherConfig["auto_poweron"] == "true", BootOrder: order, PVArgs: vm.PVArgs,
 		BootDevices: map[string]string{"C": messages.Get("BOOT_HARD_DISK"), "D": messages.Get("BOOT_DVD_DRIVE"), "N": messages.Get("NETWORK")},
 		HasCD:       hasCD, PVBootFromCD: cdBoots, ShadowMultiplier: vm.HVMShadowMultiplier,
-		Frozen:  vm.PowerState == xenapi.VMPowerStateSuspended || vm.PowerState == xenapi.VMPowerStatePaused,
+		Frozen: vm.PowerState == xenapi.VMPowerStateSuspended || vm.PowerState == xenapi.VMPowerStatePaused,
+		Order:  vm.Order, StartDelay: vm.StartDelay,
 		Running: vm.PowerState == xenapi.VMPowerStateRunning, Hotplug: !isWindows(s, vm) && !ops.VCPUHotplugRestricted(hosts),
 		VCPUsMax: max(vm.VCPUsMax, 1), VCPUsAtStartup: max(vm.VCPUsAtStartup, 1), CoresPerSocket: cores, Priority: rules.Priority(weight),
-		MinVCPUs: restriction(vm.Recommendations, "vcpus-min", "min", 1), Servers: []ServerPick{}}
+		MinVCPUs: int(rules.Restriction(vm.Recommendations, "vcpus-min", "min", 1)), Servers: []ServerPick{}}
 	// VM.MaxCoresPerSocket: the home server's, else the largest of the pool
 	home := vmHome(s, vm)
 	var maxCores int64
@@ -185,10 +164,15 @@ func ReadVMProperties(c *xapi.Connection, vmUUID string) (VMProperties, error) {
 	if !p.Hotplug {
 		current = int64(p.VCPUsAtStartup)
 	}
-	limit := max(int64(restriction(vm.Recommendations, "vcpus-max", "max", 16)), current) // VM.MaxVCPUsAllowed
+	limit := max(rules.Restriction(vm.Recommendations, "vcpus-max", "max", 16), current) // VM.MaxVCPUsAllowed
 	for n := int64(1); n <= limit; n++ {
 		if t := rules.ValidTopologies(n, maxCores); len(t) > 0 || n == current {
 			p.VCPUChoices = append(p.VCPUChoices, VCPUChoice{VCPUs: n, Topologies: t})
+		}
+	}
+	if pools, err := xenapi.Pool.GetAllRecords(s); err == nil {
+		for _, pool := range pools {
+			p.HAEnabled = pool.HaEnabled
 		}
 	}
 	// VmRules.CanHaveNoHomeServer: shared storage that can hold disks and reaches every server, or no home server now

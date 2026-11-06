@@ -1,21 +1,61 @@
 <script setup lang="ts">
-// The VM's Properties dialog (PropertiesDialog): General, CPU, Boot Options, Home Server and (HVM) Advanced Options
+// The VM's Properties dialog (PropertiesDialog): General, Custom Fields, CPU, Boot Options, Start Options, Home Server
+// and (HVM) Advanced Options
 // pages on the left, OK and Cancel.
-// shortcut: General has name and description only; no Custom Fields, HA, Alerts, GPU or USB pages yet.
+// shortcut: General has name and description only; no Alerts, GPU or USB pages yet, and Start Options is
+// read-only on an HA pool (no restart priority).
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type VMProperties } from "./api/workspace";
 
 const props = defineProps<{ server: string; vm: string }>();
 const emit = defineEmits<{ (e: "close", saved: boolean): void }>();
 
-type Page = "general" | "cpu" | "boot" | "home" | "advanced";
+type Page = "general" | "fields" | "cpu" | "boot" | "start" | "home" | "advanced";
 const page = ref<Page>("general");
 const orig = ref<VMProperties | null>(null);
 const f = reactive({ name: "", description: "", vcpus: 1, atStartup: 1, cores: 1, priority: 4, home: "",
   autoPowerOn: false, devices: [] as { code: string; on: boolean }[], picked: -1, pvArgs: "", pvFromCd: false, shadow: "1",
-  shadowMode: "general" as "general" | "apps" | "manual" });
+  shadowMode: "general" as "general" | "apps" | "manual", order: 0, delay: 0 });
 const error = ref("");
 const busy = ref(false);
+
+// Custom Fields (CustomFieldsPage): the pool's fields with the VM's values; a Date in the local time of a
+// datetime-local input, stored as RFC 3339 universal time
+type Field = { name: string; type: string; value: string };
+const fields = ref<Field[]>([]);
+// null-prototype dictionaries: a field may be named "constructor" or "__proto__"
+const fieldEdits = reactive<Record<string, string>>(Object.create(null));
+const fieldTypes: Record<string, string> = Object.create(null);
+const toLocal = (rfc: string) => {
+  if (!rfc) return "";
+  const d = new Date(rfc), p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const shown = (f: Field) => (f.type === "Date" ? toLocal(f.value) : f.value);
+async function loadFields() {
+  fields.value = (await api.customFields(props.server, props.vm)) ?? [];
+  // edits survive a reload; a deleted field (or one made again with another type) starts from the VM's value
+  for (const name of Object.keys(fieldEdits))
+    if (!fields.value.some((f) => f.name === name && f.type === fieldTypes[name])) { delete fieldEdits[name]; delete fieldTypes[name]; }
+  for (const f of fields.value) if (!Object.hasOwn(fieldEdits, f.name)) { fieldEdits[f.name] = shown(f); fieldTypes[f.name] = f.type; }
+}
+function fieldChanges(): Record<string, string> | null {
+  const out: Record<string, string> = Object.create(null);
+  for (const f of fields.value) {
+    const v = fieldEdits[f.name] ?? "";
+    if (v === shown(f)) continue;
+    if (f.type === "Date" && v && Number.isNaN(new Date(v).getTime())) return null;
+    out[f.name] = f.type === "Date" && v ? new Date(v).toISOString().replace(/\.\d{3}Z$/, "Z") : v;
+  }
+  return out;
+}
+// CustomFieldsDialog: add a field or delete one, for every object of the pool (at once, as the C# actions)
+const editFields = ref<{ name: string; type: string; error: string; confirm: string } | null>(null);
+async function fieldAction(f: () => Promise<void>) {
+  const ed = editFields.value!; // the dialog may be closed before the call ends: the page is read again anyway
+  try { await f(); ed.error = ""; } catch (e) { ed.error = String(e); }
+  try { await loadFields(); } catch (e) { error.value = String(e); }
+}
 
 onMounted(async () => {
   try {
@@ -23,10 +63,11 @@ onMounted(async () => {
     orig.value = p;
     Object.assign(f, { name: p.name, description: p.description, vcpus: p.hotplug ? p.vcpus_max : p.vcpus_at_startup, atStartup: p.vcpus_at_startup,
       cores: p.cores_per_socket, priority: p.priority, home: p.home_server, autoPowerOn: p.auto_power_on, pvArgs: p.pv_args,
-      pvFromCd: p.pv_boot_from_cd && p.has_cd, shadow: String(p.shadow_multiplier),
+      pvFromCd: p.pv_boot_from_cd && p.has_cd, shadow: String(p.shadow_multiplier), order: p.order, delay: p.start_delay,
       shadowMode: p.shadow_multiplier === 1 ? "general" : p.shadow_multiplier === 4 ? "apps" : "manual",
       // BootOptionsEditPage: the boot order first, checked, then the devices it leaves out
       devices: [...p.boot_order.split(""), ..."CDN".split("").filter((c) => !p.boot_order.includes(c))].map((code) => ({ code, on: p.boot_order.includes(code) })) });
+    await loadFields();
   } catch (e) { error.value = String(e); }
 });
 
@@ -47,8 +88,10 @@ const warnings = computed(() => {
 });
 const pages = computed<{ id: Page; label: string; icon: string }[]>(() => [
   { id: "general", label: "General", icon: "000_Info3_h32bit_16" },
+  { id: "fields", label: "Custom Fields", icon: "000_Fields_h32bit_16" },
   { id: "cpu", label: "CPU", icon: "000_CPU_h32bit_16" },
   { id: "boot", label: "Boot Options", icon: "001_PowerOn_h32bit_16" },
+  { id: "start", label: "Start Options", icon: "000_RebootVM_h32bit_16" },
   { id: "home", label: "Home Server", icon: "000_ServerHome_h32bit_16" },
   ...(orig.value?.hvm ? [{ id: "advanced" as const, label: "Advanced", icon: "002_Configure_h32bit_16" }] : []), // VMAdvancedEditPage: HVM only
 ]);
@@ -83,10 +126,20 @@ async function save() {
     if (!(Number.isFinite(shadow) && shadow >= 1)) { error.value = "Value should be a number greater than or equal to 1.0"; page.value = "advanced"; return; }
     ch.shadow_multiplier = shadow;
   }
+  if (!orig.value!.ha_enabled && (f.order !== p.order || f.delay !== p.start_delay)) {
+    if (![f.order, f.delay].every((n) => Number.isInteger(n) && n >= 0)) { error.value = "Enter a whole number of 0 or more."; page.value = "start"; return; }
+    ch.order = f.order; ch.start_delay = f.delay;
+  }
   if (!f.name.trim()) { error.value = "Enter a name for the VM."; page.value = "general"; return; }
-  if (!Object.keys(ch).length) { emit("close", false); return; }
+  const fc = fieldChanges();
+  if (!fc) { error.value = "Enter a valid date."; page.value = "fields"; return; }
+  if (!Object.keys(ch).length && !Object.keys(fc).length) { emit("close", false); return; }
   busy.value = true;
-  try { await api.saveProperties(props.server, props.vm, ch); emit("close", true); } catch (e) { error.value = String(e); }
+  try {
+    if (Object.keys(ch).length) await api.saveProperties(props.server, props.vm, ch);
+    if (Object.keys(fc).length) await api.saveCustomFields(props.server, props.vm, fc);
+    emit("close", true);
+  } catch (e) { error.value = String(e); }
   busy.value = false;
 }
 </script>
@@ -132,6 +185,25 @@ async function save() {
             <input v-model.number="f.priority" type="range" min="0" max="8" step="1" :disabled="!orig.halted" class="w-[30rem]" />
             <div class="flex w-[30rem] justify-between text-xs text-neutral-500"><span>Lowest</span><span>Normal</span><span>Highest</span></div>
             <p v-for="w in warnings" :key="w" class="mt-3 text-red-800">{{ w }}</p>
+          </template>
+          <template v-else-if="page === 'fields'">
+            <p class="mb-3">Custom fields hold your own information about this object, such as its owner or its expiry date.</p>
+            <div class="mb-3 grid grid-cols-[10rem_1fr] items-center gap-2">
+              <template v-for="fd in fields" :key="fd.name">
+                <label :for="'cf-' + fd.name" class="truncate">{{ fd.name }}:</label>
+                <input :id="'cf-' + fd.name" v-model="fieldEdits[fd.name]" :type="fd.type === 'Date' ? 'datetime-local' : 'text'" class="border border-line px-1 py-0.5" />
+              </template>
+            </div>
+            <p v-if="!fields.length" class="mb-3 text-neutral-500">There are no custom fields. Use Edit Custom Fields to add one.</p>
+            <button class="btn" @click="editFields = { name: '', type: 'String', error: '', confirm: '' }">Edit Custom Fields...</button>
+          </template>
+          <template v-else-if="page === 'start'">
+            <p class="mb-3">{{ orig.ha_enabled ? "HA is enabled on this pool: the start order and delay are part of its restart plan."
+              : "Set the order in which this VM starts in a vApp or when HA restarts it, and the delay before the next VM starts." }}</p>
+            <div class="grid grid-cols-[auto_8rem_auto] items-center gap-x-3 gap-y-2">
+              <label for="order">Start order:</label><input id="order" v-model.number="f.order" type="number" min="0" step="1" :disabled="orig.ha_enabled" class="border border-line px-1 py-0.5" /><span />
+              <label for="delay">Attempt to start next VM after:</label><input id="delay" v-model.number="f.delay" type="number" min="0" step="1" :disabled="orig.ha_enabled" class="border border-line px-1 py-0.5" /><span>seconds</span>
+            </div>
           </template>
           <template v-else-if="page === 'boot'">
             <p class="mb-3">{{ orig.hvm ? "Choose the devices from which you would like to boot the VM’s operating system, and configure the boot device order. The first item in the list will be scanned first when booting; if boot media is not found, the second device will then be scanned, and so on down the list of selected devices."
@@ -185,6 +257,33 @@ async function save() {
         <span v-if="error && orig" class="mr-auto text-red-600">{{ error }}</span>
         <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" :disabled="busy || !orig" @click="save">OK</button>
         <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="emit('close', false)">Cancel</button>
+      </div>
+    </div>
+    <div v-if="editFields" class="fixed inset-0 z-40 flex items-center justify-center bg-black/20">
+      <div class="w-[30rem] border border-neutral-500 bg-white shadow-lg">
+        <div class="bg-band-dark px-3 py-1 font-semibold text-white">Edit Custom Fields</div>
+        <div v-if="editFields.confirm" class="space-y-3 p-3">
+          <p>Delete the custom field '{{ editFields.confirm }}' and its values on every object?</p>
+          <div class="flex justify-end gap-2">
+            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="fieldAction(() => api.removeCustomField(server, editFields!.confirm)); editFields!.confirm = ''">Yes</button>
+            <button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="editFields!.confirm = ''">No</button>
+          </div>
+        </div>
+        <div v-else class="space-y-3 p-3">
+          <div class="h-40 overflow-auto border border-line">
+            <div v-for="fd in fields" :key="fd.name" class="flex items-center justify-between px-2 py-1 hover:bg-neutral-100">
+              <span>{{ fd.name }}&nbsp;&nbsp;&nbsp;({{ fd.type === "Date" ? "Date and time" : "Text" }})</span>
+              <button class="btn" @click="editFields!.confirm = fd.name">Delete</button>
+            </div>
+          </div>
+          <form novalidate class="flex items-center gap-2" @submit.prevent="fieldAction(() => api.addCustomField(server, editFields!.name, editFields!.type)); editFields!.name = ''">
+            <input v-model="editFields.name" placeholder="Name of the new field" aria-label="Name of the new field" class="w-56 border border-line px-1 py-0.5" />
+            <select v-model="editFields.type" aria-label="Type" class="border border-line bg-white px-1 py-0.5"><option value="String">Text</option><option value="Date">Date and time</option></select>
+            <button type="submit" class="btn" :disabled="!editFields.name.trim()">Add</button>
+          </form>
+          <p v-if="editFields.error" class="text-red-600">{{ editFields.error }}</p>
+          <div class="flex justify-end"><button class="min-w-20 border border-neutral-400 bg-pane px-3 py-0.5" @click="editFields = null">Close</button></div>
+        </div>
       </div>
     </div>
   </div>

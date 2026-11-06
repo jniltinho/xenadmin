@@ -2,7 +2,9 @@
 import { Call } from "@wailsio/runtime";
 
 const svc = "xcpng-center/internal/gui.Workspace.";
-const call = <T>(method: string, ...args: unknown[]) => Call.ByName(svc + method, ...args) as Promise<T>;
+// a failed call rejects with the Go error's text alone (String(e) shows it without Wails' "RuntimeError: ")
+const call = <T>(method: string, ...args: unknown[]) =>
+  (Call.ByName(svc + method, ...args) as Promise<T>).catch((e: unknown) => { throw e instanceof Error ? e.message : e; });
 
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
@@ -21,7 +23,13 @@ export interface VMProperties { name: string; description: string; halted: boole
   vcpu_choices: { vcpus: number; topologies: { sockets: number; cores: number; text: string }[] }[];
   home_server: string; servers: { uuid: string; name: string; live: boolean }[]; can_have_none: boolean;
   hvm: boolean; auto_power_on: boolean; boot_order: string; boot_devices: Record<string, string>; pv_args: string; has_cd: boolean;
-  pv_boot_from_cd: boolean; shadow_multiplier: number; frozen: boolean }
+  pv_boot_from_cd: boolean; shadow_multiplier: number; frozen: boolean; order: number; start_delay: number; ha_enabled: boolean }
+export interface VIF { uuid: string; device: string; network: string; mac: string; qos: boolean; limit: string; attached: boolean; can_edit: boolean;
+  can_toggle: boolean; toggle_label: string; edit_tip: string; remove_tip: string; toggle_tip: string }
+export interface VMNetworking { table: Table; vifs: VIF[]; can_add: boolean; at_max: string }
+export interface VIFSettings { network: string; mac: string; qos: boolean; limit: string }
+export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
+  in_mb: boolean; static_min: number; static_max: number; dynamic_min: number; dynamic_max: number; max: number }
 export interface Performance { times: number[]; start: number; end: number;
   graphs: { title: string; max: number; divisor: number; label: string; series: { name: string; values: (number | null)[] }[] }[];
   events: { time: string; name: string; text: string }[] }
@@ -56,10 +64,23 @@ export const api = {
   hostCommand: (key: string, uuid: string, op: string, restore: boolean) => call<void>("HostCommand", key, uuid, op, restore),
   properties: (key: string, vm: string) => call<VMProperties>("Properties", key, vm),
   saveProperties: (key: string, vm: string, changes: Record<string, unknown>) => call<void>("SaveProperties", key, vm, changes),
+  customFields: (key: string, vm: string) => call<{ name: string; type: string; value: string }[]>("CustomFields", key, vm),
+  saveCustomFields: (key: string, vm: string, values: Record<string, string>) => call<void>("SaveCustomFields", key, vm, values),
+  addCustomField: (key: string, name: string, kind: string) => call<void>("AddCustomField", key, name, kind),
+  removeCustomField: (key: string, name: string) => call<void>("RemoveCustomField", key, name),
   forget: (key: string) => call<void>("Forget", key),
   storage: (key: string, vm: string) => call<VMStorage>("Storage", key, vm),
-  networking: (key: string, vm: string) => call<Table>("Networking", key, vm),
+  networking: (key: string, vm: string) => call<VMNetworking>("Networking", key, vm),
+  vifNetworks: (key: string, vm: string) => call<{ uuid: string; name: string }[]>("VIFNetworks", key, vm),
+  vifQuestion: (vif: string, mac: string) => call<Confirm>("VIFQuestion", vif, mac),
+  vifDeleteQuestion: () => call<Confirm>("VIFDeleteQuestion"),
+  saveVif: (key: string, vm: string, vif: string, set: VIFSettings) => call<string>("SaveVIF", key, vm, vif, set),
+  deleteVif: (key: string, vif: string) => call<void>("DeleteVIF", key, vif),
+  setVifActive: (key: string, vif: string, active: boolean) => call<void>("SetVIFActive", key, vif, active),
   memory: (key: string, vm: string) => call<Table>("Memory", key, vm),
+  memoryEdit: (key: string, vm: string) => call<MemoryEdit>("MemoryEdit", key, vm),
+  memoryQuestion: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<string>("MemoryQuestion", key, vm, dynMin, dynMax, staticMax),
+  changeMemory: (key: string, vm: string, dynMin: number, dynMax: number, staticMax: number) => call<void>("ChangeMemory", key, vm, dynMin, dynMax, staticMax),
   setDiskActive: (key: string, vbd: string, active: boolean) => call<void>("SetDiskActive", key, vbd, active),
   newDiskOptions: (key: string, vm: string) => call<NewDisk>("NewDiskOptions", key, vm),
   addDisk: (key: string, vm: string, name: string, description: string, sr: string, size: number) => call<string>("AddDisk", key, vm, name, description, sr, size),

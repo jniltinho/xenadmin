@@ -1021,3 +1021,240 @@ func TestLabSavedSearch(t *testing.T) {
 		t.Fatalf("%+v %v", nodes, err)
 	}
 }
+
+// TestLabMemory reads the Memory Settings of XCP_LAB_VM (running, no guest tools: a fixed memory), refuses a value
+// over the limits, raises the memory by 64 MB (the VM restarts on its server) and restores it (XCP_ALLOW_WRITE=1).
+func TestLabMemory(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	refs, err := xenapi.VM.GetByNameLabel(c.Session, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %v", name, err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+	host, _ := xenapi.VM.GetResidentOn(c.Session, refs[0])
+	e, err := ReadMemoryEdit(c, uuid)
+	if err != nil || !e.CanEdit || e.Advanced || e.Dynamic || e.Unavailable == "" || e.Rubric == "" || e.Max < e.StaticMax {
+		t.Fatalf("%+v %v", e, err)
+	}
+	if _, err := MemoryQuestion(c, uuid, 0, 0, e.Max+1); err == nil {
+		t.Fatal("more than the maximum is accepted")
+	}
+	more := e.StaticMax + 64<<20
+	if q, err := MemoryQuestion(c, uuid, more, more, more); err != nil || q == "" {
+		t.Fatalf("no question before the restart: %q %v", q, err)
+	}
+	t.Cleanup(func() {
+		if err := ChangeMemory(c, uuid, e.DynamicMin, e.DynamicMax, e.StaticMax); err != nil {
+			t.Errorf("not restored: %v", err)
+		}
+	})
+	if err := ChangeMemory(c, uuid, more, more, more); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := xenapi.VM.GetRecord(c.Session, refs[0])
+	if int64(after.MemoryStaticMax) != more || int64(after.MemoryDynamicMin) != more || after.PowerState != xenapi.VMPowerStateRunning || after.ResidentOn != host {
+		t.Fatalf("%d %d %s %s", after.MemoryStaticMax, after.MemoryDynamicMin, after.PowerState, after.ResidentOn)
+	}
+}
+
+// TestLabVIF adds an interface to XCP_LAB_VM (running: plugged at once), changes its MAC and QoS limit (the VIF is
+// recreated on its device), deactivates and activates it, and removes it (XCP_ALLOW_WRITE=1).
+func TestLabVIF(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	refs, err := xenapi.VM.GetByNameLabel(c.Session, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %v", name, err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+	before, err := ListVMNetworking(c, uuid)
+	if err != nil || !before.CanAdd {
+		t.Fatalf("%+v %v", before, err)
+	}
+	nets, err := VIFNetworks(c, uuid)
+	if err != nil || len(nets) == 0 {
+		t.Fatalf("%v %v", nets, err)
+	}
+	if _, err := ops.CreateVIF(c, uuid, ops.VIFSettings{Network: nets[0].UUID, MAC: "zz"}); err == nil {
+		t.Fatal("a bad MAC is accepted")
+	}
+	added := func() *VIF {
+		n, _ := ListVMNetworking(c, uuid)
+		for _, v := range n.VIFs {
+			if !slices.ContainsFunc(before.VIFs, func(b VIF) bool { return b.Device == v.Device }) {
+				return &v
+			}
+		}
+		return nil
+	}
+	if _, err := ops.CreateVIF(c, uuid, ops.VIFSettings{Network: nets[0].UUID}); err != nil {
+		t.Fatal(err)
+	}
+	v := added()
+	if v == nil || v.MAC == "" {
+		t.Fatalf("not added: %+v", v)
+	}
+	t.Cleanup(func() {
+		if v := added(); v != nil {
+			if err := ops.DeleteVIF(c, v.UUID); err != nil {
+				t.Errorf("not removed: %v", err)
+			}
+		}
+	})
+	if dup, err := DuplicateMAC(c, "", v.MAC); err != nil || dup == "" {
+		t.Fatalf("the MAC of %s is not a duplicate: %q %v", name, dup, err)
+	}
+	mac := "02:00:5e:10:20:30"
+	if _, err := ops.UpdateVIF(c, v.UUID, ops.VIFSettings{Network: nets[0].UUID, MAC: mac, QoS: true, Limit: "1000"}); err != nil {
+		t.Fatal(err)
+	}
+	u := added()
+	if u == nil || u.Device != v.Device || u.MAC != mac || !u.QoS || u.Limit != "1000" {
+		t.Fatalf("not updated: %+v", u)
+	}
+	if u.Attached && u.CanToggle {
+		if err := ops.SetVIFActive(c, u.UUID, false); err != nil {
+			t.Fatal(err)
+		}
+		if w := added(); w.Attached {
+			t.Fatal("still attached")
+		}
+		if err := ops.SetVIFActive(c, u.UUID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ops.DeleteVIF(c, u.UUID); err != nil || added() != nil {
+		t.Fatalf("not removed: %v", err)
+	}
+}
+
+// TestLabStartOptions changes the start order and delay of XCP_LAB_VM and restores them (XCP_ALLOW_WRITE=1).
+func TestLabStartOptions(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	refs, err := xenapi.VM.GetByNameLabel(c.Session, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %v", name, err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+	before, err := ReadVMProperties(c, uuid)
+	if err != nil || before.HAEnabled {
+		t.Fatalf("%+v %v", before.HAEnabled, err)
+	}
+	t.Cleanup(func() {
+		if err := ops.SaveVMProperties(c, uuid, ops.VMChanges{Order: &before.Order, StartDelay: &before.StartDelay}); err != nil {
+			t.Errorf("not restored: %v", err)
+		}
+	})
+	order, delay := before.Order+3, before.StartDelay+7
+	if err := ops.SaveVMProperties(c, uuid, ops.VMChanges{Order: &order, StartDelay: &delay}); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := ReadVMProperties(c, uuid); after.Order != order || after.StartDelay != delay {
+		t.Fatalf("%d %d", after.Order, after.StartDelay)
+	}
+	bad := -1
+	if err := ops.SaveVMProperties(c, uuid, ops.VMChanges{Order: &bad}); err == nil {
+		t.Fatal("a negative order is saved")
+	}
+}
+
+// TestLabCustomFields adds a text and a date field to the pool, sets them on XCP_LAB_VM, reads them back and deletes the
+// fields with their values (XCP_ALLOW_WRITE=1).
+func TestLabCustomFields(t *testing.T) {
+	c := labConnection(t)
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	refs, err := xenapi.VM.GetByNameLabel(c.Session, name)
+	if err != nil || len(refs) != 1 {
+		t.Fatalf("%s: %v", name, err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(c.Session, refs[0])
+	text, date := "xcpng-center-go-test owner", "xcpng-center-go-test expiry"
+	t.Cleanup(func() {
+		for _, f := range []string{text, date} {
+			if err := ops.RemoveCustomField(c, f); err != nil {
+				t.Errorf("%s not removed: %v", f, err)
+			}
+		}
+		if other, _ := xenapi.VM.GetOtherConfig(c.Session, refs[0]); other[rules.CustomFieldsKey+"."+text] != "" {
+			t.Error("the value stays on the VM")
+		}
+	})
+	if err := ops.AddCustomField(c, text, "String"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.AddCustomField(c, date, "Date"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ops.AddCustomField(c, text, "String"); err == nil {
+		t.Fatal("the same field twice")
+	}
+	if err := ops.SaveVMCustomFields(c, uuid, map[string]string{text: "lab", date: "2026-03-04T05:06:07Z"}); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := xenapi.VM.GetOtherConfig(c.Session, refs[0])
+	if other[rules.CustomFieldsKey+"."+date] != "2026-03-04 05:06:07Z" {
+		t.Fatalf("the date is not stored as the C# app does: %q", other[rules.CustomFieldsKey+"."+date])
+	}
+	got := map[string]string{}
+	fields, err := VMCustomFields(c, uuid)
+	for _, f := range fields {
+		got[f.Name] = f.Value
+	}
+	if err != nil || got[text] != "lab" || got[date] != "2026-03-04T05:06:07Z" {
+		t.Fatalf("%v %v", got, err)
+	}
+	if err := ops.SaveVMCustomFields(c, uuid, map[string]string{text: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if other, _ := xenapi.VM.GetOtherConfig(c.Session, refs[0]); other[rules.CustomFieldsKey+"."+text] != "" {
+		t.Fatal("an empty value is not removed")
+	}
+}
+
+// TestLabHostTabs reads the Memory, Storage, Networking and NICs tabs of the coordinator and the pool, and the
+// Storage tab of the default SR.
+func TestLabHostTabs(t *testing.T) {
+	c := labConnection(t)
+	s := c.Session
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	var master xenapi.HostRef
+	var poolUUID string
+	var sr xenapi.SRRef
+	for _, p := range pools {
+		master, poolUUID, sr = p.Master, p.UUID, p.DefaultSR
+	}
+	hostUUID, _ := xenapi.Host.GetUUID(s, master)
+	srUUID, _ := xenapi.SR.GetUUID(s, sr)
+	for _, c2 := range []struct{ kind, uuid, tab string }{
+		{"hosts", hostUUID, "memory"}, {"hosts", hostUUID, "storage"}, {"hosts", hostUUID, "networking"}, {"hosts", hostUUID, "nics"},
+		{"pools", poolUUID, "memory"}, {"pools", poolUUID, "storage"}, {"pools", poolUUID, "networking"}, {"srs", srUUID, "storage"},
+	} {
+		tab, err := HostTab(c, c2.kind, c2.uuid, c2.tab)
+		if err != nil || len(tab.Rows) == 0 {
+			t.Fatalf("%s %s: %+v %v", c2.kind, c2.tab, tab, err)
+		}
+		for _, r := range tab.Rows {
+			if len(r) != len(tab.Headers) {
+				t.Fatalf("%s %s: row %v for %v", c2.kind, c2.tab, r, tab.Headers)
+			}
+		}
+		t.Logf("%s %s: %v", c2.kind, c2.tab, tab.Rows)
+	}
+	if _, err := HostTab(c, "pools", poolUUID, "nics"); err == nil {
+		t.Error("a pool has no NICs tab")
+	}
+}

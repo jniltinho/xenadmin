@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -447,17 +448,46 @@ func seenFrom(s *xenapi.Session, sr xenapi.SRRecord, host xenapi.HostRef) bool {
 	return false
 }
 
+// VIF is an interface of the Networking tab, with NetworkRules' button rules and tooltips.
+type VIF struct {
+	UUID        string `json:"uuid"`
+	Device      string `json:"device"`
+	Network     string `json:"network"` // network uuid
+	MAC         string `json:"mac"`
+	QoS         bool   `json:"qos"`
+	Limit       string `json:"limit"`
+	Attached    bool   `json:"attached"`
+	CanEdit     bool   `json:"can_edit"` // Properties and Remove Interface
+	CanToggle   bool   `json:"can_toggle"`
+	ToggleLabel string `json:"toggle_label"`
+	EditTip     string `json:"edit_tip"`
+	RemoveTip   string `json:"remove_tip"`
+	ToggleTip   string `json:"toggle_tip"`
+}
+
+// VMNetworking is the Networking tab of a VM (VmNetworkView): the table and its interfaces.
+type VMNetworking struct {
+	Table  Table  `json:"table"`
+	VIFs   []VIF  `json:"vifs"`
+	CanAdd bool   `json:"can_add"`
+	AtMax  string `json:"at_max"` // NetworkRules.AtMaxInterfaces: VIFS_MAX_ALLOWED's text when the VM has all it can take
+}
+
 // ListVMNetworking is Details.Networking for a VM (VmNetworkView's table).
-// shortcut: no Add, Properties, Remove or Activate of interfaces yet (NetworkRules has them).
-func ListVMNetworking(c *xapi.Connection, vmUUID string) (Table, error) {
+func ListVMNetworking(c *xapi.Connection, vmUUID string) (VMNetworking, error) {
 	s := c.Session
 	ref, err := xenapi.VM.GetByUUID(s, vmUUID)
 	if err != nil {
-		return Table{}, xapi.Sanitize(err)
+		return VMNetworking{}, xapi.Sanitize(err)
 	}
 	vm, err := xenapi.VM.GetRecord(s, ref)
 	if err != nil {
-		return Table{}, xapi.Sanitize(err)
+		return VMNetworking{}, xapi.Sanitize(err)
+	}
+	io, win, _ := vmTools(s, vm)
+	out := VMNetworking{VIFs: []VIF{}, CanAdd: len(vm.CurrentOperations) == 0}
+	if int64(len(vm.VIFs)) >= rules.Restriction(vm.Recommendations, "number-of-vifs", "max", 7) {
+		out.AtMax, _ = messages.FailureText("VIFS_MAX_ALLOWED", nil)
 	}
 	t := Table{Title: "Virtual Network Interfaces", Headers: []string{"Device", "MAC", "Limit", "Network", "IP Address", "Active"}, Rows: [][]string{}, Keys: []string{}}
 	gm, _ := xenapi.VMGuestMetrics.GetRecord(s, vm.GuestMetrics)
@@ -492,12 +522,23 @@ func ListVMNetworking(c *xapi.Connection, vmUUID string) (Table, error) {
 		}
 		t.Rows = append(t.Rows, []string{vif.Device, vif.MAC, limit, net, strings.Join(ips, ", "), yesNo(vif.CurrentlyAttached)})
 		t.Keys = append(t.Keys, vif.UUID)
+		v := VIF{UUID: vif.UUID, Device: vif.Device, MAC: vif.MAC, QoS: vif.QosAlgorithmType == "ratelimit", Limit: vif.QosAlgorithmParams["kbps"],
+			Attached: vif.CurrentlyAttached, CanEdit: out.CanAdd && (slices.Contains(vif.AllowedOperations, xenapi.VifOperationsUnplug) || !vif.CurrentlyAttached)}
+		if n, err := xenapi.Network.GetUUID(s, vif.Network); err == nil {
+			v.Network = n
+		}
+		op := map[bool]xenapi.VifOperations{true: xenapi.VifOperationsUnplug, false: xenapi.VifOperationsPlug}[vif.CurrentlyAttached]
+		v.CanToggle = out.CanAdd && slices.Contains(vif.AllowedOperations, op)
+		v.ToggleLabel = strings.ReplaceAll(messages.Get(map[bool]string{true: "VM_NETWORK_TAB_DEACTIVATE_BUTTON_LABEL", false: "VM_NETWORK_TAB_ACTIVATE_BUTTON_LABEL"}[vif.CurrentlyAttached]), "&", "")
+		v.EditTip, v.RemoveTip, v.ToggleTip = rules.VIFTooltips(vm.PowerState == xenapi.VMPowerStateSuspended, vm.PowerState == xenapi.VMPowerStateRunning, io, win, vif.CurrentlyAttached)
+		out.VIFs = append(out.VIFs, v)
 	}
-	return t, nil
+	out.Table = t
+	return out, nil
 }
 
 // ListVMMemory is the Memory tab's figures (MemoryView): the static and dynamic limits and what the VM uses now.
-// shortcut: figures only; editing (MemoryRules.Validate, Settings, ChangeAction) and the host bar come next.
+// shortcut: figures only, no bar (VMShinyBar); editing is the Memory Settings dialog (memory.go).
 func ListVMMemory(c *xapi.Connection, vmUUID string) (Table, error) {
 	s := c.Session
 	ref, err := xenapi.VM.GetByUUID(s, vmUUID)

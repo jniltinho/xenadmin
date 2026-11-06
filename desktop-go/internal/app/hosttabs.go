@@ -1,0 +1,359 @@
+package app
+
+import (
+	"fmt"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+
+	xenapi "go/xenapi"
+
+	"xcpng-center/internal/messages"
+	"xcpng-center/internal/rules"
+	"xcpng-center/internal/xapi"
+)
+
+// The Memory, Storage, Networking and NICs tabs of a server or pool, and the Storage tab of an SR (Details.Memory,
+// Storage, Networking and Nics). shortcut: read-only tables; their buttons (New Network, bonds, Add disk...) and the
+// SR-IOV and tunnel columns come later.
+
+// hostTabData is what the tabs read of a connection.
+type hostTabData struct {
+	s     *xenapi.Session
+	hosts map[xenapi.HostRef]xenapi.HostRecord
+	pifs  map[xenapi.PIFRef]xenapi.PIFRecord
+	pm    map[xenapi.PIFMetricsRef]xenapi.PIFMetricsRecord
+	bonds map[xenapi.BondRef]xenapi.BondRecord
+}
+
+func readHostTabData(s *xenapi.Session) (*hostTabData, error) {
+	d := &hostTabData{s: s}
+	var err error
+	if d.hosts, err = xenapi.Host.GetAllRecords(s); err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	if d.pifs, err = xenapi.PIF.GetAllRecords(s); err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	if d.pm, err = xenapi.PIFMetrics.GetAllRecords(s); err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	if d.bonds, err = xenapi.Bond.GetAllRecords(s); err != nil {
+		return nil, xapi.Sanitize(err)
+	}
+	return d, nil
+}
+
+// pifPhysical is PIF.IsPhysical: not a VLAN, tunnel access or SR-IOV logical PIF.
+func pifPhysical(p xenapi.PIFRecord) bool {
+	return p.VLAN == -1 && len(p.TunnelAccessPIFOf) == 0 && len(p.SriovLogicalPIFOf) == 0
+}
+
+// pifName is PIF.Name: "NIC 0" or "Bond 0+1" for a physical PIF (BondSuffix: the members' numbers, sorted), else the
+// name of its physical PIF on the same device.
+func (d *hostTabData) pifName(p xenapi.PIFRecord) string {
+	if len(p.BondMasterOf) > 0 {
+		var nums []string
+		for _, b := range p.BondMasterOf {
+			for _, sl := range d.bonds[b].Slaves {
+				nums = append(nums, strings.TrimPrefix(d.pifs[sl].Device, "eth"))
+			}
+		}
+		sort.Slice(nums, func(i, j int) bool { a, _ := strconv.Atoi(nums[i]); b, _ := strconv.Atoi(nums[j]); return a < b })
+		return "Bond " + strings.Join(nums, "+")
+	}
+	if pifPhysical(p) {
+		return "NIC " + strings.TrimPrefix(p.Device, "eth")
+	}
+	for _, o := range d.pifs { // a VLAN: the physical PIF of its server on the same device
+		if o.Host == p.Host && o.Device == p.Device && pifPhysical(o) {
+			return d.pifName(o)
+		}
+	}
+	return p.Device
+}
+
+// linkState is PIF.LinkStatus for a physical or VLAN PIF: its metrics' carrier, unknown without metrics.
+// shortcut: tunnel access and SR-IOV PIFs are not told apart.
+func (d *hostTabData) linkState(p xenapi.PIFRecord) string {
+	m, ok := d.pm[p.Metrics]
+	switch {
+	case !ok:
+		return "Unknown"
+	case m.Carrier:
+		return "Connected"
+	}
+	return "Disconnected"
+}
+
+// HostTab is one of these tabs for a server ("hosts"), a pool ("pools") or an SR ("srs").
+func HostTab(c *xapi.Connection, kind, uuid, tab string) (Table, error) {
+	s := c.Session
+	var host xenapi.HostRef // "" for a pool
+	switch kind {
+	case "hosts":
+		r, err := xenapi.Host.GetByUUID(s, uuid)
+		if err != nil {
+			return Table{}, xapi.Sanitize(err)
+		}
+		host = r
+	case "srs":
+		if tab != "storage" {
+			return Table{}, fmt.Errorf("an SR has no %s tab", tab)
+		}
+		return srDisks(s, uuid)
+	case "pools":
+	default:
+		return Table{}, fmt.Errorf("no %s tab for %s", tab, kind)
+	}
+	d, err := readHostTabData(s)
+	if err != nil {
+		return Table{}, err
+	}
+	switch tab {
+	case "memory":
+		return d.memory(host)
+	case "storage":
+		return d.storage(host)
+	case "networking":
+		return d.networking(host)
+	case "nics":
+		if host == "" {
+			return Table{}, fmt.Errorf("a pool has no NICs tab")
+		}
+		return d.nics(host), nil
+	}
+	return Table{}, fmt.Errorf("unknown tab %s", tab)
+}
+
+// memory is Details.Memory (HostMemory): the server's free and total memory, its VMs' and Xen's; for a pool, each
+// server in a section of its own.
+func (d *hostTabData) memory(only xenapi.HostRef) (Table, error) {
+	s := d.s
+	t := Table{Title: "Memory", Headers: []string{"", ""}, Rows: [][]string{}, Keys: []string{}}
+	var refs []xenapi.HostRef
+	for r := range d.hosts {
+		if only == "" || r == only {
+			refs = append(refs, r)
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool { return d.hosts[refs[i]].NameLabel < d.hosts[refs[j]].NameLabel })
+	for _, r := range refs {
+		h := d.hosts[r]
+		if only == "" {
+			t.Rows = append(t.Rows, []string{h.NameLabel, ""})
+		}
+		hm, err := xenapi.HostMetrics.GetRecord(s, h.Metrics)
+		if err != nil {
+			t.Rows = append(t.Rows, []string{"Server", "Unknown"}, []string{"VMs", "Unknown"}, []string{"XCP-ng", "Unknown"})
+			continue
+		}
+		xen, dynMin := int64(h.MemoryOverhead), int64(0) // Host.xen_memory_calc and tot_dyn_min
+		var used []string
+		for _, vr := range h.ResidentVMs {
+			vm, err := xenapi.VM.GetRecord(s, vr)
+			if err != nil {
+				continue
+			}
+			xen += int64(vm.MemoryOverhead)
+			m, merr := xenapi.VMMetrics.GetRecord(s, vm.Metrics)
+			if vm.IsControlDomain {
+				if merr == nil {
+					xen += int64(m.MemoryActual)
+				}
+				continue
+			}
+			dynMin += int64(vm.MemoryDynamicMin)
+			if merr == nil { // ResidentVMMemoryUsageString
+				used = append(used, fmt.Sprintf("%s: using %s", vm.NameLabel, rules.MemoryText(int64(m.MemoryActual))))
+			}
+		}
+		avail := max(0, int64(hm.MemoryTotal)-dynMin-xen) // Host.memory_available_calc
+		t.Rows = append(t.Rows,
+			[]string{"Server", fmt.Sprintf("%s RAM available (%s total)", rules.MemoryText(avail), rules.MemoryText(int64(hm.MemoryTotal)))},
+			[]string{"VMs", strings.Join(used, "\n")},
+			[]string{"XCP-ng", rules.MemoryText(xen)})
+	}
+	return t, nil
+}
+
+// storage is Details.Storage for a server or pool (StorageRules.PhysicalSrs): the shown SRs, not the tools SR, shared
+// or local to the server.
+func (d *hostTabData) storage(host xenapi.HostRef) (Table, error) {
+	s := d.s
+	srs, err := xenapi.SR.GetAllRecords(s)
+	if err != nil {
+		return Table{}, xapi.Sanitize(err)
+	}
+	t := Table{Title: "Storage Repositories", Headers: []string{"Name", "Description", "Type", "Shared", "Usage", "Size", "Virtual allocation"},
+		Rows: [][]string{}, Keys: []string{}}
+	var list []xenapi.SRRecord
+	for _, sr := range srs {
+		if !srShown(sr) || sr.IsToolsSr || sr.NameLabel == "XenServer Tools" {
+			continue
+		}
+		if host != "" && !sr.Shared { // SR.Home: the server of its one PBD
+			if len(sr.PBDs) != 1 {
+				continue
+			}
+			if h, err := xenapi.PBD.GetHost(s, sr.PBDs[0]); err != nil || h != host {
+				continue
+			}
+		}
+		list = append(list, sr)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].NameLabel < list[j].NameLabel })
+	for _, sr := range list {
+		usage := ""
+		if sr.PhysicalSize > 0 {
+			usage = fmt.Sprintf("%d%% (%s used)", int64(sr.PhysicalUtilisation)*100/int64(sr.PhysicalSize), diskSize(sr.PhysicalUtilisation))
+		}
+		t.Rows = append(t.Rows, []string{sr.NameLabel, sr.NameDescription, srTypeName(sr.Type), yesNo(sr.Shared), usage,
+			diskSize(sr.PhysicalSize), diskSize(sr.VirtualAllocation)})
+		t.Keys = append(t.Keys, sr.UUID)
+	}
+	return t, nil
+}
+
+// networking is Details.Networking for a server or pool: the shown networks with the server's PIF on each (a pool
+// shows the network's link status over all its PIFs).
+func (d *hostTabData) networking(host xenapi.HostRef) (Table, error) {
+	nets, err := xenapi.Network.GetAllRecords(d.s)
+	if err != nil {
+		return Table{}, xapi.Sanitize(err)
+	}
+	t := Table{Title: "Networks", Headers: []string{"Name", "Description", "NIC", "VLAN", "Auto", "Link Status", "MAC", "MTU"}, Rows: [][]string{}, Keys: []string{}}
+	var list []xenapi.NetworkRecord
+	for _, n := range nets {
+		if networkShown(n, d.pifs) {
+			list = append(list, n)
+		}
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].NameLabel < list[j].NameLabel })
+	for _, n := range list {
+		var pif *xenapi.PIFRecord // Helpers.FindPIF
+		for _, r := range n.PIFs {
+			if p, ok := d.pifs[r]; ok && (host == "" || p.Host == host) {
+				pif = &p
+				break
+			}
+		}
+		nic, vlan, link, mac := "", " - ", "None", " - "
+		if pif != nil {
+			nic = d.pifName(*pif)
+			if pif.VLAN != -1 {
+				vlan = strconv.Itoa(pif.VLAN)
+			}
+			link = d.linkState(*pif)
+			if pifPhysical(*pif) {
+				mac = pif.MAC
+			}
+		}
+		if host == "" { // Network.LinkStatusString
+			link = d.networkLink(n)
+		}
+		mtu := strconv.Itoa(n.MTU)
+		if slices.ContainsFunc(n.PIFs, func(r xenapi.PIFRef) bool { return len(d.pifs[r].TunnelAccessPIFOf) > 0 }) { // CanUseJumboFrames
+			mtu = " - "
+		}
+		t.Rows = append(t.Rows, []string{n.NameLabel, n.NameDescription, nic, vlan, yesNo(n.OtherConfig["automatic"] != "false"), link, mac, mtu})
+		t.Keys = append(t.Keys, n.UUID)
+	}
+	return t, nil
+}
+
+// networkLink is Network.LinkStatusString: Connected, Partially connected or Disconnected over the network's PIFs.
+func (d *hostTabData) networkLink(n xenapi.NetworkRecord) string {
+	if len(n.PIFs) == 0 {
+		return "None"
+	}
+	states := map[string]bool{}
+	for _, r := range n.PIFs {
+		states[d.linkState(d.pifs[r])] = true
+	}
+	switch {
+	case states["Connected"] && (states["Disconnected"] || states["Unknown"]):
+		return "Partially connected"
+	case states["Connected"]:
+		return "Connected"
+	case states["Disconnected"]:
+		return "Disconnected"
+	}
+	return "Unknown"
+}
+
+// nics is Details.Nics (NICPage): the server's physical NICs, by name.
+// shortcut: no SR-IOV Capable column.
+func (d *hostTabData) nics(host xenapi.HostRef) Table {
+	t := Table{Title: "Network Interface Cards", Headers: []string{"NIC", "MAC", "Link Status", "Speed", "Duplex", "Vendor", "Device", "PCI Bus Path", "FCoE Capable"},
+		Rows: [][]string{}, Keys: []string{}}
+	var list []xenapi.PIFRecord
+	for _, p := range d.pifs {
+		if p.Host == host && pifPhysical(p) {
+			list = append(list, p)
+		}
+	}
+	sort.Slice(list, func(i, j int) bool { return d.pifName(list[i]) < d.pifName(list[j]) })
+	for _, p := range list {
+		m, ok := d.pm[p.Metrics]
+		up := ok && m.Carrier
+		link, speed, duplex, vendor, device, bus := "Disconnected", "-", "-", "-", "-", "-"
+		if up {
+			link, speed, duplex = "Connected", fmt.Sprintf("%d Mbit/s", m.Speed), map[bool]string{true: "Full", false: "Half"}[m.Duplex]
+		}
+		if ok {
+			vendor, device, bus = m.VendorName, m.DeviceName, m.PciBusPath
+		}
+		t.Rows = append(t.Rows, []string{d.pifName(p), p.MAC, link, speed, duplex, vendor, device, bus, yesNo(slices.Contains(p.Capabilities, "fcoe"))})
+		t.Keys = append(t.Keys, p.UUID)
+	}
+	return t
+}
+
+// srDisks is Details.Storage for an SR (StorageRules.SrDisks): its shown disks, by name, with the VMs using them.
+// shortcut: no Storage Volume or Changed Block Tracking columns.
+func srDisks(s *xenapi.Session, uuid string) (Table, error) {
+	ref, err := xenapi.SR.GetByUUID(s, uuid)
+	if err != nil {
+		return Table{}, xapi.Sanitize(err)
+	}
+	vdiRefs, err := xenapi.SR.GetVDIs(s, ref)
+	if err != nil {
+		return Table{}, xapi.Sanitize(err)
+	}
+	t := Table{Title: "Virtual Disks", Headers: []string{"Name", "Description", "Size", "Virtual Machine"}, Rows: [][]string{}, Keys: []string{}}
+	var list []xenapi.VDIRecord
+	for _, r := range vdiRefs {
+		v, err := xenapi.VDI.GetRecord(s, r)
+		if err != nil || v.Missing || !v.Managed || v.OtherConfig["HideFromXenCenter"] == "true" { // VDI.Show
+			continue
+		}
+		if _, mirror := v.SmConfig["base_mirror"]; mirror { // IsAnIntermediateStorageMotionSnapshot
+			continue
+		}
+		list = append(list, v)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].NameLabel < list[j].NameLabel })
+	for _, v := range list {
+		var vms []string // VDI.VMsOfVDI
+		for _, b := range v.VBDs {
+			if vm, err := xenapi.VBD.GetVM(s, b); err == nil {
+				if name, err := xenapi.VM.GetNameLabel(s, vm); err == nil {
+					vms = append(vms, name)
+				}
+			}
+		}
+		t.Rows = append(t.Rows, []string{v.NameLabel, v.NameDescription, diskSize(v.VirtualSize), strings.Join(vms, ", ")})
+		t.Keys = append(t.Keys, v.UUID)
+	}
+	return t, nil
+}
+
+// srTypeName is SR.FriendlyTypeName: the FriendlyNames label of the type, else the type itself.
+func srTypeName(t string) string {
+	if n := messages.Friendly("Label-SR.SRTypes-" + t); n != "" {
+		return n
+	}
+	return t
+}

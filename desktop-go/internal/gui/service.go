@@ -166,6 +166,47 @@ func (w *Workspace) SaveProperties(key, vmUUID string, changes ops.VMChanges) er
 	return w.with(key, func(c *xapi.Connection) error { return ops.SaveVMProperties(c, vmUUID, changes) })
 }
 
+// MemoryEdit reads a VM for its Memory Settings dialog.
+func (w *Workspace) MemoryEdit(key, vmUUID string) (out app.MemoryEdit, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadMemoryEdit(c, vmUUID); return err })
+	return out, err
+}
+
+// MemoryQuestion checks the Memory Settings values: an error when they cannot be set, else the question to ask first.
+func (w *Workspace) MemoryQuestion(key, vmUUID string, dynMin, dynMax, staticMax int64) (out string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		out, err = app.MemoryQuestion(c, vmUUID, dynMin, dynMax, staticMax)
+		return err
+	})
+	return out, err
+}
+
+// ChangeMemory applies the Memory Settings dialog (a new static maximum restarts a running VM).
+func (w *Workspace) ChangeMemory(key, vmUUID string, dynMin, dynMax, staticMax int64) error {
+	return w.with(key, func(c *xapi.Connection) error { return app.ChangeMemory(c, vmUUID, dynMin, dynMax, staticMax) })
+}
+
+// CustomFields are the Custom Fields page of a VM: the pool's fields and the VM's values.
+func (w *Workspace) CustomFields(key, vmUUID string) (out []app.FieldValue, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.VMCustomFields(c, vmUUID); return err })
+	return out, err
+}
+
+// SaveCustomFields sets the VM's custom field values ("" removes one).
+func (w *Workspace) SaveCustomFields(key, vmUUID string, values map[string]string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SaveVMCustomFields(c, vmUUID, values) })
+}
+
+// AddCustomField adds a field (kind "String" or "Date") to the pool.
+func (w *Workspace) AddCustomField(key, name, kind string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.AddCustomField(c, name, kind) })
+}
+
+// RemoveCustomField deletes a field of the pool and its values on every object.
+func (w *Workspace) RemoveCustomField(key, name string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.RemoveCustomField(c, name) })
+}
+
 // Disconnect logs out of a server. In-flight calls on it finish first, so no console ticket is issued after the
 // revocation.
 func (w *Workspace) Disconnect(key string) {
@@ -373,7 +414,7 @@ func (w *Workspace) Storage(key, vmUUID string) (out app.VMStorage, err error) {
 }
 
 // Networking is the Networking tab of a VM.
-func (w *Workspace) Networking(key, vmUUID string) (out app.Table, err error) {
+func (w *Workspace) Networking(key, vmUUID string) (out app.VMNetworking, err error) {
 	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ListVMNetworking(c, vmUUID); return err })
 	return out, err
 }
@@ -420,6 +461,62 @@ func (w *Workspace) AttachDisk(key, vmUUID, vdiUUID string, readOnly bool) (noti
 func (w *Workspace) DiskQuestion(del, system bool) Confirm {
 	title, text := rules.DiskQuestion(del, system)
 	return Confirm{Title: title, Text: text}
+}
+
+// VIFNetworks are the networks the Add Virtual Interface dialog offers for a VM.
+func (w *Workspace) VIFNetworks(key, vmUUID string) (out []app.NetworkPick, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.VIFNetworks(c, vmUUID); return err })
+	return out, err
+}
+
+// VIFQuestion is VIFDialog_FormClosing's question when a real VM of any connected server already has this MAC (an
+// empty Confirm when none).
+func (w *Workspace) VIFQuestion(vifUUID, mac string) (Confirm, error) {
+	for _, key := range w.connectedKeys() {
+		var vm string
+		err := w.with(key, func(c *xapi.Connection) (err error) { vm, err = app.DuplicateMAC(c, vifUUID, mac); return err })
+		if err != nil {
+			return Confirm{}, err
+		}
+		if vm != "" {
+			return Confirm{Title: messages.Get("PROBLEM_MAC_ADDRESS_IS_DUPLICATE_TITLE"),
+				Text: messages.Format(messages.Get("PROBLEM_MAC_ADDRESS_IS_DUPLICATE"), mac, vm)}, nil
+		}
+	}
+	return Confirm{}, nil
+}
+
+// VIFDeleteQuestion is Remove Interface's question.
+func (w *Workspace) VIFDeleteQuestion() Confirm {
+	return Confirm{Title: messages.Get("MESSAGEBOX_VIF_DELETE_TITLE"), Text: messages.Get("MESSAGEBOX_VIF_DELETE")}
+}
+
+// SaveVIF adds an interface to a VM (vifUUID "") or changes one; the text when the change waits for a restart
+// (VIF_HOTPLUG_FAILED_MESSAGE), else "".
+func (w *Workspace) SaveVIF(key, vmUUID, vifUUID string, set ops.VIFSettings) (string, error) {
+	var reboot bool
+	err := w.with(key, func(c *xapi.Connection) (err error) {
+		if vifUUID == "" {
+			reboot, err = ops.CreateVIF(c, vmUUID, set)
+		} else {
+			reboot, err = ops.UpdateVIF(c, vifUUID, set)
+		}
+		return err
+	})
+	if reboot {
+		return messages.Get("VIF_HOTPLUG_FAILED_MESSAGE"), err
+	}
+	return "", err
+}
+
+// DeleteVIF removes a VM's interface.
+func (w *Workspace) DeleteVIF(key, vifUUID string) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.DeleteVIF(c, vifUUID) })
+}
+
+// SetVIFActive activates or deactivates a running VM's interface.
+func (w *Workspace) SetVIFActive(key, vifUUID string, active bool) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.SetVIFActive(c, vifUUID, active) })
 }
 
 // DetachDisk detaches a disk from its VM (the disk stays).

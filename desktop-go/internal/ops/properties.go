@@ -28,6 +28,9 @@ type VMChanges struct {
 	PVArgs           *string  `json:"pv_args,omitempty"`
 	PVBootFromCD     *bool    `json:"pv_boot_from_cd,omitempty"`
 	ShadowMultiplier *float64 `json:"shadow_multiplier,omitempty"`
+	// Start Options
+	Order      *int `json:"order,omitempty"`
+	StartDelay *int `json:"start_delay,omitempty"`
 }
 
 // SaveVMProperties is the pages' SaveSettings: name and description, the vCPU weight and cores per socket (only on a
@@ -86,6 +89,9 @@ func SaveVMProperties(c *xapi.Connection, vmUUID string, ch VMChanges) error {
 	if err := saveBootOptions(s, ref, vm, ch); err != nil {
 		return err
 	}
+	if err := saveStartOptions(s, ref, ch); err != nil {
+		return err
+	}
 	if ch.HomeServer != nil {
 		host := xenapi.HostRef(nullRef)
 		if *ch.HomeServer != "" {
@@ -104,8 +110,13 @@ func SaveVMProperties(c *xapi.Connection, vmUUID string, ch VMChanges) error {
 // the vCPUs of a running VM (VM.SupportsVcpuHotplug is then false). The key restricts unless it says "false"
 // (BoolKeyPreferTrue).
 func VCPUHotplugRestricted(hosts map[xenapi.HostRef]xenapi.HostRecord) bool {
+	return featureForbidden(hosts, "restrict_set_vcpus_number_live")
+}
+
+// featureForbidden is Helpers.FeatureForbidden: a server's licence restricts the feature (BoolKeyPreferTrue).
+func featureForbidden(hosts map[xenapi.HostRef]xenapi.HostRecord, key string) bool {
 	for _, h := range hosts {
-		if v, ok := h.LicenseParams["restrict_set_vcpus_number_live"]; !ok || v != "false" {
+		if v, ok := h.LicenseParams[key]; !ok || v != "false" {
 			return true
 		}
 	}
@@ -248,4 +259,39 @@ func setPVBootable(s *xenapi.Session, vm xenapi.VMRecord, fromCD bool) error {
 		}
 	}
 	return nil
+}
+
+// saveStartOptions is SetVMStartupOptionsAction: the start order and delay, then pool.sync_database so every server
+// keeps them. shortcut: with HA on, SetHaPrioritiesAction (the restart priority) is not ported; the order and delay
+// are refused then rather than saved without the plan.
+func saveStartOptions(s *xenapi.Session, ref xenapi.VMRef, ch VMChanges) error {
+	if ch.Order == nil && ch.StartDelay == nil {
+		return nil
+	}
+	pools, err := xenapi.Pool.GetAllRecords(s)
+	if err != nil {
+		return xapi.Sanitize(err)
+	}
+	for _, p := range pools {
+		if p.HaEnabled {
+			return errors.New("HA is enabled on this pool: change the start options with the HA settings")
+		}
+	}
+	if ch.Order != nil && *ch.Order < 0 || ch.StartDelay != nil && *ch.StartDelay < 0 { // both checked before either is set
+		return errors.New("the start order and the delay must be 0 or more")
+	}
+	if err := permitted(s, "vm.set_order", "vm.set_start_delay", "pool.sync_database"); err != nil {
+		return err
+	}
+	if ch.Order != nil {
+		if err := xenapi.VM.SetOrder(s, ref, *ch.Order); err != nil {
+			return xapi.Sanitize(err)
+		}
+	}
+	if ch.StartDelay != nil {
+		if err := xenapi.VM.SetStartDelay(s, ref, *ch.StartDelay); err != nil {
+			return xapi.Sanitize(err)
+		}
+	}
+	return xapi.Sanitize(wait(s)(xenapi.Pool.AsyncSyncDatabase(s)))
 }

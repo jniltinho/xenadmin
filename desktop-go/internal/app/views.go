@@ -9,6 +9,7 @@ import (
 	xenapi "go/xenapi"
 
 	"xcpng-center/internal/messages"
+	"xcpng-center/internal/rules"
 	"xcpng-center/internal/xapi"
 )
 
@@ -324,21 +325,12 @@ func folderPath(path string) []group {
 // customField is a CustomFieldDefinition: its name and type (String or Date).
 type customField struct{ name, kind string }
 
-// customFields are the pool's custom fields (gui_config "XenCenter.CustomFields":
-// <CustomFieldDefinitions><CustomFieldDefinition name=".." type="String"/>, as CustomFieldsCache reads it).
+// customFields are the pool's custom fields (gui_config "XenCenter.CustomFields", rules.ParseCustomFields).
 func customFields(pools map[xenapi.PoolRef]xenapi.PoolRecord) []customField {
 	var out []customField
 	for _, p := range pools {
-		var defs struct {
-			Fields []struct {
-				Name string `xml:"name,attr"`
-				Type string `xml:"type,attr"`
-			} `xml:"CustomFieldDefinition"`
-		}
-		if v := strings.TrimSpace(p.GuiConfig["XenCenter.CustomFields"]); v != "" && xml.Unmarshal([]byte(v), &defs) == nil {
-			for _, f := range defs.Fields {
-				out = append(out, customField{f.Name, f.Type})
-			}
+		for _, f := range rules.ParseCustomFields(p.GuiConfig[rules.CustomFieldsKey]) {
+			out = append(out, customField{f.Name, f.Type})
 		}
 	}
 	return out
@@ -350,10 +342,8 @@ func customFieldValue(f customField, v string) (label, key string) {
 	if v == "" || f.kind != "Date" {
 		return v, ""
 	}
-	for _, layout := range []string{"2006-01-02 15:04:05Z", time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
-		if t, err := time.Parse(layout, v); err == nil {
-			return t.Local().Format("2006-01-02 15:04:05"), "date:" + t.UTC().Format(time.RFC3339Nano)
-		}
+	if t, ok := rules.ParseFieldDate(v); ok {
+		return t.Local().Format("2006-01-02 15:04:05"), "date:" + t.UTC().Format(time.RFC3339Nano)
 	}
 	return "", ""
 }

@@ -2,8 +2,10 @@
 // The Storage, Networking and Memory tabs of a VM (VmStorageView, VmNetworkView, MemoryView): the tables from the
 // Go side, plus the DVD drive and Activate/Deactivate of a disk on Storage.
 import { computed, onMounted, ref, watch } from "vue";
-import { api, type Confirm, type NewDisk, type Table, type VMStorage } from "./api/workspace";
+import { api, type Confirm, type NewDisk, type Table, type VIF, type VIFSettings, type VMNetworking, type VMStorage } from "./api/workspace";
 import DetailsTable from "./DetailsTable.vue";
+import MemoryDialog from "./MemoryDialog.vue";
+import VifDialog from "./VifDialog.vue";
 import { serial } from "./serial";
 
 // tick: the server's objects changed (xcp:changed), read the tab again
@@ -15,12 +17,30 @@ const storage = ref<VMStorage | null>(null);
 const picked = ref("");
 const busy = ref(false);
 const disk = computed(() => storage.value?.disks.find((d) => d.vbd === picked.value) ?? null);
+const network = ref<VMNetworking | null>(null);
+const vif = computed(() => network.value?.vifs.find((v) => v.uuid === picked.value) ?? null);
+let editing: { device: string; uuid: string; done?: boolean } | null = null; // an edit in flight (UpdateVIFAction deletes and creates the VIF)
 
 // one read at a time (serial): changes coming faster than a slow read make one more read, never a stale table
 const load = serial(async () => {
   try {
     if (props.kind === "storage") { storage.value = await api.storage(props.server, props.vm); table.value = storage.value.table; }
-    else table.value = await (props.kind === "networking" ? api.networking : api.memory)(props.server, props.vm);
+    else if (props.kind === "networking") {
+      network.value = await api.networking(props.server, props.vm);
+      table.value = network.value.table;
+      // NetworkRules.Selection / EditReplaced: while an edit recreates a VIF, its device stays selected (none while it
+      // is missing) until a new VIF holds it; otherwise the selected VIF, else the first
+      const vifs = network.value.vifs;
+      if (editing) {
+        const fresh = vifs.find((v) => v.device === editing!.device && v.uuid !== editing!.uuid);
+        if (fresh) { picked.value = fresh.uuid; editing = null; }
+        else {
+          picked.value = vifs.find((v) => v.uuid === editing!.uuid)?.uuid ?? "";
+          if (editing.done && picked.value) editing = null; // an edit that changed nothing kept its VIF
+        }
+      } else if (!table.value.keys.includes(picked.value)) picked.value = table.value.keys[0] ?? "";
+    }
+    else table.value = await api.memory(props.server, props.vm);
   } catch (e) { emit("status", String(e), true); }
 });
 
@@ -43,6 +63,33 @@ function changeIso(e: Event) {
 }
 
 const notice = ref("");
+const editMemory = ref(false); // the Memory tab's Edit... (VMMemoryControlsNoEdit)
+
+// the Networking tab's buttons (NetworkList): Add Interface, Properties, Remove Interface, Activate/Deactivate
+const vifEdit = ref<{ vif: VIF | null } | null>(null);
+function addVif() {
+  if (network.value?.at_max) notice.value = network.value.at_max;
+  else vifEdit.value = { vif: null };
+}
+function saveVif(set: VIFSettings) {
+  const v = vifEdit.value?.vif ?? null;
+  vifEdit.value = null;
+  if (v) editing = { device: v.device, uuid: v.uuid };
+  run(v ? "Updating the virtual network interface" : "Creating a virtual network interface", async () => {
+    try { notice.value = await api.saveVif(props.server, props.vm, v?.uuid ?? "", set); if (editing) editing.done = true; }
+    catch (e) { editing = null; throw e; } // a failed edit: the selection follows the tab again
+  });
+}
+async function removeVif() {
+  const v = vif.value;
+  if (!v) return;
+  const q = await api.vifDeleteQuestion();
+  if (await new Promise<boolean>((resolve) => (ask.value = { ...q, resolve }))) run("Deleting the virtual network interface", () => api.deleteVif(props.server, v.uuid));
+}
+function toggleVif() {
+  const v = vif.value;
+  if (v) run(v.attached ? "Unplugging the virtual network interface" : "Plugging the virtual network interface", () => api.setVifActive(props.server, v.uuid, !v.attached));
+}
 
 // Add Virtual Disk (NewDiskDialog): name, description, size in GB or MB, the SR
 const add = ref<(NewDisk & { description: string; size: number; unit: "GB" | "MB"; sr: string; error: string }) | null>(null);
@@ -110,6 +157,17 @@ watch(() => props.tick, load);
     </p>
     <p v-if="notice" class="mx-3 mt-2 border border-amber-300 bg-amber-50 px-2 py-1">{{ notice }}</p>
     <DetailsTable v-if="table" :table="table" :selected="picked" :plain="kind === 'memory'" @select="picked = $event" />
+    <div v-if="kind === 'networking' && network" class="flex gap-2 px-3">
+      <button class="btn" :disabled="busy || !network.can_add" @click="addVif">Add Interface...</button>
+      <button class="btn" :disabled="busy || !vif?.can_edit" :title="vif?.edit_tip" @click="vifEdit = { vif }">Properties</button>
+      <button class="btn" :disabled="busy || !vif?.can_edit" :title="vif?.remove_tip" @click="removeVif">Remove Interface</button>
+      <button class="btn" :disabled="busy || !vif?.can_toggle" :title="vif?.toggle_tip" @click="toggleVif">{{ vif?.toggle_label ?? "Deactivate" }}</button>
+    </div>
+    <VifDialog v-if="vifEdit" :server="server" :vm="vm" :vif="vifEdit.vif" @close="vifEdit = null" @save="saveVif" />
+    <div v-if="kind === 'memory'" class="flex gap-2 px-3">
+      <button class="btn" :disabled="busy" @click="editMemory = true">Edit...</button>
+    </div>
+    <MemoryDialog v-if="editMemory" :server="server" :vm="vm" @close="editMemory = false" @run="run" />
     <div v-if="kind === 'storage'" class="flex gap-2 px-3">
       <button class="btn" :disabled="busy" @click="openAdd">Add...</button>
       <button class="btn" :disabled="busy" @click="openAttach">Attach Disk...</button>

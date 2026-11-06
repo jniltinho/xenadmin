@@ -10,6 +10,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
   network and vApp groupings), with the C# semantics; a search with another filter is still listed, not run.
 - VM Properties: Boot Options (autostart, the HVM boot order, the PV boot device and parameters) and, for HVM VMs,
   Advanced (the shadow memory multiplier, changed live on a running VM).
+- VM Properties: Start Options (the start order and the delay before the next VM starts; read-only on an HA pool).
+- Memory tab: Edit... opens Memory Settings (a fixed memory or a range, or the dynamic minimum, maximum and static
+  maximum with ballooning), with the C# limits and questions; a new static maximum restarts a running VM on its server.
+- Networking tab: Add Interface, Properties, Remove Interface and Activate/Deactivate (network, generated or typed MAC
+  with the duplicate MAC question, QoS limit), plugged live when the server allows it.
+
+### Fixed
+- Errors show the server's text without the "RuntimeError:" prefix.
 
 ### Changed
 - The Organization Views and searches follow the C# visibility rules (VM.Show, SR.Show, Network.Show).
