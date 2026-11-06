@@ -41,6 +41,15 @@ func labConnection(t *testing.T) *xapi.Connection {
 	return c
 }
 
+// labPolicy is the trust of the lab's certificates for the HTTP transfers (the coordinator's pinned, members vouched).
+func labPolicy(t *testing.T) *trust.Policy {
+	s, err := config.Load(filepath.Join(t.TempDir(), "settings.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &trust.Policy{Store: s, OperatorPins: map[string]string{"*": os.Getenv("XCP_TRUST_FINGERPRINT")}}
+}
+
 // TestLabVMTabs reads the Storage, Networking and Memory tabs of every VM of the lab (read-only).
 func TestLabVMTabs(t *testing.T) {
 	c := labConnection(t)
@@ -1256,5 +1265,81 @@ func TestLabHostTabs(t *testing.T) {
 	}
 	if _, err := HostTab(c, "pools", poolUUID, "nics"); err == nil {
 		t.Error("a pool has no NICs tab")
+	}
+}
+
+// TestLabExportImport makes a small halted VM (a 16 MB disk on the default SR), exports it to an XVA with verification,
+// imports it back (named "<name> (1)"), and destroys both VMs and their disks (XCP_ALLOW_WRITE=1).
+func TestLabExportImport(t *testing.T) {
+	c := labConnection(t)
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	pools, _ := xenapi.Pool.GetAllRecords(s)
+	var sr xenapi.SRRef
+	for _, p := range pools {
+		sr = p.DefaultSR
+	}
+	srUUID, _ := xenapi.SR.GetUUID(s, sr)
+	tmpls, err := xenapi.VM.GetByNameLabel(s, "Other install media")
+	if err != nil || len(tmpls) == 0 {
+		t.Fatalf("no template: %v", err)
+	}
+	name := "xcpng-center-go-test-export"
+	vm, err := xenapi.VM.Clone(s, tmpls[0], name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destroy := func(vm xenapi.VMRef) {
+		vbds, _ := xenapi.VM.GetVBDs(s, vm)
+		for _, b := range vbds {
+			if vdi, err := xenapi.VBD.GetVDI(s, b); err == nil && vdi != "OpaqueRef:NULL" {
+				if typ, _ := xenapi.VBD.GetType(s, b); typ == xenapi.VbdTypeDisk {
+					_ = xenapi.VDI.Destroy(s, vdi)
+				}
+			}
+		}
+		if err := xenapi.VM.Destroy(s, vm); err != nil {
+			t.Errorf("not destroyed: %v", err)
+		}
+	}
+	t.Cleanup(func() { destroy(vm) })
+	if err := xenapi.VM.SetIsATemplate(s, vm, false); err != nil {
+		t.Fatal(err)
+	}
+	vdi, err := xenapi.VDI.Create(s, xenapi.VDIRecord{NameLabel: name, SR: sr, VirtualSize: 16 << 20, Type: xenapi.VdiTypeUser, OtherConfig: map[string]string{}, SmConfig: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xenapi.VBD.Create(s, xenapi.VBDRecord{VM: vm, VDI: vdi, Userdevice: "0", Bootable: true, Mode: xenapi.VbdModeRW, Type: xenapi.VbdTypeDisk,
+		OtherConfig: map[string]string{}, QosAlgorithmParams: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	uuid, _ := xenapi.VM.GetUUID(s, vm)
+	file := filepath.Join(t.TempDir(), name+".xva")
+	if err := ops.ExportVM(c, labPolicy(t), uuid, file, true); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(file); err != nil || st.Size() < 1<<20 {
+		t.Fatalf("no export: %v", err)
+	}
+	if left, _ := os.ReadDir(filepath.Dir(file)); len(left) != 1 {
+		t.Fatalf("the temporary file is left: %v", left)
+	}
+	if ops.ImportFileError(file+".txt") == "" || ops.ImportFileError(file) != "" {
+		t.Fatal("file checks")
+	}
+	imported, err := ops.ImportVM(c, labPolicy(t), file, "", srUUID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := xenapi.VM.GetByUUID(s, imported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { destroy(ref) })
+	if got, _ := xenapi.VM.GetNameLabel(s, ref); got != name+" (1)" {
+		t.Fatalf("the imported VM is named %q", got)
 	}
 }

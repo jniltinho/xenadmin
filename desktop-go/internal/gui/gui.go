@@ -35,6 +35,20 @@ func Run(s *config.Settings, p *trust.Policy) error {
 		Mac:      application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
 	ws.Emit = func(key string) { app.Event.Emit("xcp:changed", key) }
+	ws.Files = func(save bool, title, name string, filters [][2]string) (string, error) {
+		if save {
+			d := app.Dialog.SaveFile().SetFilename(name).SetMessage(title).CanCreateDirectories(true)
+			for _, f := range filters {
+				d.AddFilter(f[0], f[1])
+			}
+			return d.PromptForSingleSelection()
+		}
+		d := app.Dialog.OpenFile().SetTitle(title).CanChooseFiles(true)
+		for _, f := range filters {
+			d.AddFilter(f[0], f[1])
+		}
+		return d.PromptForSingleSelection()
+	}
 	setWindowIcon(app, dist)
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "XCP-ng Center",

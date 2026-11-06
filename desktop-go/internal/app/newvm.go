@@ -165,8 +165,9 @@ func newDiskSRs(s *xenapi.Session, home xenapi.HostRef) (NewDisk, error) {
 		list = append(list, row{r, sr})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].rec.NameLabel < list[j].rec.NameLabel })
+	hostRecs, _ := xenapi.Host.GetAllRecords(s)
 	for _, r := range list {
-		name := r.rec.NameLabel
+		name := srI18N(s, hostRecs, r.rec, "name_label", r.rec.NameLabel) // SR.Name: "Local storage on host-a"
 		if r.rec.Shared && loc != "" {
 			name += " " + loc
 		}

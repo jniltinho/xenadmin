@@ -147,3 +147,8 @@ func ParseSRList(result string) ([]SRInfo, error) {
 	}
 	return out, nil
 }
+
+// SRFull is SR.IsFull: under half a gigabyte free (not for the dummy and EBS types, whose sizes mean nothing).
+func SRFull(srType string, size, used int) bool {
+	return srType != "dummy" && srType != "ebs" && size-used < 1<<29
+}

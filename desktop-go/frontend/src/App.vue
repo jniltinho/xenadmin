@@ -16,6 +16,7 @@ import NewVmWizard from "./NewVmWizard.vue";
 import NewSrWizard from "./NewSrWizard.vue";
 import MenuList, { type MenuItem } from "./MenuList.vue";
 import CopyVmDialog from "./CopyVmDialog.vue";
+import ImportVmDialog from "./ImportVmDialog.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
 
@@ -484,6 +485,32 @@ async function newPoolClosed(coordinator: string, error: string) {
   if (error) failure.value = error;
 }
 
+// Import VM (File > Import...) and Export (VM > Export...: ExportVMCommand with the XVA path)
+const importing = ref(false);
+async function runImport(label: string, key: string, f: () => Promise<string>) {
+  status.value = `${label}...`;
+  try {
+    const uuid = await f();
+    await load(key);
+    status.value = "Ready";
+    if (uuid) reselect(`${key}/${uuid}`);
+  } catch (e) { const text = `${label}: ${String(e)}`; await load(key); failure.value = text; } // after the refresh, which clears it
+}
+async function exportVm(n: Node | null) {
+  closeMenus();
+  if (!n?.server || !n.object) return;
+  const why = await api.exportBlocker(n.server, n.object.uuid);
+  if (why) { await choose({ title: "Export VM", text: why }, ["OK"]); return; }
+  const file = await api.pickExportFile(n.object.name);
+  if (!file) return;
+  const pick = await choose({ title: "Export VM", text: `Export '${n.object.name}' to:\n${file}\n\nVerify export can take up to 5 hours per TB.` },
+    ["Export and verify", "Export", "Cancel"]);
+  if (pick === 2) return;
+  const label = `Exporting '${n.object.name}'`, key = n.server;
+  status.value = `${label}...`;
+  try { await api.exportVm(key, n.object.uuid, file, pick === 0); status.value = "Ready"; } catch (e) { failure.value = `${label}: ${String(e)}`; }
+}
+
 // the Copy VM and Delete VM dialogs
 const copyOf = ref<Node | null>(null);
 const deleteOf = ref<Node | null>(null);
@@ -537,6 +564,7 @@ const vmItems = (n: Node | null): MenuItem[] => [
   { label: "", sep: true },
   { label: "Copy VM...", enabled: canCopy(n), run: () => { closeMenus(); copyOf.value = n; } },
   { label: "", sep: true },
+  { label: "Export...", icon: "000_ExportVirtualAppliance_h32bit_16", enabled: !!n?.object?.allowed?.includes("export"), run: () => exportVm(n) },
   { label: "Delete VM...", enabled: !!n?.object?.allowed?.includes("destroy"), run: () => { closeMenus(); deleteOf.value = n; } },
   { label: "", sep: true },
   { label: "Properties", icon: "000_Info3_h32bit_16", enabled: !!n?.object, run: () => { closeMenus(); propsOf.value = n; } },
@@ -544,7 +572,9 @@ const vmItems = (n: Node | null): MenuItem[] => [
 const serverNode = computed(() => (selected.value?.server && selected.value.id === selected.value.server ? selected.value : null));
 // the menu bar of the C# app; what is not ported yet is shown disabled
 const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
-  { label: "File", items: [{ label: "Add New Server...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } }] },
+  { label: "File", items: [{ label: "Add New Server...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
+    { label: "", sep: true },
+    { label: "Import...", icon: "000_ImportVirtualAppliance_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); importing.value = true; } }] },
   { label: "View", items: navButtons.map((b) => b.v === "organization" || b.v === "saved"
     ? { label: b.label, enabled: true, sub: () => viewItems(b.v as "organization" | "saved") }
     : { label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } }) },
@@ -851,6 +881,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
 
     <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />
     <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
+    <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />
     <NewSrWizard v-if="newSrOn" :server="newSrOn" :pool="poolLabel(newSrOn)" @close="newSrClosed" />

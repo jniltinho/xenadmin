@@ -1,0 +1,73 @@
+package gui
+
+import (
+	"errors"
+
+	xenapi "go/xenapi"
+
+	"xcpng-center/internal/app"
+	"xcpng-center/internal/ops"
+	"xcpng-center/internal/xapi"
+)
+
+var errNoWindow = errors.New("no window to ask for a file")
+
+// FileDialog asks for a file to save (save) or open, with a title, a suggested name and filters ("XVA (*.xva)" ->
+// "*.xva"); "" when cancelled. The window sets it (gui.go); without a window it fails.
+type FileDialog func(save bool, title, name string, filters [][2]string) (string, error)
+
+// PickExportFile asks where to export a VM (ExportVmAction writes a plain XVA).
+func (w *Workspace) PickExportFile(name string) (string, error) {
+	if w.Files == nil {
+		return "", errNoWindow
+	}
+	return w.Files(true, "Export '"+name+"'", name+".xva", [][2]string{{"XVA (*.xva)", "*.xva"}})
+}
+
+// PickImportFile asks for the XVA file to import.
+func (w *Workspace) PickImportFile() (string, error) {
+	if w.Files == nil {
+		return "", errNoWindow
+	}
+	return w.Files(false, "Import VM", "", [][2]string{{"XVA (*.xva, *.xva.gz)", "*.xva;*.xva.gz"}})
+}
+
+// ExportBlocker is why the VM cannot be exported now ("" when it can).
+func (w *Workspace) ExportBlocker(key, vmUUID string) (out string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		ref, err := xenapi.VM.GetByUUID(c.Session, vmUUID)
+		if err != nil {
+			return xapi.Sanitize(err)
+		}
+		vm, err := xenapi.VM.GetRecord(c.Session, ref)
+		if err != nil {
+			return xapi.Sanitize(err)
+		}
+		out = ops.ExportBlocker(vm)
+		return nil
+	})
+	return out, err
+}
+
+// ExportVM exports a halted or suspended VM to an XVA file, verified when asked.
+func (w *Workspace) ExportVM(key, vmUUID, file string, verify bool) error {
+	return w.with(key, func(c *xapi.Connection) error { return ops.ExportVM(c, w.policy, vmUUID, file, verify) })
+}
+
+// ImportOptions are the Import VM dialog's servers and SRs for a home server ("" for none).
+func (w *Workspace) ImportOptions(key, hostUUID string) (out app.ImportOptions, err error) {
+	err = w.with(key, func(c *xapi.Connection) error { out, err = app.ReadImportOptions(c, hostUUID); return err })
+	return out, err
+}
+
+// ImportFileError checks the file to import ("" when it can be imported).
+func (w *Workspace) ImportFileError(file string) string { return ops.ImportFileError(file) }
+
+// ImportVM imports an XVA file to an SR (with an optional home server) and starts the VM when asked; the new VM's uuid.
+func (w *Workspace) ImportVM(key, file, hostUUID, srUUID string, start bool) (out string, err error) {
+	err = w.with(key, func(c *xapi.Connection) error {
+		out, err = ops.ImportVM(c, w.policy, file, hostUUID, srUUID, start)
+		return err
+	})
+	return out, err
+}

@@ -105,7 +105,7 @@ func cannotFitDisks(sr xenapi.SRRecord, caps []string, disks []xenapi.VDIRecord)
 		virtual, physical = virtual+d.VirtualSize, physical+d.PhysicalUtilisation
 	}
 	free := sr.PhysicalSize - sr.PhysicalUtilisation
-	if sr.Type != "dummy" && sr.Type != "ebs" && free < 1<<29 { // SR.IsFull: under half a gigabyte
+	if rules.SRFull(sr.Type, sr.PhysicalSize, sr.PhysicalUtilisation) {
 		return messages.Get("SRPICKER_SR_FULL")
 	}
 	need := virtual

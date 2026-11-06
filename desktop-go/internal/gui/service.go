@@ -37,6 +37,8 @@ type Workspace struct {
 	pending   map[string]bool // a change notice is scheduled for this server
 	// Emit tells the window that a server's objects changed (the Wails event "xcp:changed" with the server's key)
 	Emit func(key string)
+	// Files is the window's file dialog (export and import)
+	Files FileDialog
 }
 
 // watcher is a running app.Watch: cancel cuts its call, done closes when it has returned.
