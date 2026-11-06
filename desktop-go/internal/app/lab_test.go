@@ -2363,3 +2363,164 @@ func TestLabSrDisks(t *testing.T) {
 	}
 	t.Logf("pool %q: trim %+v", ps.Pool, ps.SRs)
 }
+
+// TestLabDR formats the lab's iSCSI LUN as an SR (XCP_LAB_ISCSI, XCP_ALLOW_WRITE=1: XAPI keeps pool metadata on block
+// SRs only, not on lab-nfs), turns DR on for it, reads the metadata back from it as the wizard does (the storage page,
+// the current pool and XCP_LAB_VM found), runs a test failover's prechecks (the VM already exists here and is not
+// older: refused) and the recovery's refusal of the current pool, then turns DR off and destroys the SR. Nothing is
+// recovered.
+func TestLabDR(t *testing.T) {
+	c := labConnection(t)
+	name, target := os.Getenv("XCP_LAB_VM"), os.Getenv("XCP_LAB_ISCSI")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	s := c.Session
+	vms, err := xenapi.VM.GetByNameLabel(s, name)
+	if err != nil || len(vms) != 1 {
+		t.Fatalf("VM %q: %v %v", name, vms, err)
+	}
+	vmUUID, _ := xenapi.VM.GetUUID(s, vms[0])
+	_, pool, _, err := ops.PoolOf(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := ReadDRSRs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(before.SRs, func(r DRSR) bool { return r.Enabled }) {
+		t.Fatalf("DR is already on in the lab: %+v", before.SRs)
+	}
+	// XAPI keeps pool metadata on block SRs only (iSCSI, HBA): lab-nfs is refused (SR_OPERATION_NOT_SUPPORTED)
+	if slices.ContainsFunc(before.SRs, func(r DRSR) bool { return r.Name == "lab-nfs" }) {
+		t.Error("lab-nfs listed as able to hold the metadata")
+	}
+	if target == "" {
+		t.Skip("XCP_LAB_ISCSI not set (DR needs an iSCSI SR: the lab's NFS SR cannot hold the metadata)")
+	}
+	iqns, err := ops.ScanIQNs(c, target, rules.DefaultISCSIPort, "", "")
+	if err != nil || len(iqns) == 0 || iqns[0].IQN == "*" {
+		t.Fatalf("%+v %v", iqns, err)
+	}
+	luns, err := ops.ScanLUNs(c, iqns[0], "", "")
+	if err != nil || len(luns) == 0 {
+		t.Fatalf("%+v %v", luns, err)
+	}
+	if used, _ := ops.LUNInUse(c, luns[0].ScsiID); used != "" {
+		t.Skipf("the lab LUN is used by %s", used)
+	}
+	srUUID, err := ops.CreateSR(c, ops.NewSR{Kind: rules.SRIscsi, Name: "xcpng-center-go-test-dr", AutoDesc: true, IQN: iqns[0], LUN: luns[0]})
+	if srUUID != "" {
+		t.Cleanup(func() { // after DR is off (cleanups run last first): the SR goes, as TestLabISCSI's
+			if ref, err := xenapi.SR.GetByUUID(s, srUUID); err == nil {
+				pbds, _ := xenapi.SR.GetPBDs(s, ref)
+				for _, p := range pbds {
+					_ = xenapi.PBD.Unplug(s, p)
+				}
+				if err := xenapi.SR.Destroy(s, ref); err != nil {
+					t.Errorf("cleanup: %v", err)
+				}
+			}
+		})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before, err = ReadDRSRs(c); err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(before.SRs, func(r DRSR) bool { return r.UUID == srUUID })
+	if i < 0 || before.SRs[i].Enabled || before.SRs[i].HasMetadata {
+		t.Fatalf("the iSCSI SR cannot hold the metadata: %+v", before.SRs)
+	}
+	dr := before.SRs[i]
+	t.Cleanup(func() { // DR off everywhere, as found
+		if err := ops.ConfigureDR(c, nil); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+		if after, err := ReadDRSRs(c); err != nil || slices.ContainsFunc(after.SRs, func(r DRSR) bool { return r.Enabled }) {
+			t.Errorf("cleanup: DR still on: %+v %v", after.SRs, err)
+		}
+	})
+	if before.Title != fmt.Sprintf("Configure DR on '%s'", pool.NameLabel) || before.MaxSRs != 8 {
+		t.Errorf("dialog: %q %d", before.Title, before.MaxSRs)
+	}
+	if err := ops.ConfigureDR(c, []string{"no-such-sr"}); err == nil {
+		t.Error("an unknown SR was accepted")
+	}
+
+	if err := ops.ConfigureDR(c, []string{dr.UUID}); err != nil {
+		t.Fatal(err)
+	}
+	on, err := ReadDRSRs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(on.SRs, func(r DRSR) bool { return r.UUID == dr.UUID }); i < 0 || !on.SRs[i].Enabled || !on.SRs[i].HasMetadata {
+		t.Fatalf("DR on lab-nfs: %+v", on.SRs)
+	}
+
+	// the wizard's VMs and vApps page skips a metadata VDI in use, as this pool's own is (attached for its redo log)
+	pools, err := LoadDRMetadata(c, []string{dr.UUID})
+	if err != nil || len(pools) != 0 {
+		t.Fatalf("metadata in use: %+v %v", pools, err)
+	}
+	// read from that VDI as VdiLoadMetadataAction does, the metadata is this pool's, marked current, with the lab VM
+	srRef, _ := xenapi.SR.GetByUUID(s, dr.UUID)
+	vdis, err := ops.MetadataVDIs(s, nil)
+	if err != nil || len(vdis) != 0 {
+		t.Errorf("metadata VDIs on no SR: %v %v", vdis, err)
+	}
+	var md DRPool
+	all, _ := xenapi.SR.GetVDIs(s, srRef)
+	for _, v := range all {
+		if typ, _ := xenapi.VDI.GetType(s, v); typ != xenapi.VdiTypeMetadata {
+			continue
+		}
+		ok, err := ops.WithMetadata(s, v, func(_ *xenapi.Session, m ops.DRMetadata) error { md = drPool(m, pool.UUID); return nil })
+		if err != nil || !ok {
+			t.Fatalf("metadata: %v %v", ok, err)
+		}
+	}
+	if md.UUID != pool.UUID || !md.Current || md.Name != pool.NameLabel {
+		t.Fatalf("metadata: %+v", md)
+	}
+	if !slices.ContainsFunc(md.VMs, func(o DRObject) bool { return o.UUID == vmUUID && o.Name == name }) {
+		t.Fatalf("%s is not in the metadata: %+v", name, md.VMs)
+	}
+	t.Logf("metadata of %s on VDI %s: %d vApps, %d VMs", md.Name, md.VDI, len(md.VApps), len(md.VMs))
+
+	// a test failover's prechecks: the VM is here already and not older
+	choice := []ops.DRChoice{{VDI: md.VDI, VMs: []string{vmUUID}}}
+	checks, err := DRPrechecks(c, rules.DRTest, choice, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range checks {
+		t.Logf("precheck: %+v", ch)
+	}
+	if !rules.DRBlocked(checks) || !slices.ContainsFunc(checks, func(ch rules.DRCheck) bool {
+		return ch.Error && strings.Contains(ch.Text, fmt.Sprintf("The VM '%s' already exists in this pool and is not older", name))
+	}) {
+		t.Errorf("prechecks: %+v", checks)
+	}
+	if _, err := DRPrechecks(c, rules.DRTest, []ops.DRChoice{{VDI: md.VDI, VMs: []string{"no-such-vm"}}}, nil); err == nil {
+		t.Error("a VM outside the metadata was accepted")
+	}
+	// the recovery refuses the current pool before recovering anything (md.Current was checked above)
+	if rec, err := ops.RecoverDR(c, rules.DRTest, choice, rules.DRStartNone); err == nil || !strings.Contains(err.Error(), "is this pool") || !rec.Empty() {
+		t.Errorf("recover onto the current pool: %+v %v", rec, err)
+	}
+
+	if err := ops.ConfigureDR(c, nil); err != nil {
+		t.Fatal(err)
+	}
+	off, err := ReadDRSRs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(off.SRs, func(r DRSR) bool { return r.Enabled }) {
+		t.Errorf("DR still on: %+v", off.SRs)
+	}
+}

@@ -29,6 +29,8 @@ import VappEditor from "./VappEditor.vue";
 import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
 import HaDialog from "./HaDialog.vue";
+import DrConfigureDialog from "./DrConfigureDialog.vue";
+import DrWizard from "./DrWizard.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
 
@@ -617,6 +619,7 @@ async function newSrClosed(uuid: string) {
 // New Pool (NewPoolCommand); Add New Server from it connects another server, then the dialog reads the servers again
 const newPool = ref(false);
 const haOn = ref<{ key: string; disable: boolean } | null>(null); // the Pool > High Availability dialog
+const drOn = ref<{ key: string; wizard: boolean } | null>(null); // Pool > Disaster Recovery: Configure or the wizard
 const poolDialog = ref<InstanceType<typeof NewPoolDialog> | null>(null);
 async function newPoolClosed(coordinator: string, error: string) {
   newPool.value = false;
@@ -717,6 +720,10 @@ const poolItems = (key: string | null): MenuItem[] => [
     { label: "Configure...", enabled: true, run: () => { closeMenus(); haOn.value = { key: key!, disable: false }; } },
     { label: "Disable", enabled: !!data[key!]?.pools?.some((p) => p.ha_enabled), run: () => { closeMenus(); haOn.value = { key: key!, disable: true }; } }] },
   { label: "", sep: true },
+  // Disaster Recovery (MainWindow's _drMenu, DrRules.CanRun: a connected pool or standalone server)
+  { label: "Disaster Recovery", enabled: !!selectedConnection.value, sub: async () => [
+    { label: "Configure...", enabled: true, run: () => { closeMenus(); drOn.value = { key: selectedConnection.value!, wizard: false }; } },
+    { label: "Disaster Recovery Wizard...", enabled: true, run: () => { closeMenus(); drOn.value = { key: selectedConnection.value!, wizard: true }; } }] },
   { label: "Manage vApps...", icon: "000_VirtualAppliance_h32bit_16", enabled: !!selectedConnection.value, run: () => { closeMenus(); vappsOn.value = selectedConnection.value!; } },
   { label: "", sep: true },
   { label: "Make into standalone server", enabled: !!key && (data[key]?.hosts ?? []).length === 1, run: () => makeStandalone(key!) },
@@ -1158,6 +1165,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <HaDialog v-if="haOn" :server="haOn.key" :disable="haOn.disable" @close="haOn = null" @run="(label, f) => poolRun(label, haOn!.key, f)" />
+    <DrConfigureDialog v-if="drOn && !drOn.wizard" :server="drOn.key" @close="drOn = null" @run="(label, f) => poolRun(label, drOn!.key, f)" />
+    <DrWizard v-if="drOn?.wizard" :server="drOn.key" :pool="poolLabel(drOn.key)" @close="drOn = null" @run="(label, f) => poolRun(label, drOn!.key, f)" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />
     <NewSrWizard v-if="newSrOn" :server="newSrOn" :pool="poolLabel(newSrOn)" @close="newSrClosed" />
     <PropertiesDialog v-if="propsOf?.object && propsOf.server" :server="propsOf.server" :vm="propsOf.object.uuid" @close="propertiesClosed" />

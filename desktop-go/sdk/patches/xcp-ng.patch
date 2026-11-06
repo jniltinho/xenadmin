@@ -154,7 +154,7 @@ diff -ru pa/session.go pb/session.go
  	"time"
  )
  
-@@ -80,11 +82,38 @@
+@@ -80,11 +82,46 @@
  }
  
  func NewSession(opts *ClientOpts) *Session {
@@ -193,6 +193,14 @@ diff -ru pa/session.go pb/session.go
 +	client.ctx = ctx
 +	copied := *class
 +	copied.client = &client
++	return &copied
++}
++
++// WithRef is a copy of the session that calls as another session of the same server (XCP-NG PATCH): the session
++// VDI.open_database gives on a pool's metadata (disaster recovery).
++func (class *Session) WithRef(ref SessionRef) *Session {
++	copied := *class
++	copied.ref = ref
 +	return &copied
  }
  

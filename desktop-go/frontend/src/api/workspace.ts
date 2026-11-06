@@ -238,6 +238,15 @@ export const api = {
   deleteSrDisk: (key: string, vdi: string) => call<void>("DeleteSRDisk", key, vdi),
   trimQuestion: () => call<Confirm>("TrimQuestion"),
   trimSr: (key: string, sr: string) => call<void>("TrimSR", key, sr),
+  // Pool > Disaster Recovery (internal/gui/dr.go)
+  drSrs: (key: string) => call<DRSRs>("DRSRs", key),
+  drConfigureWarning: (originally: boolean, checked: number) => call<{ text: string; can_save: boolean }>("DRConfigureWarning", originally, checked),
+  configureDr: (key: string, srs: string[]) => call<void>("ConfigureDR", key, srs),
+  drMetadata: (key: string, srs: string[]) => call<DRPool[]>("DRMetadata", key, srs),
+  drPrechecks: (key: string, type: string, choices: DRChoice[]) => call<DRCheck[]>("DRPrechecks", key, type, choices),
+  drRecover: (key: string, type: string, choices: DRChoice[], start: string) => call<void>("DRRecover", key, type, choices, start),
+  drTestPending: (key: string) => call<number>("DRTestPending", key),
+  drTestCleanup: (key: string) => call<void>("DRTestCleanup", key),
 };
 export interface HAPriority { value: string; text: string }
 export interface HAConfig { pool: string; ha_enabled: boolean; blocker?: string; ntol: number; hosts: number; priorities: HAPriority[] | null;
@@ -253,3 +262,10 @@ export interface SRStorage { table: Table; can_add: boolean; can_rescan: boolean
   disks: { uuid: string; can_edit: boolean; can_delete: boolean; can_move: boolean; delete_title: string; delete_text: string }[] }
 export interface PhysicalStorage { table: Table; srs: { uuid: string; can_trim: boolean; trim_tip?: string }[]; can_new: boolean; pool: string }
 export interface DiskTargets { migrate: boolean; srs: { uuid: string; text: string; reason?: string }[] }
+// Pool > Disaster Recovery (app.DRSRs, app.DRPool, ops.DRChoice, rules.DRCheck)
+export interface DRSR { uuid: string; name: string; type: string; free: string; enabled: boolean; has_metadata: boolean }
+export interface DRSRs { pool: string; title: string; action: string; max_srs: number; srs: DRSR[] }
+export interface DRObject { uuid: string; name: string; vms?: number }
+export interface DRPool { uuid: string; name: string; vdi: string; current: boolean; note?: string; vapps: DRObject[]; vms: DRObject[] }
+export interface DRChoice { vdi: string; vapps: string[]; vms: string[] }
+export interface DRCheck { text: string; error: boolean }

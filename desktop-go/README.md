@@ -47,7 +47,9 @@ delete) tabs.
 **Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), Restart
 Toolstack, Remove From Pool, the Pool menu (Add Server, Remove Server, Rotate Pool Secret, Make into standalone
 server, Manage vApps, High Availability: the HA wizard with the heartbeat SR, the VMs' restart priorities, start
-order and delay and the failures to tolerate, the restart priorities of a pool with HA on, and Disable), the Memory
+order and delay and the failures to tolerate, the restart priorities of a pool with HA on, and Disable; Disaster
+Recovery: Configure (the SRs holding the pool's metadata) and the wizard (failover, failback and test failover from the
+metadata on SRs attached to the pool, with the prechecks and the clean-up of a test)), the Memory
 (with the bars of each server's memory), Storage, Networking, NICs, GPU (placement policy and allowed vGPU types), USB
 (pass-through), Console and Performance tabs; on Networking the New Network wizard
 (External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU) and
@@ -64,7 +66,7 @@ Repair, Set as Default, Detach, Forget and Destroy, with the C# icons of a defau
 and the searches saved in the pools (the XenSearch filters and groupings they use most) over every connected server;
 Notifications > Alerts with Dismiss, Dismiss Selected and Dismiss All.
 
-Not there yet: the other Properties pages (Alerts, a VM's GPU and USB, a network's Network Settings), the Performance graph editor, disaster recovery, SR-IOV networks, changing a network's NIC, VLAN or bond mode, OVF/OVA appliances, and saved searches
+Not there yet: the other Properties pages (Alerts, a VM's GPU and USB, a network's Network Settings), the Performance graph editor, SR-IOV networks, changing a network's NIC, VLAN or bond mode, OVF/OVA appliances, and saved searches
 with the rarer XenSearch filters (dates, IP addresses, object references; listed, not run). The C# app in [`XenAdmin.Desktop`](../XenAdmin.Desktop/README.md) has those.
 
 ## Command line and MCP

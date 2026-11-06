@@ -116,6 +116,14 @@ func (class *Session) WithContext(ctx context.Context) *Session {
 	return &copied
 }
 
+// WithRef is a copy of the session that calls as another session of the same server (XCP-NG PATCH): the session
+// VDI.open_database gives on a pool's metadata (disaster recovery).
+func (class *Session) WithRef(ref SessionRef) *Session {
+	copied := *class
+	copied.ref = ref
+	return &copied
+}
+
 // LogoutSubjectIdentifier: Log out all sessions associated to a user subject-identifier, except the session associated with the context calling this function
 // Version: george
 func (class *Session) LogoutSubjectIdentifier(subjectIdentifier string) (err error) {
