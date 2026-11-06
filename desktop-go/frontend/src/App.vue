@@ -11,6 +11,7 @@ import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
 import HostTab from "./HostTab.vue";
+import GeneralTab from "./GeneralTab.vue";
 import SearchView from "./SearchView.vue";
 import PerformanceView from "./PerformanceView.vue";
 import NewVmWizard from "./NewVmWizard.vue";
@@ -1000,6 +1001,10 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         <SnapshotsView v-else-if="tab === 'snapshots' && selected?.object && selected.server" :key="selected.server + '/' + selected.object.uuid"
                        :server="selected.server" :vm="selected.object.uuid" :tick="tick" :ask-take="snapshotAsk" @asked="snapshotAsk = false"
                        @status="onTabStatus" @changed="selected?.server && load(selected.server).then(() => reselect(selected!.id))" />
+        <GeneralTab v-else-if="selected?.object && selected.server && ['vms', 'templates', 'hosts', 'pools', 'srs', 'networks'].includes(selected.object.kind)"
+                    :key="'general/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :kind="selected.object.kind"
+                    :uuid="selected.object.uuid" :tick="tick" @status="onTabStatus"
+                    @properties="['vms', 'templates'].includes(selected.object.kind) ? (propsOf = selected) : openObjProps(selected.server, selected.object.kind, selected.object.uuid)" />
         <template v-else>
         <div class="bg-gradient-to-r from-band-dark to-band px-3 py-1.5 font-semibold text-white">{{ selected?.disconnected ? "Connection General Properties" : "General Properties" }}</div>
         <div class="overflow-auto p-3">

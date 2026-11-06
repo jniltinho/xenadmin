@@ -113,6 +113,11 @@ func VCPUHotplugRestricted(hosts map[xenapi.HostRef]xenapi.HostRecord) bool {
 	return featureForbidden(hosts, "restrict_set_vcpus_number_live")
 }
 
+// ReadCachingRestricted is Helpers.FeatureForbidden(Host.RestrictReadCaching) (VM.ReadCachingDisabledReason).
+func ReadCachingRestricted(hosts map[xenapi.HostRef]xenapi.HostRecord) bool {
+	return featureForbidden(hosts, "restrict_read_caching")
+}
+
 // featureForbidden is Helpers.FeatureForbidden: a server's licence restricts the feature (BoolKeyPreferTrue).
 func featureForbidden(hosts map[xenapi.HostRef]xenapi.HostRecord, key string) bool {
 	for _, h := range hosts {

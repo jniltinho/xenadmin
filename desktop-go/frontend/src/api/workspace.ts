@@ -180,4 +180,6 @@ export const api = {
   saveNetwork: (key: string, uuid: string, changes: NetworkChanges) => call<void>("SaveNetwork", key, uuid, changes),
   removeNetworkQuestion: () => call<Confirm>("RemoveNetworkQuestion"),
   removeNetwork: (key: string, uuid: string) => call<void>("RemoveNetwork", key, uuid),
+  // the General tab (internal/gui/general.go): Details.General's sections
+  general: (key: string, kind: string, uuid: string) => call<{ title: string; rows: [string, string][]; expanded: boolean }[]>("General", key, kind, uuid),
 };
