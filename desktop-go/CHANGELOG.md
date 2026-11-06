@@ -6,6 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ### Added
 
+- Server Properties: the Multipathing page (editable in maintenance mode; the SRs are unplugged and plugged again
+  around the change) and the Log Destination page (a remote syslog server, then syslog_reconfigure).
+
 - Memory tab bars: a VM's memory in use inside its dynamic range, and each server's memory split into Xen and the
   control domain, each VM and free memory (MemoryView).
 - GPU tab of pools and servers (placement policy, GPUs by settings, allowed vGPU types and their editor) and USB tab of

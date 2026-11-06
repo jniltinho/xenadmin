@@ -33,6 +33,7 @@ export interface OverviewRow { cpu: string; cpu_bar: number; memory: string; mem
 export interface AppOptions { no_new_certificate_warning?: boolean; no_rotate_secret_reminder?: boolean; proxy?: string; proxy_address?: string; proxy_port?: number;
   bypass_proxy_for_servers?: boolean; connection_timeout?: number; no_dismiss_confirmation?: boolean; area_graphs?: boolean; no_remember_last_tab?: boolean }
 export interface ObjectProps { name: string; description: string; folder: string; tags: string[]; all_tags: string[]; folders: string[]; iqn?: string;
+  log_destination?: string; multipath?: boolean; multipath_editable?: boolean;
   fields: { name: string; type: string; value: string }[] }
 export interface VappVM { uuid: string; name: string; power_state: string; vapp: string; order: number; delay: number }
 export interface Vapp { uuid: string; name: string; description: string; vms: VappVM[]; can_start: boolean; can_shutdown: boolean }

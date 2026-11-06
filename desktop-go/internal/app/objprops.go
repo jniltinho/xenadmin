@@ -23,6 +23,11 @@ type ObjectProperties struct {
 	Folders     []string     `json:"folders"`  // the folder paths in use, with the pool's empty folders
 	IQN         *string      `json:"iqn,omitempty"`
 	Fields      []FieldValue `json:"fields"`
+	// a server's Log Destination page (LogDestinationEditPage: the remote syslog server, "" for local only) and
+	// Multipathing page (HostMultipathPage: editable in maintenance mode or when the server is down)
+	LogDestination    *string `json:"log_destination,omitempty"`
+	Multipath         *bool   `json:"multipath,omitempty"`
+	MultipathEditable bool    `json:"multipath_editable,omitempty"`
 }
 
 // ReadObjectProperties reads an object ("vms", "templates", "hosts", "pools", "srs", "networks") for its Properties.
@@ -72,6 +77,10 @@ func ReadObjectProperties(c *xapi.Connection, kind, uuid string) (ObjectProperti
 			pick(h.UUID, h.NameLabel, h.NameDescription, h.Tags, h.OtherConfig)
 			iqn := h.IscsiIqn // Host.GetIscsiIqn
 			out.IQN = &iqn
+			logTo, mp := h.Logging["syslog_destination"], h.Multipathing // Host.GetSysLogDestination, MultipathEnabled
+			out.LogDestination, out.Multipath = &logTo, &mp
+			live, err := xenapi.HostMetrics.GetLive(s, h.Metrics)
+			out.MultipathEditable = h.OtherConfig["MAINTENANCE_MODE"] == "true" || err == nil && !live // unknown metrics: not down
 		}
 	}
 	vms, err := xenapi.VM.GetAllRecords(s)

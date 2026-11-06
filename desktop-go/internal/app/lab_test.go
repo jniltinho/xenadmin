@@ -2194,3 +2194,44 @@ func TestLabHardware(t *testing.T) {
 		}
 	}
 }
+
+// TestLabHostLogAndMultipath sets lab-2's remote syslog server and puts it back (Log Destination), and checks that
+// Multipathing is refused outside maintenance mode (entering it would move the lab VM).
+func TestLabHostLogAndMultipath(t *testing.T) {
+	if os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_ALLOW_WRITE=1 not set")
+	}
+	c := labConnection(t)
+	refs, err := xenapi.Host.GetByNameLabel(c.Session, "xcp-lab-2")
+	if err != nil || len(refs) == 0 {
+		t.Fatal(err)
+	}
+	uuid, _ := xenapi.Host.GetUUID(c.Session, refs[0])
+	p, err := ReadObjectProperties(c, "hosts", uuid)
+	if err != nil || p.LogDestination == nil || p.Multipath == nil {
+		t.Fatal(p, err)
+	}
+	was := *p.LogDestination
+	t.Cleanup(func() {
+		if err := ops.SaveObject(c, "hosts", uuid, ops.ObjectChanges{LogDestination: &was}); err != nil {
+			t.Error("restore:", err)
+		}
+	})
+	bad := "-bad-"
+	if err := ops.SaveObject(c, "hosts", uuid, ops.ObjectChanges{LogDestination: &bad}); err == nil {
+		t.Fatal("an invalid server name was taken")
+	}
+	to := "syslog.lab.test"
+	if err := ops.SaveObject(c, "hosts", uuid, ops.ObjectChanges{LogDestination: &to}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := ReadObjectProperties(c, "hosts", uuid); p.LogDestination == nil || *p.LogDestination != to {
+		t.Fatal(p.LogDestination)
+	}
+	if !p.MultipathEditable {
+		on := !*p.Multipath
+		if err := ops.SaveObject(c, "hosts", uuid, ops.ObjectChanges{Multipath: &on}); err == nil {
+			t.Fatal("multipathing changed outside maintenance mode")
+		}
+	}
+}

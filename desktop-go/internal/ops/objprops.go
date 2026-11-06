@@ -188,6 +188,9 @@ type ObjectChanges struct {
 	TagsSet     bool              `json:"tags_set,omitempty"`
 	IQN         *string           `json:"iqn,omitempty"`    // a server's iSCSI IQN
 	Fields      map[string]string `json:"fields,omitempty"` // custom fields: "" removes; a Date is RFC 3339
+	// a server's remote syslog server ("" for local only) and multipathing
+	LogDestination *string `json:"log_destination,omitempty"`
+	Multipath      *bool   `json:"multipath,omitempty"`
 }
 
 // ValidFolder is a folder path as Folders keeps it: "/" then names separated by "/", none empty.
@@ -222,6 +225,20 @@ func SaveObject(c *xapi.Connection, kind, uuid string, ch ObjectChanges) error {
 	}
 	if ch.IQN != nil && kind == "hosts" && !iqnRegex.MatchString(strings.TrimSpace(*ch.IQN)) { // Helpers.ValidateIscsiIQN
 		return errors.New("enter a valid iSCSI IQN, such as iqn.2026-01.com.example:server")
+	}
+	logTo := ""
+	if ch.LogDestination != nil && kind == "hosts" {
+		if logTo = strings.TrimSpace(*ch.LogDestination); logTo != "" && !syslogRegex.MatchString(logTo) {
+			return errInvalidRemote()
+		}
+		if err := permitted(s, "host.set_logging", "host.syslog_reconfigure"); err != nil {
+			return err
+		}
+	}
+	if ch.Multipath != nil && kind == "hosts" {
+		if err := multipathAllowed(s, uuid); err != nil {
+			return err
+		}
 	}
 	var fieldDefs []rules.CustomField
 	if len(ch.Fields) > 0 {
@@ -284,6 +301,16 @@ func SaveObject(c *xapi.Connection, kind, uuid string, ch ObjectChanges) error {
 		ref, _ := xenapi.Host.GetByUUID(s, uuid)
 		if err := xenapi.Host.SetIscsiIqn(s, ref, strings.TrimSpace(*ch.IQN)); err != nil { // Host.SetIscsiIqn (Kolkata on)
 			return xapi.Sanitize(err)
+		}
+	}
+	if ch.LogDestination != nil && kind == "hosts" {
+		if err := setLogDestination(s, uuid, logTo); err != nil {
+			return err
+		}
+	}
+	if ch.Multipath != nil && kind == "hosts" {
+		if err := setMultipath(s, uuid, *ch.Multipath); err != nil {
+			return err
 		}
 	}
 	if len(ch.Fields) > 0 {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Properties of a server, pool, SR or network (PropertiesDialog.PagesFor): General (name, description, folder, tags; a
 // server's iSCSI IQN) and Custom Fields, with the Change Folder and Edit Tags dialogs (Dialogs.ChangeFolder/EditTags).
-// shortcut: the Alerts, Multipathing, Log Destination and Network Settings pages are not ported (as in the C# app).
+// A server also has Multipathing (HostMultipathPage) and Log Destination (LogDestinationEditPage).
+// shortcut: the Alerts and Network Settings pages are not ported (as in the C# app).
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type ObjectProps } from "./api/workspace";
 import FolderTags from "./FolderTags.vue";
@@ -10,8 +11,15 @@ const props = defineProps<{ server: string; kind: string; uuid: string }>();
 const emit = defineEmits<{ (e: "close", saved: boolean): void }>();
 
 const orig = ref<ObjectProps | null>(null);
-const page = ref<"general" | "fields">("general");
-const f = reactive({ name: "", description: "", folder: "", tags: [] as string[], iqn: "" });
+type Page = "general" | "fields" | "multipath" | "log";
+const page = ref<Page>("general");
+const f = reactive({ name: "", description: "", folder: "", tags: [] as string[], iqn: "", multipath: false, remote: false, server: "" });
+// the pages, with a server's own two (PropertiesDialog.PagesFor)
+const pages = computed(() => [{ id: "general", label: "General", icon: "000_Info3_h32bit_16" }, { id: "fields", label: "Custom Fields", icon: "000_Fields_h32bit_16" },
+  ...(orig.value?.multipath != null ? [{ id: "multipath", label: "Multipathing", icon: "000_Storage_h32bit_16" }] : []),
+  ...(orig.value?.log_destination != null ? [{ id: "log", label: "Log Destination", icon: "log_destination_16" }] : [])]);
+// LogDestinationEditPage.regex: a host name or address
+const syslogOk = (v: string) => /^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?)*$/.test(v);
 const fieldEdits = reactive<Record<string, string>>(Object.create(null));
 const error = ref("");
 const pending = ref(false);
@@ -25,7 +33,8 @@ onMounted(async () => {
   try {
     const o = await api.objectProperties(props.server, props.kind, props.uuid);
     orig.value = o;
-    Object.assign(f, { name: o.name, description: o.description, folder: o.folder, tags: [...o.tags], iqn: o.iqn ?? "" });
+    Object.assign(f, { name: o.name, description: o.description, folder: o.folder, tags: [...o.tags], iqn: o.iqn ?? "",
+      multipath: !!o.multipath, remote: !!o.log_destination, server: o.log_destination ?? "" });
     for (const x of o.fields) fieldEdits[x.name] = x.type === "Date" ? toLocal(x.value) : x.value;
   } catch (e) { error.value = String(e); }
 });
@@ -40,6 +49,12 @@ async function save() {
   if (f.folder !== o.folder) ch.folder = f.folder;
   if (f.tags.join("\n") !== [...o.tags].sort().join("\n")) { ch.tags = f.tags; ch.tags_set = true; }
   if (o.iqn != null && f.iqn.trim() !== o.iqn) ch.iqn = f.iqn.trim();
+  if (o.multipath != null && f.multipath !== o.multipath) ch.multipath = f.multipath;
+  if (o.log_destination != null) {
+    const to = f.remote ? f.server.trim() : "";
+    if (f.remote && !syslogOk(to)) { error.value = "Please enter a valid IP address or server name."; page.value = "log"; return; }
+    if (to !== o.log_destination) ch.log_destination = to;
+  }
   const fields: Record<string, string> = Object.create(null);
   for (const x of o.fields) {
     const v = fieldEdits[x.name] ?? "", was = x.type === "Date" ? toLocal(x.value) : x.value;
@@ -62,8 +77,8 @@ async function save() {
       <div class="bg-band-dark px-3 py-1 font-semibold text-white">{{ title }}</div>
       <div class="flex min-h-0 flex-1">
         <div class="w-48 border-r border-line bg-pane py-1">
-          <div v-for="p in [{ id: 'general', label: 'General', icon: '000_Info3_h32bit_16' }, { id: 'fields', label: 'Custom Fields', icon: '000_Fields_h32bit_16' }]" :key="p.id"
-               class="flex cursor-default items-center gap-2 px-2 py-1.5" :class="page === p.id ? 'bg-select text-white' : 'hover:bg-neutral-100'" @click="page = p.id as 'general' | 'fields'">
+          <div v-for="p in pages" :key="p.id"
+               class="flex cursor-default items-center gap-2 px-2 py-1.5" :class="page === p.id ? 'bg-select text-white' : 'hover:bg-neutral-100'" @click="page = p.id as Page">
             <img :src="`/icons/${p.icon}.png`" alt="" class="h-4 w-4" />{{ p.label }}
           </div>
         </div>
@@ -75,6 +90,21 @@ async function save() {
               <label for="opdesc" class="pt-0.5">Description:</label><textarea id="opdesc" v-model="f.description" rows="3" class="border border-line px-1 py-0.5" />
               <FolderTags v-model:folder="f.folder" v-model:tags="f.tags" :folders="orig.folders" :all-tags="orig.all_tags" />
               <template v-if="orig.iqn != null"><label for="opiqn" class="pt-0.5">iSCSI IQN:</label><input id="opiqn" v-model="f.iqn" class="border border-line px-1 py-0.5" /></template>
+            </div>
+          </template>
+          <template v-else-if="page === 'multipath'">
+            <p class="mb-3 whitespace-pre-line">Dynamic multipathing support is available for some types of storage repository.
+
+The server must be in maintenance mode before you can change its multipathing setting. This ensures that any running virtual machines with virtual disks in the affected storage repository are migrated before the changes are made.</p>
+            <label class="flex items-center gap-2"><input v-model="f.multipath" type="checkbox" :disabled="!orig.multipath_editable" />Enable multipathing on this server</label>
+            <p v-if="!orig.multipath_editable" class="mt-3 flex items-center gap-2"><img src="/icons/000_WarningAlert_h32bit_32.png" alt="" class="h-4 w-4" />The server must be in maintenance mode to edit these settings.</p>
+          </template>
+          <template v-else-if="page === 'log'">
+            <p class="mb-3 font-semibold">Server system log destination</p>
+            <p class="mb-3">XCP-ng stores its system logs locally on the server. If you want the system logs to be directed to a remote server in addition to being stored locally, you may specify a remote log destination using the settings below.</p>
+            <label class="flex items-center gap-2"><input v-model="f.remote" type="checkbox" />Also store the system logs on a remote server</label>
+            <div class="mt-2 flex items-center gap-2 pl-6">
+              <label for="oplog">Server:</label><input id="oplog" v-model="f.server" class="w-64 border border-line px-1 py-0.5" @focus="f.remote = true" />
             </div>
           </template>
           <template v-else>
