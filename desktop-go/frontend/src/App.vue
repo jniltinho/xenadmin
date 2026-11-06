@@ -11,6 +11,7 @@ import SnapshotsView from "./SnapshotsView.vue";
 import VmTab from "./VmTab.vue";
 import PropertiesDialog from "./PropertiesDialog.vue";
 import HostTab from "./HostTab.vue";
+import HardwareTab from "./HardwareTab.vue";
 import GeneralTab from "./GeneralTab.vue";
 import SearchView from "./SearchView.vue";
 import PerformanceView from "./PerformanceView.vue";
@@ -293,7 +294,7 @@ const hostCanRun = (c: HostCommand, n: Node | null) =>
 function closeMenus() { menu.value = null; openMenu.value = ""; viewMenu.value = null; alertMenu.value = ""; }
 
 // The tabs of the selected object: General, and Console for a running VM or a live server (its control domain).
-type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "nics" | "console" | "performance" | "snapshots";
+type Tab = "home" | "search" | "general" | "memory" | "storage" | "networking" | "nics" | "gpu" | "usb" | "console" | "performance" | "snapshots";
 const tab = ref<Tab>("general");
 const consoleVm = computed(() => {
   const o = selected.value?.object;
@@ -309,6 +310,8 @@ const tabInfo = {
   storage: { label: "Storage", icon: "000_VirtualStorage_h32bit_16" },
   networking: { label: "Networking", icon: "000_Network_h32bit_16" },
   nics: { label: "NICs", icon: "000_Network_h32bit_16" },
+  gpu: { label: "GPU", icon: "000_CPU_h32bit_16" },
+  usb: { label: "USB", icon: "usb_16" },
   console: { label: "Console", icon: "console_16" },
   performance: { label: "Performance", icon: "001_PerformanceGraph_h32bit_16" },
   snapshots: { label: "Snapshots", icon: "000_VMSnapShotDiskOnly_h32bit_16" },
@@ -319,11 +322,13 @@ const tabs = computed<Tab[]>(() => {
   if (!n || n.id === "root") return view.value === "organization" || view.value === "saved" ? ["search"] : ["home", "search"]; // MainWindow: the root shows Home and Search; a view's root, its Search
   if (n.id.startsWith("g:")) return ["search"]; // a group of a view: the Search tab of its objects
   if (n.disconnected) return ["general"]; // GeneralTabPage.GenerateDisconnectedHostBox
-  // Details.Tabs: General, Memory, Storage, Networking, NICs (a server), Console, Performance, Snapshots (a VM)
+  // Details.Tabs: General, Memory, Storage, Networking, NICs (a server), GPU, USB (where they apply), Console, Performance, Snapshots (a VM)
   const t: Tab[] = ["general"];
   const kind = selected.value?.object?.kind;
   if (kind === "vms" || kind === "templates" || kind === "hosts" || kind === "pools") t.push("memory", "storage", "networking");
   if (kind === "hosts") t.push("nics");
+  if (selected.value?.object?.gpu_tab) t.push("gpu"); // HardwareRules.ShowGpuTab, ShowUsbTab
+  if (selected.value?.object?.usb_tab) t.push("usb");
   if (kind === "srs") t.push("storage");
   if (consoleVm.value) t.push("console");
   if (selected.value?.object?.kind === "vms" || selected.value?.object?.kind === "hosts") t.push("performance");
@@ -1107,6 +1112,8 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
         <HostTab v-else-if="['memory', 'storage', 'networking', 'nics'].includes(tab) && selected?.object && selected.object.kind !== 'vms' && selected.object.kind !== 'templates' && selected.server"
                  :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :kind="selected.object.kind" :uuid="selected.object.uuid"
                  :tab="tab" :tick="tick" @status="onTabStatus" />
+        <HardwareTab v-else-if="(tab === 'gpu' || tab === 'usb') && selected?.object && selected.server" :key="tab + '/' + selected.server + '/' + selected.object.uuid"
+                     :server="selected.server" :kind="selected.object.kind" :uuid="selected.object.uuid" :tab="tab" :tick="tick" @status="onTabStatus" />
         <VmTab v-else-if="(tab === 'memory' || tab === 'storage' || tab === 'networking') && selected?.object && selected.server"
                :key="tab + '/' + selected.server + '/' + selected.object.uuid" :server="selected.server" :vm="selected.object.uuid" :kind="tab" :tick="tick"
                @status="onTabStatus" />

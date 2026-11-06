@@ -47,8 +47,9 @@ delete) tabs.
 **Servers and pools.** Shut Down, Reboot, Enter/Exit Maintenance Mode (evacuation, restoring the VMs), Restart
 Toolstack, Remove From Pool, the Pool menu (Add Server, Remove Server, Rotate Pool Secret, Make into standalone
 server, Manage vApps, High Availability: the HA wizard with the heartbeat SR, the VMs' restart priorities, start
-order and delay and the failures to tolerate, the restart priorities of a pool with HA on, and Disable), the Memory,
-Storage, Networking, NICs, Console and Performance tabs; on Networking the New Network wizard
+order and delay and the failures to tolerate, the restart priorities of a pool with HA on, and Disable), the Memory
+(with the bars of each server's memory), Storage, Networking, NICs, GPU (placement policy and allowed vGPU types), USB
+(pass-through), Console and Performance tabs; on Networking the New Network wizard
 (External/VLAN, Single-Server Private and Bonded networks), network Properties (name, description, auto-add, MTU) and
 Remove Network; on NICs Create Bond (active-active, active-passive, LACP), Delete Bond and Rescan, with the C#
 management interface and HA warnings; New Pool (the coordinator and the members with the reason each cannot join, the CPU levelling

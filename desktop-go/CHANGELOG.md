@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+
+- Memory tab bars: a VM's memory in use inside its dynamic range, and each server's memory split into Xen and the
+  control domain, each VM and free memory (MemoryView).
+- GPU tab of pools and servers (placement policy, GPUs by settings, allowed vGPU types and their editor) and USB tab of
+  servers with USB devices (Enable / Disable pass-through), shown where the C# app shows them.
 - General tab of VMs, templates, servers, pools, SRs and networks as in the C# app (Details.General): collapsible
   sections with Expand all / Collapse all and the Properties button; General (tags, folder, OS, virtualization mode and
   state, uptime, home server, pool coordinator, enabled, autoboot, certificate verification, iSCSI IQN, log

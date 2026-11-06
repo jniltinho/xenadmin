@@ -2165,3 +2165,32 @@ func TestLabGeneral(t *testing.T) {
 		t.Errorf("default SR: %v", err)
 	}
 }
+
+// TestLabHardware reads the GPU tab of the pool and its servers (the lab's emulated GPUs do no vGPU: the "no GPU" text)
+// and the USB tab of the servers that show one (read-only).
+func TestLabHardware(t *testing.T) {
+	c := labConnection(t)
+	for _, kind := range []string{"pools", "hosts"} {
+		objs, err := ListObjects(c, kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range objs {
+			if !o.GPUTab {
+				t.Fatalf("%s %s: no GPU tab (restrict_gpu is false on the lab)", kind, o.Name)
+			}
+			g, err := ReadGPU(c, kind, o.UUID)
+			if err != nil || len(g.Groups) == 0 && g.NoGPU == "" {
+				t.Fatal(o.Name, g, err)
+			}
+			t.Logf("%s: %+v", o.Name, g)
+			if o.USBTab {
+				u, err := ReadUSB(c, o.UUID)
+				if err != nil || len(u.Devices) == 0 {
+					t.Fatal(o.Name, u, err)
+				}
+				t.Logf("%s: %+v", o.Name, u.Table)
+			}
+		}
+	}
+}

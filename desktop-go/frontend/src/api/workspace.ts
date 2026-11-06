@@ -9,7 +9,8 @@ const call = <T>(method: string, ...args: unknown[]) =>
 export interface ServerRow { key: string; host: string; port: number; user: string; name: string; connected: boolean }
 export interface ConnectResult { connected: boolean; key?: string; fingerprint?: string; previous?: string; error?: string }
 export interface XenObject { kind: string; uuid: string; name: string; description?: string; power_state?: string; host?: string; host_uuid?: string; allowed?: string[]; ha_protected?: boolean;
-  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string; resident?: number; user_template?: boolean }
+  maintenance?: boolean; coordinator?: boolean; live?: boolean; control_domain?: string; icon?: string; resident?: number; user_template?: boolean;
+  gpu_tab?: boolean; usb_tab?: boolean }
 export interface Confirm { title: string; text: string }
 export interface HostQuestion { error?: string; title?: string; text?: string; option?: string }
 export interface Table { title: string; headers: string[]; rows: string[][]; keys: string[] }
@@ -37,6 +38,11 @@ export interface VappVM { uuid: string; name: string; power_state: string; vapp:
 export interface Vapp { uuid: string; name: string; description: string; vms: VappVM[]; can_start: boolean; can_shutdown: boolean }
 export interface Vapps { pool: string; is_pool: boolean; vapps: Vapp[]; candidates: VappVM[] }
 export interface Vtpms { name: string; blocker: string; add_blocker: string; vtpms: { uuid: string; protected: boolean; unique: boolean; remove_blocker: string }[] }
+export interface GPUTab { policy: string; policy_value: string; no_gpu: string; density: string; performance: string;
+  groups: { hosts: { label: string; gpus: string[] }[]; types: { uuid: string; name: string; max: string; vram: string; enabled: boolean; in_use: boolean }[];
+    pgpus: string[]; can_edit: boolean; edit: string; title: string; rubric: string }[] }
+export interface USBTab { title: string; table: Table;
+  devices: { uuid: string; passthrough: boolean; button: string; can_toggle: boolean; question: string; yes: string }[] }
 export interface MemoryBars { used: number; dynamic_min: number; dynamic_max: number; used_text: string;
   hosts: { name: string; segments: { name: string; bytes: number; text: string }[] }[] }
 export interface MemoryEdit { name: string; can_edit: boolean; advanced: boolean; dynamic: boolean; unavailable: string; rubric: string;
@@ -135,6 +141,12 @@ export const api = {
   removeVtpm: (key: string, vm: string, vtpm: string) => call<void>("RemoveVtpm", key, vm, vtpm),
   exportAlerts: (rows: { title: string; priority: number; description: string; applies_to: string; time: string }[]) => call<string>("ExportAlerts", rows),
   memoryBars: (key: string, kind: string, uuid: string) => call<MemoryBars>("MemoryBars", key, kind, uuid),
+  // the GPU and USB tabs (internal/gui/hardware.go)
+  gpu: (key: string, kind: string, uuid: string) => call<GPUTab>("GPU", key, kind, uuid),
+  setGpuPlacement: (key: string, algorithm: string) => call<void>("SetGPUPlacement", key, algorithm),
+  setVgpuTypes: (key: string, pgpus: string[], changes: Record<string, boolean>) => call<void>("SetVGPUTypes", key, pgpus, changes),
+  usb: (key: string, uuid: string) => call<USBTab>("USB", key, uuid),
+  setUsbPassthrough: (key: string, pusb: string, wasEnabled: boolean) => call<void>("SetUSBPassthrough", key, pusb, wasEnabled),
   pickExportFile: (name: string) => call<string>("PickExportFile", name),
   pickImportFile: () => call<string>("PickImportFile"),
   exportBlocker: (key: string, vm: string) => call<string>("ExportBlocker", key, vm),

@@ -38,6 +38,9 @@ type Object struct {
 	Resident int `json:"resident,omitempty"`
 	// UserTemplate is a template made by a user (ResourceTree.IsUserTemplate: not a default one, shown in the tree)
 	UserTemplate bool `json:"user_template,omitempty"`
+	// GPUTab, USBTab: the pool or server shows a GPU tab, the server a USB tab (HardwareRules.ShowGpuTab, ShowUsbTab)
+	GPUTab bool `json:"gpu_tab,omitempty"`
+	USBTab bool `json:"usb_tab,omitempty"`
 }
 
 // ListObjects lists one kind of object of a connection, sorted by name (as the C# tree and list_objects): VMs are the
@@ -51,8 +54,13 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 		if err != nil {
 			return nil, xapi.Sanitize(err)
 		}
+		hosts, err := xenapi.Host.GetAllRecords(s)
+		if err != nil {
+			return nil, xapi.Sanitize(err)
+		}
 		for _, r := range recs {
-			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, HAEnabled: r.HaEnabled})
+			out = append(out, Object{Kind: kind, UUID: r.UUID, Name: r.NameLabel, Description: r.NameDescription, HAEnabled: r.HaEnabled,
+				GPUTab: !ops.FeatureForbidden(hosts, "restrict_gpu")})
 		}
 	case "hosts":
 		recs, err := xenapi.Host.GetAllRecords(s)
@@ -76,6 +84,8 @@ func ListObjects(c *xapi.Connection, kind string) ([]Object, error) {
 			for _, p := range pools {
 				o.Coordinator = o.Coordinator || p.Master == ref
 			}
+			o.GPUTab = live && !ops.FeatureForbidden(recs, "restrict_gpu")
+			o.USBTab = live && len(r.PUSBs) > 0 && !ops.FeatureForbidden(recs, "restrict_usb_passthrough")
 			out = append(out, o)
 		}
 	case "vms", "templates":
