@@ -47,9 +47,11 @@ func CustomFieldsXML(fields []CustomField) string {
 	return string(out)
 }
 
-// ParseFieldDate is CustomFieldsManager.ParseValue for a Date: the "u" format the C# app writes, or the usual ISO forms.
+// ParseFieldDate is CustomFieldsManager.ParseValue for a Date: the "u" format the C# app writes, or the usual ISO forms
+// (a time without a zone is taken as UTC, as DateTime.ToLocalTime takes an unspecified kind).
+// shortcut: not every form DateTime.TryParse takes (culture-dependent dates such as 15/01/2026).
 func ParseFieldDate(v string) (time.Time, bool) {
-	for _, layout := range []string{"2006-01-02 15:04:05Z", time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
+	for _, layout := range []string{"2006-01-02 15:04:05Z", time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05", "2006-01-02"} {
 		if t, err := time.Parse(layout, v); err == nil {
 			return t, true
 		}

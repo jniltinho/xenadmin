@@ -2748,3 +2748,55 @@ func TestLabDateSearch(t *testing.T) {
 		t.Fatal("an unknown date query type was taken")
 	}
 }
+
+// TestLabCustomFieldSearch runs searches by custom field (CustomFieldQuery, CustomFieldDateQuery) over the lab VM,
+// with the two values set on it for the test and removed after.
+func TestLabCustomFieldSearch(t *testing.T) {
+	name := os.Getenv("XCP_LAB_VM")
+	if name == "" || os.Getenv("XCP_ALLOW_WRITE") != "1" {
+		t.Skip("XCP_LAB_VM and XCP_ALLOW_WRITE=1 not set")
+	}
+	c := labConnection(t)
+	refs, _ := xenapi.VM.GetByNameLabel(c.Session, name)
+	if len(refs) == 0 {
+		t.Fatal("no lab VM")
+	}
+	keys := map[string]string{"XenCenter.CustomFields.go-test-text": "Owner Alice", "XenCenter.CustomFields.go-test-date": "2026-01-15 10:00:00Z"}
+	for k, v := range keys {
+		_ = xenapi.VM.RemoveFromOtherConfig(c.Session, refs[0], k)
+		if err := xenapi.VM.AddToOtherConfig(c.Session, refs[0], k, v); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = xenapi.VM.RemoveFromOtherConfig(c.Session, refs[0], k) })
+	}
+	found := func(filter string) bool {
+		text := `<Search Name="by field" major_version="2" minor_version="1" show_expanded="yes"><Query><QueryScope><VM /></QueryScope>` +
+			filter + `</Query></Search>`
+		nodes, err := RunSearch(c, "lab", text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hit := false
+		var walk func([]*ViewNode)
+		walk = func(ns []*ViewNode) {
+			for _, n := range ns {
+				hit = hit || n.Object != nil && n.Object.Name == name
+				walk(n.Children)
+			}
+		}
+		walk(nodes)
+		return hit
+	}
+	text := func(q, kind string) string {
+		return `<CustomFieldQuery query="` + q + `" type="` + kind + `"><CustomFieldDefinition name="go-test-text" type="String" defaultValue="" /></CustomFieldQuery>`
+	}
+	date := func(q, kind string) string {
+		return `<CustomFieldDateQuery query="` + q + `" type="` + kind + `"><CustomFieldDefinition name="go-test-date" type="Date" defaultValue="" /></CustomFieldDateQuery>`
+	}
+	if !found(text("alice", "contains")) || found(text("bob", "contains")) || !found(text("owner", "startswith")) {
+		t.Fatal("custom field text search")
+	}
+	if !found(date("20260115", "exact")) || found(date("20260116", "exact")) || !found(date("20260101", "after")) {
+		t.Fatal("custom field date search")
+	}
+}

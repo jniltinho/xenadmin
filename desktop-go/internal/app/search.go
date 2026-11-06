@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/xml"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 // A search saved in a pool (XenModel/XenSearch: SearchMarshalling XML, major version 2) is a query (the object
 // types of QueryScope and a filter) and a grouping, each element named after its C# class. This is the part of
 // XenSearch the saved searches use most; a search with any other filter, property or grouping is listed, not run.
-// shortcut: no XenModelObject*Query, Recursive*Query or CustomField*Query yet; IPAddressQuery
+// shortcut: no XenModelObject*Query or Recursive*Query yet; IPAddressQuery
 // reads VM and server addresses (not an SR's target);
 // port them from QueryTypes.cs when a saved search needs one.
 
@@ -135,6 +136,26 @@ func checkFilter(f xmlNode) error {
 	switch name := f.XMLName.Local; name {
 	case "DummyQuery":
 		return nil
+	case "CustomFieldQuery", "CustomFieldDateQuery": // the field is the CustomFieldDefinition child
+		if len(f.Children) == 0 || f.Children[0].attr("name") == "" {
+			return fmt.Errorf("%s without its field", name)
+		}
+		if t := f.Children[0].attr("type"); t != "String" && t != "Date" {
+			return fmt.Errorf("custom field type %q", t)
+		}
+		if name == "CustomFieldDateQuery" {
+			if _, err := time.Parse("20060102", f.attr("query")); err != nil { // DateTime.ParseExact
+				return fmt.Errorf("date %q", f.attr("query"))
+			}
+			if !strings.Contains(" today yesterday thisweek lastweek before after exact ", " "+f.attr("type")+" ") {
+				return fmt.Errorf("date query type %q", f.attr("type"))
+			}
+		} else if !slices.ContainsFunc(f.Attrs, func(a xml.Attr) bool { return a.Name.Local == "query" }) {
+			return fmt.Errorf("%s without its query", name) // the XML constructor needs it
+		} else if !strings.Contains(" contains startswith endswith exactmatch notcontain ", " "+f.attr("type")+" ") {
+			return fmt.Errorf("string query type %q", f.attr("type"))
+		}
+		return nil
 	case "GroupQuery":
 		if t := f.attr("type"); t != "And" && t != "Or" && t != "Nor" {
 			return fmt.Errorf("group query type %q", t)
@@ -188,6 +209,7 @@ type facts struct {
 	ips    []string             // IPAddressProperty: a VM's guest addresses, a server's PIF addresses; none is null
 	noIPs  bool                 // ...except a template's or snapshot's, an empty list (IsRealVm is false)
 	dates  map[string]time.Time // start_time of a real VM (VM_metrics.start_time; the zero time without metrics)
+	other  map[string]string    // other_config, for the custom field queries (CustomFieldsManager.GetCustomFieldValue)
 }
 
 type customFieldGroup struct{ name, value, key string }
@@ -286,7 +308,7 @@ func RunSearch(c *xapi.Connection, server, text string) ([]*ViewNode, error) {
 	for _, it := range inv.items {
 		f := facts{values: map[string]string{"label": it.obj.Name, "uuid": it.obj.UUID, "description": it.obj.Description},
 			labels: map[string]string{}, ints: map[string]int64{}, lists: map[string][]string{"tags": it.tags}, groups: map[string][]group{},
-			folder: folderPath(it.other["folder"])}
+			folder: folderPath(it.other["folder"]), other: it.other}
 		if pool != nil {
 			f.values["pool"], f.groups["pool"] = poolUUID, []group{*pool}
 		}
@@ -511,6 +533,24 @@ func match(q xmlNode, f facts) tri {
 			return no
 		}
 		return of((len(list) == 0) == parseBool(q.attr("empty")))
+	case "CustomFieldQuery", "CustomFieldDateQuery": // CustomFieldQuery.Match, CustomFieldDateQuery.Match
+		def := q.Children[0]
+		raw := f.other[rules.CustomFieldsKey+"."+def.attr("name")]
+		if raw == "" {
+			return no
+		}
+		if q.XMLName.Local == "CustomFieldDateQuery" {
+			t, ok := rules.ParseFieldDate(raw)
+			if def.attr("type") != "Date" || !ok {
+				return no
+			}
+			day, _ := time.Parse("20060102", q.attr("query"))
+			return of(rules.MatchDate(t, day, q.attr("type"), time.Now()))
+		}
+		if def.attr("type") != "String" { // a Date field's value is no string
+			return no
+		}
+		return of(matchString(raw, strings.ToLower(q.attr("query")), q.attr("type"), false))
 	case "DatePropertyQuery":
 		v, ok := f.dates[prop]
 		if !ok {
