@@ -17,14 +17,6 @@ var errNoWindow = errors.New("no window to ask for a file")
 // "*.xva"); "" when cancelled. The window sets it (gui.go); without a window it fails.
 type FileDialog func(save bool, title, name string, filters [][2]string) (string, error)
 
-// PickExportFile asks where to export a VM (ExportVmAction writes a plain XVA).
-func (w *Workspace) PickExportFile(name string) (string, error) {
-	if w.Files == nil {
-		return "", errNoWindow
-	}
-	return w.Files(true, "Export '"+name+"'", name+".xva", [][2]string{{"XVA (*.xva)", "*.xva"}})
-}
-
 // PickImportFile asks for the XVA file or OVF/OVA appliance to import.
 func (w *Workspace) PickImportFile() (string, error) {
 	if w.Files == nil {

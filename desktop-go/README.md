@@ -34,7 +34,7 @@ icons; the navigation pane (Infrastructure, Objects, Organization Views, Saved S
 the Home and Search tabs (the overview with live CPU, memory, disk, network, address and uptime columns); XAPI errors in the Windows app's words (`FriendlyErrorNames`).
 
 **VMs.** Start, Shut Down, Reboot, Suspend, Resume, Pause, Unpause and the forced ones, with the C# questions;
-Export to an XVA file and Import (File > Import...) of an XVA file or an OVF/OVA appliance (.ovf, .ova, .ova.gz, .ova.bz2; raw, VHD and stream-optimized VMDK disks; its EULA, manifest verification, the server of each VM, the SR of each disk and the network of each interface); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
+Export (VM > Export..., or a vApp from Manage vApps) to an XVA file or an OVF/OVA package (the halted or suspended VMs of the pool; VHD disks, compressed one by one or as an .ova.gz; EULAs, a SHA-256 manifest, verification), Import (File > Import...) of an XVA file or an OVF/OVA appliance (.ovf, .ova, .ova.gz, .ova.bz2; raw, VHD and stream-optimized VMDK disks; its EULA, manifest verification, the server of each VM, the SR of each disk and the network of each interface); Resume on, Migrate to and Start on Server (live migration, each server with the reason it cannot take the VM);
 User templates in the tree (Create VM From Selection, Delete Template); New VM wizard (template, installation media, home server, CPU and memory, disks, networks); Convert to Template; Copy VM (fast clone or
 full copy to an SR that can hold it); Delete VM (with the disks only it uses and its snapshots); Properties
 (General, Custom Fields, CPU, Boot Options, Start Options, Alerts, Home Server, GPU, USB, Advanced; GPU when the VM can
@@ -78,7 +78,7 @@ network) were not run on hardware: the lab has no GPU that does vGPU, no USB dev
 rules (unit tests) and the read side (hidden pages, no SR-IOV offered) are checked.
 
 Not there yet: a VLAN on an SR-IOV network, the OS fixup, encrypted packages and VMDKs that are not stream-optimized
-when importing an OVF/OVA appliance, and OVF/OVA export. The Windows app has those.
+when importing an OVF/OVA appliance, and signed OVF/OVA packages. The Windows app has those.
 
 ## Command line and MCP
 

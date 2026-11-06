@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // Manage vApps (VMAppliancesDialog / XenAdmin.Desktop VappsDialog): the vApps of a pool with New vApp, Delete,
 // Properties, Start and Shut down, and the VMs of the selected one; read again every second while open.
-// shortcut: Import and Export of a vApp (OVF/OVA) are not ported, as in the C# app.
+// Export opens the Export wizard for the vApp (the window's ExportApplianceDialog, OVF/OVA only).
+// shortcut: Import of a vApp (OVF/OVA) is not here; File > Import... imports an appliance.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, type Vapps } from "./api/workspace";
 import VappEditor from "./VappEditor.vue";
 
 const props = defineProps<{ server: string }>();
-const emit = defineEmits<{ (e: "close"): void }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "export", uuid: string, name: string): void }>();
 
 const data = ref<Vapps | null>(null);
 const picked = ref("");
@@ -58,7 +59,7 @@ async function shutDown() {
           <button class="btn" :disabled="busy || !current?.can_start" @click="run(() => api.vappPower(server, current!.uuid, 'start'))">Start</button>
           <button class="btn" :disabled="busy || !current?.can_shutdown" @click="shutDown">Shut down</button>
           <button class="btn" disabled title="Importing a vApp (OVF/OVA) is not available yet.">Import</button>
-          <button class="btn" disabled title="Exporting a vApp (OVF/OVA) is not available yet.">Export</button>
+          <button class="btn" :disabled="busy || !current" @click="emit('export', current!.uuid, current!.name)">Export</button>
         </div>
         <div class="min-h-0 flex-1 overflow-auto border border-line">
           <table class="w-full border-collapse">

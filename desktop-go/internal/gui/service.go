@@ -40,6 +40,8 @@ type Workspace struct {
 	Emit func(key string)
 	// Files is the window's file dialog (export and import)
 	Files FileDialog
+	// Folder is the window's folder dialog (a title and the folder it opens in; "" when cancelled)
+	Folder func(title, dir string) (string, error)
 	// hostBusy counts the server commands running on each host (by uuid)
 	hostBusy map[string]int
 }

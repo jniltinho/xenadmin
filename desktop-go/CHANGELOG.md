@@ -28,6 +28,12 @@ filters and export, and Tools > Options.**
   NICs tab's SR-IOV Capable column (virtual functions left, a reboot needed, an unplugged logical PIF). The vGPU, USB
   and SR-IOV writes were not run on hardware (the lab has none).
 
+- OVF/OVA export as the Windows app's Export wizard (ExportApplianceAction): VM > Export... offers an OVF/OVA package
+  besides the XVA file, and Manage vApps' Export exports a vApp; the name, location and format, the halted or
+  suspended VMs of the pool (the selected VM or the vApp's VMs ticked, the vTPM warning), EULA files, a manifest, a
+  single .ova file, compression (the disks as .vhd.gz, or the OVA as .ova.gz) and Verify. The disks come as VHD from
+  export_raw_vdi; the descriptor is XenOvf's (the Xen settings, the start order and delays) and the appliance import
+  reads it back. The package is made beside the target and only renamed into place once complete.
 - Searches by address (XenSearch IPAddressQuery: a VM's guest addresses, a server's interfaces, full or partial such
   as 10.77.58.*), also from the search editor's text filter.
 - Searches by a VM's start time (XenSearch DatePropertyQuery: today, yesterday, this or last week, before, after or
@@ -121,14 +127,15 @@ filters and export, and Tools > Options.**
 - Pool and Server menus: Change Server Password (the local root; the connection keeps the new password) and Pool >
   Reconnect As.
 - vApps: Pool > Manage vApps... (New vApp wizard, Delete, Properties with the VMs and their startup sequence, Start,
-  Shut down) and VM > Assign to vApp, with the C# questions. Exporting and importing a vApp (OVF) are not ported.
+  Shut down) and VM > Assign to vApp, with the C# questions. Its Import button is not ported (File > Import...
+  imports an appliance).
 - The user templates in the tree and the Templates menu: Create VM From Selection, Copy, Delete Template, Properties;
   Server > Remove (the server leaves the list).
 - Tools > Options: certificate warnings, the pool secret reminder, the proxy server and connection timeout, the
   dismiss alerts confirmation, area or line graphs, and the last tab of each resource.
 - File > Import... and VM > Export...: a VM as an XVA file (ExportVmAction, ImportVmAction), checked as it downloads
   (the block checksums, SHA-1 or xxHash64) and optionally read back; the import picks the pool or a server and the SR,
-  and can start the VM. OVF/OVA appliances are not ported yet.
+  and can start the VM.
 - VM menu: Take a Snapshot... and Convert to Template... (ConvertVMToTemplateCommand); Server menu: Restart Toolstack
   and Remove From Pool (a member running only its control domain), with the C# questions.
 - The Search tab of a VM, server or pool: the overview of its connection ("<pool>: Overview").

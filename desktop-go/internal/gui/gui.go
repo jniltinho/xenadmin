@@ -49,6 +49,10 @@ func Run(s *config.Settings, p *trust.Policy) error {
 		}
 		return d.PromptForSingleSelection()
 	}
+	ws.Folder = func(title, dir string) (string, error) {
+		return app.Dialog.OpenFile().SetTitle(title).CanChooseFiles(false).CanChooseDirectories(true).CanCreateDirectories(true).
+			SetDirectory(dir).PromptForSingleSelection()
+	}
 	setWindowIcon(app, dist)
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "XCP-ng Center",

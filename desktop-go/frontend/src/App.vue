@@ -22,6 +22,7 @@ import MenuList, { type MenuItem } from "./MenuList.vue";
 import CopyVmDialog from "./CopyVmDialog.vue";
 import ImportVmDialog from "./ImportVmDialog.vue";
 import ImportApplianceDialog from "./ImportApplianceDialog.vue";
+import ExportApplianceDialog from "./ExportApplianceDialog.vue";
 import OptionsDialog from "./OptionsDialog.vue";
 import ObjectPropertiesDialog from "./ObjectPropertiesDialog.vue";
 import VappsDialog from "./VappsDialog.vue";
@@ -686,7 +687,7 @@ async function newPoolClosed(coordinator: string, error: string) {
   if (error) failure.value = error;
 }
 
-// Import VM (File > Import...) and Export (VM > Export...: ExportVMCommand with the XVA path)
+// Import VM (File > Import...) and Export (VM > Export... and Manage vApps' Export: ExportVMCommand, the Export wizard)
 const importing = ref(false);
 const appliance = ref(""); // the OVF/OVA file the Import Appliance dialog is open for
 async function runImport(label: string, key: string, f: () => Promise<string>) {
@@ -703,14 +704,12 @@ async function exportVm(n: Node | null) {
   if (!n?.server || !n.object) return;
   const why = await api.exportBlocker(n.server, n.object.uuid);
   if (why) { await choose({ title: "Export VM", text: why }, ["OK"]); return; }
-  const file = await api.pickExportFile(n.object.name);
-  if (!file) return;
-  const pick = await choose({ title: "Export VM", text: `Export '${n.object.name}' to:\n${file}\n\nVerify export can take up to 5 hours per TB.` },
-    ["Export and verify", "Export", "Cancel"]);
-  if (pick === 2) return;
-  const label = `Exporting '${n.object.name}'`, key = n.server;
+  exporting.value = { server: n.server, vm: n.object.uuid, vapp: "", name: n.object.name };
+}
+const exporting = ref<{ server: string; vm: string; vapp: string; name: string } | null>(null);
+async function runExport(label: string, f: () => Promise<string>) {
   status.value = `${label}...`;
-  try { await api.exportVm(key, n.object.uuid, file, pick === 0); status.value = "Ready"; } catch (e) { failure.value = `${label}: ${String(e)}`; }
+  try { status.value = `Exported to ${await f()}`; } catch (e) { failure.value = `${label}: ${String(e)}`; }
 }
 
 // The Pool menu (MainWindow): Add Server and Remove Server (submenus), Disconnect, Rotate Pool Secret, Make into
@@ -1216,12 +1215,14 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <SearchEditor v-if="searchEdit" :xml="searchEdit.xml" :uuid="searchEdit.uuid" :server="searchEdit.server" :is-new="searchEdit.isNew" @close="searchDone" />
     <VtpmDialog v-if="vtpmOf?.server && vtpmOf.object" :server="vtpmOf.server" :vm="vtpmOf.object.uuid" @close="vtpmOf = null" />
     <ChangePasswordDialog v-if="passwordOn" :server="passwordOn" @close="(done) => { passwordOn = ''; if (done) status = 'Ready'; }" />
-    <VappsDialog v-if="vappsOn" :server="vappsOn" @close="vappsOn = ''; selected?.server && load(selected.server)" />
+    <VappsDialog v-if="vappsOn" :server="vappsOn" @close="vappsOn = ''; selected?.server && load(selected.server)"
+                 @export="(uuid, name) => (exporting = { server: vappsOn, vm: '', vapp: uuid, name })" />
     <VappEditor v-if="newVappFor" :server="newVappFor.server" :data="newVappFor.data" :vapp="null" :preselect="newVappFor.vm"
                 @close="newVappFor = null; selected?.server && load(selected.server)" />
     <ObjectPropertiesDialog v-if="objProps" :server="objProps.server" :kind="objProps.kind" :uuid="objProps.uuid" @close="objPropsClosed" />
     <ImportVmDialog v-if="importing" @close="importing = false" @run="runImport" @appliance="(f) => (appliance = f)" />
     <ImportApplianceDialog v-if="appliance" :file="appliance" @close="appliance = ''" @run="runImport" />
+    <ExportApplianceDialog v-if="exporting" v-bind="exporting" @close="exporting = null" @run="runExport" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <HaDialog v-if="haOn" :server="haOn.key" :disable="haOn.disable" @close="haOn = null" @run="(label, f) => poolRun(label, haOn!.key, f)" />
     <DrConfigureDialog v-if="drOn && !drOn.wizard" :server="drOn.key" @close="drOn = null" @run="(label, f) => poolRun(label, drOn!.key, f)" />
