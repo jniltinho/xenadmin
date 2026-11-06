@@ -15,6 +15,7 @@ import NewVmWizard from "./NewVmWizard.vue";
 import NewSrWizard from "./NewSrWizard.vue";
 import MenuList, { type MenuItem } from "./MenuList.vue";
 import CopyVmDialog from "./CopyVmDialog.vue";
+import NewPoolDialog from "./NewPoolDialog.vue";
 import DeleteVmDialog from "./DeleteVmDialog.vue";
 
 interface Node { id: string; label: string; icon: string; object?: XenObject; server?: string; children: Node[]; disconnected?: boolean }
@@ -386,6 +387,18 @@ async function newSrClosed(uuid: string) {
   if (uuid) { await load(key); reselect(`${key}/${uuid}`); }
 }
 
+// New Pool (NewPoolCommand); Add New Server from it connects another server, then the dialog reads the servers again
+const newPool = ref(false);
+const poolDialog = ref<InstanceType<typeof NewPoolDialog> | null>(null);
+async function newPoolClosed(coordinator: string, error: string) {
+  newPool.value = false;
+  await refreshServers();
+  // the members left the server list (they are in the pool now): their objects go too
+  for (const key of Object.keys(data)) if (!servers.value.some((s) => s.key === key && s.connected)) { retire(key); delete data[key]; }
+  if (coordinator) { await load(coordinator); reselect(coordinator); }
+  if (error) failure.value = error;
+}
+
 // the Copy VM and Delete VM dialogs
 const copyOf = ref<Node | null>(null);
 const deleteOf = ref<Node | null>(null);
@@ -448,7 +461,7 @@ const serverNode = computed(() => (selected.value?.server && selected.value.id =
 const menus = computed<{ label: string; items: MenuItem[] }[]>(() => [
   { label: "File", items: [{ label: "Add New Server...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } }] },
   { label: "View", items: navButtons.map((b) => ({ label: b.label, enabled: true, run: () => { closeMenus(); showView(b.v); } })) },
-  { label: "Pool", items: [{ label: "New Pool...", enabled: false }] },
+  { label: "Pool", items: [{ label: "New Pool...", icon: "000_PoolNew_h32bit_16", enabled: servers.value.some((x) => x.connected), run: () => { closeMenus(); newPool.value = true; } }] },
   { label: "Server", items: [
     { label: "Add...", icon: "000_AddApplicationServer_h32bit_16", enabled: true, run: () => { closeMenus(); openAdd(); } },
     { label: "Connect", enabled: !!serverNode.value?.disconnected, run: () => { closeMenus(); connectTo(serverNode.value!); } },
@@ -544,6 +557,7 @@ async function submitAdd() {
     if (r.error && !r.connected) { form.error = r.error; return; }
     addOpen.value = false; form.password = "";
     await refreshServers(); await load(r.key!);
+    void poolDialog.value?.load(); // New Pool is open: the new server is a candidate
     if (selected.value?.id === r.key) reselect(r.key!); // the selected node was the disconnected one
     if (r.error) failure.value = `Connected, but the server list was not saved: ${r.error}`;
   } catch (e) { form.error = String(e); } finally { form.busy = false; }
@@ -585,7 +599,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       <span class="toolsep"></span>
       <button class="tool" @click="openAdd()"><img src="/icons/000_AddApplicationServer_h32bit_24.png" alt="" />Add New Server</button>
       <span class="toolsep"></span>
-      <button class="tool" disabled :title="soon"><img src="/icons/000_PoolNew_h32bit_24.png" alt="" />New Pool</button>
+      <button class="tool" :disabled="!servers.some((x) => x.connected)" @click="newPool = true"><img src="/icons/000_PoolNew_h32bit_24.png" alt="" />New Pool</button>
       <button class="tool" :disabled="!targetServer" @click="openNewSr"><img src="/icons/000_NewStorage_h32bit_24.png" alt="" />New Storage</button>
       <button class="tool" :disabled="!targetServer" @click="openNewVm"><img src="/icons/000_CreateVM_h32bit_24.png" alt="" />New VM</button>
       <span class="toolsep"></span>
@@ -716,6 +730,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
     <MenuList v-if="menu" class="fixed z-20" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" :items="menu.items" />
 
     <NewVmWizard v-if="newVmOn" :server="newVmOn" @close="newVmClosed" />
+    <NewPoolDialog v-if="newPool" ref="poolDialog" @close="newPoolClosed" @add-server="openAdd()" />
     <CopyVmDialog v-if="copyOf?.server && copyOf.object" :server="copyOf.server" :vm="copyOf.object.uuid" @close="copyClosed" />
     <DeleteVmDialog v-if="deleteOf?.server && deleteOf.object" :server="deleteOf.server" :vm="deleteOf.object.uuid" @close="deleteClosed" />
     <NewSrWizard v-if="newSrOn" :server="newSrOn" :pool="poolLabel(newSrOn)" @close="newSrClosed" />
@@ -732,7 +747,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       </div>
     </div>
 
-    <div v-if="addOpen" class="fixed inset-0 flex items-center justify-center bg-black/20">
+    <div v-if="addOpen" class="fixed inset-0 z-40 flex items-center justify-center bg-black/20">
       <form class="w-[28rem] border border-neutral-500 bg-white shadow-lg" @submit.prevent="submitAdd">
         <div class="bg-band-dark px-3 py-1 font-semibold text-white">Add New Server</div>
         <div class="space-y-2 p-3">
@@ -749,7 +764,7 @@ onMounted(async () => { await refreshServers(); selected.value = tree.value; });
       </form>
     </div>
 
-    <div v-if="cert" class="fixed inset-0 flex items-center justify-center bg-black/20">
+    <div v-if="cert" class="fixed inset-0 z-40 flex items-center justify-center bg-black/20">
       <div class="w-[34rem] border border-neutral-500 bg-white shadow-lg">
         <div class="bg-band-dark px-3 py-1 font-semibold text-white">{{ cert.previous ? "Certificate Changed" : "Unknown Certificate" }}</div>
         <div class="space-y-2 p-3">

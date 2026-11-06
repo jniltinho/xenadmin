@@ -36,6 +36,7 @@ export interface VMDelete { title: string; text: string; disks: DeleteItem[]; sn
 export interface VMCopy { name: string; description: string; clone: boolean; copy: boolean; srs: { uuid: string; text: string; reason?: string }[]; default_sr: string }
 export interface IQN { index: number; iqn: string; address: string; port: number; text: string }
 export interface LUN { scsi_id: string; lun_id: number; vendor: string; serial: string; size: number; text: string }
+export interface PoolCandidate { key: string; name: string; reason: string; can_coordinate: boolean; can_join: boolean; is_coordinator: boolean }
 export interface Alert { uuid: string; priority: number; title: string; description: string; applies_to: string; time: string }
 
 export const api = {
@@ -88,6 +89,10 @@ export const api = {
   scanLuns: (key: string, iqn: IQN, user: string, password: string) => call<LUN[]>("ScanLUNs", key, iqn, user, password),
   lunInUse: (scsiId: string) => call<string>("LUNInUse", scsiId),
   lunQuestion: (found: boolean) => call<string>("LUNQuestion", found),
+  poolCandidates: (coordinator: string) => call<PoolCandidate[]>("PoolCandidates", coordinator),
+  poolWarning: (coordinator: string, members: string[]) => call<string>("PoolWarning", coordinator, members),
+  createPool: (coordinator: string, members: string[], name: string, description: string) =>
+    call<{ created: boolean; error?: string }>("CreatePool", coordinator, members, name, description),
   srQuestion: (command: string, name: string) => call<HostQuestion>("SRQuestion", command, name),
   srCommand: (key: string, uuid: string, command: string) => call<void>("SRCommand", key, uuid, command),
   srAttachWarning: (kind: string, uuid: string) => call<string>("SRAttachWarning", kind, uuid),

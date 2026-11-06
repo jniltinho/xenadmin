@@ -5,6 +5,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 ## [Unreleased]
 
 ### Added
+- New Pool (NewPoolDialog / CreatePoolAction): the coordinator and the members among the connected servers, each with
+  the reason it cannot join (PoolJoinRules: a pool already, CPU vendor, server version, shared storage, running VMs,
+  HA, clustering, TLS verification), the CPU levelling question, then the pool's name and pool.join from each member,
+  which leaves the server list. The window keeps each connection's password in memory for that join, as the C# app.
 - iSCSI in the New Storage wizard (LVMoISCSI): Scan Target Host lists the IQNs and then the LUNs (the SM's refused
   SR.create, as the C# app), CHAP optional; Finish probes the LUN and offers Reattach of the SR found on it or Format,
   never on a LUN an SR of a connected pool uses.

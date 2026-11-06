@@ -18,7 +18,7 @@ window (`xcp-ng-center-go` without a subcommand) connects and shows the tree and
   Add New Server, the power buttons), the tree with its search box, the navigation pane, the Home and Search tabs of
   the root, saved servers shown disconnected (Connect, Disconnect, Remove), a VM's Properties (General, CPU, Home
   Server), the Performance tab of VMs and servers, the New VM and New Storage (iSCSI, NFS, SMB, ISO libraries, Scan/Reattach) wizards, the SR commands (Repair, Set as
-  Default, Detach, Forget, Destroy), Copy, Delete and Migrate VM (Start/Resume on Server), a resizable navigation pane, the XCP-ng window
+  Default, Detach, Forget, Destroy), Copy, Delete and Migrate VM (Start/Resume on Server), New Pool, a resizable navigation pane, the XCP-ng window
   icon; Add New Server with the certificate question, the tree (pool,
   hosts, VMs, SRs, with the C# app's icons), the General tab, square corners like the Windows app; VM Start, Shut Down,
   Reboot, Suspend, Resume and the forced ones from the toolbar, the VM menu and the context menu, enabled by the VM's

@@ -32,7 +32,9 @@ type Workspace struct {
 	console  *console.Proxy
 	closed   bool                // the window closed: no console endpoint is created any more
 	watchers map[string]*watcher // a connection's event.from loop (app.Watch)
-	pending  map[string]bool     // a change notice is scheduled for this server
+	// the password of each connection, as the C# Connection.Password: only for pool.join (New Pool), never returned
+	passwords map[string]string
+	pending   map[string]bool // a change notice is scheduled for this server
 	// Emit tells the window that a server's objects changed (the Wails event "xcp:changed" with the server's key)
 	Emit func(key string)
 }
@@ -61,7 +63,7 @@ var webviewOrigins = []string{"wails://localhost", "http://wails.localhost"}
 // NewWorkspace uses the settings file of the CLI (servers and pinned certificates are shared) and the CLI's trust
 // policy (the operator's --trust-fingerprint applies to the window too).
 func NewWorkspace(s *config.Settings, p *trust.Policy) *Workspace {
-	return &Workspace{settings: s, policy: p, conns: map[string]*xapi.Connection{}, watchers: map[string]*watcher{}, pending: map[string]bool{}}
+	return &Workspace{settings: s, policy: p, conns: map[string]*xapi.Connection{}, watchers: map[string]*watcher{}, pending: map[string]bool{}, passwords: map[string]string{}}
 }
 
 // ServerRow is one server of the list.
@@ -122,7 +124,7 @@ func (w *Workspace) Connect(address, user, password string) ConnectResult {
 	session := conn.Session.WithContext(ctx) // its own copy: logging conn out never races with the loop
 	w.mu.Lock()
 	old, oldWatch := w.conns[key], w.watchers[key]
-	w.conns[key], w.watchers[key] = conn, wt
+	w.conns[key], w.watchers[key], w.passwords[key] = conn, wt, password
 	w.mu.Unlock()
 	oldWatch.stop() // the old session's loop, before that session is logged out
 	w.logout(old)
@@ -171,6 +173,7 @@ func (w *Workspace) Disconnect(key string) {
 	conn, wt := w.conns[key], w.watchers[key]
 	delete(w.conns, key)
 	delete(w.watchers, key)
+	delete(w.passwords, key)
 	w.mu.Unlock()
 	wt.stop()
 	w.use.Lock()
@@ -509,6 +512,7 @@ func (w *Workspace) Close() {
 	w.conns = map[string]*xapi.Connection{}
 	watchers := w.watchers
 	w.watchers = map[string]*watcher{}
+	w.passwords = map[string]string{}
 	w.mu.Unlock()
 	for _, wt := range watchers {
 		wt.stop()
@@ -721,4 +725,165 @@ func (w *Workspace) LUNQuestion(found bool) string {
 	}
 	return messages.Format(messages.Get("LVMOHBA_WARNING_DIALOG_HEADER_FOUND_EXISTING_SR"), kind) + "\n\nReattach: " +
 		messages.Format(messages.Get("LVMOHBA_WARNING_DIALOG_REATTACH_INFO"), kind) + "\nFormat: " + format + "\n\n" + warning
+}
+
+// PoolCandidate is a connected server of the New Pool dialog: whether it can be the coordinator and, with this
+// coordinator, why it cannot join (PoolRules.Candidates).
+type PoolCandidate struct {
+	Key           string `json:"key"`
+	Name          string `json:"name"`
+	Reason        string `json:"reason"`
+	CanCoordinate bool   `json:"can_coordinate"`
+	CanJoin       bool   `json:"can_join"`
+	IsCoordinator bool   `json:"is_coordinator"`
+	reason        rules.JoinReason
+}
+
+// PoolCandidates lists the connected servers for the New Pool dialog with coordinator as the coordinator ("" for the
+// first that can be one), in PoolJoinRules' order (coordinator, allowed, then by reason), then by name.
+func (w *Workspace) PoolCandidates(coordinator string) ([]PoolCandidate, error) {
+	facts, err := w.poolFacts()
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := facts[coordinator]; !ok {
+		coordinator = ""
+		for _, k := range sortedKeys(facts) {
+			if rules.CanBeCoordinator(rules.CanJoinPool(facts[k], facts[k])) {
+				coordinator = k
+				break
+			}
+		}
+	}
+	out := []PoolCandidate{}
+	for _, k := range sortedKeys(facts) {
+		r := rules.CanJoinPool(facts[k], facts[coordinator])
+		if coordinator == "" {
+			r = rules.JoinIsAPool
+		}
+		out = append(out, PoolCandidate{Key: k, Name: facts[k].Name, Reason: rules.JoinReasonText(r), reason: r,
+			CanCoordinate: rules.CanBeCoordinator(rules.CanJoinPool(facts[k], facts[k])), CanJoin: r == rules.JoinAllowed,
+			IsCoordinator: r == rules.JoinWillBeCoordinator})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].reason != out[j].reason {
+			return out[i].reason < out[j].reason
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, nil
+}
+
+// PoolResult is what CreatePool did: Created once the coordinator's pool has its name (a member that failed after that
+// leaves a pool to finish with the other members), and the error, if any.
+type PoolResult struct {
+	Created bool   `json:"created"`
+	Error   string `json:"error,omitempty"`
+}
+
+// PoolWarning is the question before creating the pool (PoolRules.Warnings' CPU levelling), "" for none.
+func (w *Workspace) PoolWarning(coordinator string, members []string) (string, error) {
+	facts, err := w.poolFacts()
+	if err != nil {
+		return "", err
+	}
+	var list []rules.PoolFacts
+	for _, k := range append([]string{coordinator}, members...) {
+		if f, ok := facts[k]; !ok || f.ReadError != "" { // a chosen server must be read: its warning may not be skipped
+			return "", fmt.Errorf("%s could not be read: try again", k)
+		}
+	}
+	for _, m := range members {
+		list = append(list, facts[m])
+	}
+	return rules.CPUWarning(list, facts[coordinator]), nil
+}
+
+// CreatePool is CreatePoolAction: the coordinator's pool gets the name and description, then each member joins it
+// with pool.join and leaves the server list (it is part of the pool now). Every member is checked again first; the
+// first member that fails stops the rest, as the C# action.
+func (w *Workspace) CreatePool(coordinator string, members []string, name, description string) PoolResult {
+	fail := func(err error) PoolResult { return PoolResult{Error: err.Error()} }
+	if strings.TrimSpace(name) == "" {
+		return fail(errors.New(messages.Get("POOL_NAME_EMPTY")))
+	}
+	facts, err := w.poolFacts()
+	if err != nil {
+		return fail(err)
+	}
+	cf, ok := facts[coordinator]
+	if !ok || !rules.CanBeCoordinator(rules.CanJoinPool(cf, cf)) {
+		return fail(errors.New(messages.Get("NO_ELIGIBLE_COORDINATOR")))
+	}
+	for _, m := range members {
+		mf, ok := facts[m]
+		if !ok {
+			return fail(fmt.Errorf("%s is not connected", m))
+		}
+		if r := rules.CanJoinPool(mf, cf); r != rules.JoinAllowed {
+			return fail(fmt.Errorf("%s: %s", mf.Name, rules.JoinReasonText(r)))
+		}
+	}
+	w.mu.Lock()
+	coord := w.conns[coordinator]
+	password := w.passwords[coordinator]
+	w.mu.Unlock()
+	if coord == nil {
+		return fail(errNotConnected)
+	}
+	var named bool
+	if err := w.with(coordinator, func(c *xapi.Connection) error {
+		var err error
+		named, err = ops.NamePool(c, name, description)
+		return err
+	}); err != nil {
+		if named { // the server is a pool now: the dialog cannot start over with it
+			return PoolResult{Created: true, Error: fmt.Sprintf("The pool was created, but it is not ready for members: %v", err)}
+		}
+		return fail(err)
+	}
+	for i, m := range members {
+		err := w.with(m, func(c *xapi.Connection) error { return ops.JoinPool(c, coord.Host, coord.User, password) })
+		if err != nil {
+			text := fmt.Sprintf("The pool was created, but %s did not join it: %v", facts[m].Name, err)
+			if rest := len(members) - i - 1; rest > 0 {
+				text += fmt.Sprintf(" (%d more servers were not added)", rest)
+			}
+			return PoolResult{Created: true, Error: text}
+		}
+		_ = w.Forget(m) // a member now: the coordinator's connection shows it
+	}
+	return PoolResult{Created: true}
+}
+
+// poolFacts reads PoolJoinRules' facts of every connected server.
+func (w *Workspace) poolFacts() (map[string]rules.PoolFacts, error) {
+	w.mu.Lock()
+	keys := make([]string, 0, len(w.conns))
+	for k := range w.conns {
+		keys = append(keys, k)
+	}
+	w.mu.Unlock()
+	facts := map[string]rules.PoolFacts{}
+	for _, k := range keys {
+		var f rules.PoolFacts
+		err := w.with(k, func(c *xapi.Connection) error { var err error; f, err = app.ReadPoolFacts(c, k); return err })
+		if errors.Is(err, errNotConnected) {
+			continue
+		}
+		if err != nil { // only this server is out of the choice; the others stay usable
+			f = rules.PoolFacts{Key: k, Name: k, ReadError: err.Error()}
+		}
+		facts[k] = f
+	}
+	return facts, nil
+}
+
+func sortedKeys(m map[string]rules.PoolFacts) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
