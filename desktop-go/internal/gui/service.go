@@ -1148,6 +1148,11 @@ func (w *Workspace) View(id string) ([]*app.ViewNode, error) {
 			return nil, errors.New("this search is not saved in a connected pool any more")
 		}
 	}
+	return w.runView(id, saved)
+}
+
+// runView reads a view, or runs a search when saved is its XML, on every connected server.
+func (w *Workspace) runView(id, saved string) ([]*app.ViewNode, error) {
 	var parts [][]*app.ViewNode
 	for _, k := range w.connectedKeys() {
 		var nodes []*app.ViewNode
