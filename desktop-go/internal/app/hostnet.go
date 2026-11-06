@@ -211,12 +211,15 @@ type NewNetworkChoices struct {
 	SriovOK      string      `json:"sriov_ok"`
 }
 
-// WizardNIC is a NIC of the Interface page: its MTU range's top and the VLANs already used on its device.
+// WizardNIC is a NIC of the Interface page: its MTU range's top and the VLANs already used on its device; with an
+// SR-IOV network (PIF.IsSriovPhysicalPIF: checkBoxSriov offered), the VLANs already used on that network.
 type WizardNIC struct {
-	UUID   string `json:"uuid"`
-	Name   string `json:"name"`
-	MaxMTU int    `json:"max_mtu"`
-	VLANs  []int  `json:"vlans"`
+	UUID       string `json:"uuid"`
+	Name       string `json:"name"`
+	MaxMTU     int    `json:"max_mtu"`
+	VLANs      []int  `json:"vlans"`
+	Sriov      bool   `json:"sriov"`
+	SriovVLANs []int  `json:"sriov_vlans"`
 }
 
 // NewNetworkOptions reads the New Network wizard's choices (NetWName, NetWDetails, NetWBondDetails).
@@ -254,7 +257,7 @@ func NewNetworkOptions(c *xapi.Connection, kind, uuid string) (NewNetworkChoices
 	}
 	sort.Slice(sriov, func(i, j int) bool { return d.pifName(sriov[i]) < d.pifName(sriov[j]) })
 	for _, p := range sriov {
-		out.SriovNICs = append(out.SriovNICs, WizardNIC{UUID: p.UUID, Name: d.pifName(p), VLANs: []int{}})
+		out.SriovNICs = append(out.SriovNICs, WizardNIC{UUID: p.UUID, Name: d.pifName(p), VLANs: []int{}, SriovVLANs: []int{}})
 	}
 	var list []xenapi.PIFRecord // NetworkRules.WizardNics
 	for _, p := range d.pifs {
@@ -263,12 +266,13 @@ func NewNetworkOptions(c *xapi.Connection, kind, uuid string) (NewNetworkChoices
 		}
 	}
 	sort.Slice(list, func(i, j int) bool { return d.pifName(list[i]) < d.pifName(list[j]) })
-	inUse, err := ops.VLANsInUse(s)
+	inUse, onSriov, err := ops.VLANsInUse(s)
 	if err != nil {
 		return NewNetworkChoices{}, err
 	}
 	for _, p := range list {
-		out.NICs = append(out.NICs, WizardNIC{UUID: p.UUID, Name: d.pifName(p), MaxMTU: max(rules.MTUMin, rules.NICMaxMTU(p.MTU)), VLANs: inUse[p.Device]})
+		out.NICs = append(out.NICs, WizardNIC{UUID: p.UUID, Name: d.pifName(p), MaxMTU: max(rules.MTUMin, rules.NICMaxMTU(p.MTU)), VLANs: inUse[p.Device],
+			Sriov: len(p.SriovPhysicalPIFOf) > 0, SriovVLANs: onSriov[p.Device]})
 	}
 	return out, nil
 }

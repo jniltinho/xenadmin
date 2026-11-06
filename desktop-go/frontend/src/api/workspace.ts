@@ -100,11 +100,11 @@ export interface HostNics { table: Table; nics: { uuid: string; bond_network?: s
 export interface BondNIC { uuid: string; name: string; in_bond: boolean; mac: string; link: string; speed: string; vendor: string; mtu: number }
 export interface BondChoices { nics: BondNIC[]; limit: number; lacp: boolean }
 export interface BondSpec { members: string[]; mode: string; hashing: string; mtu: number; auto: boolean }
-export interface WizardNIC { uuid: string; name: string; max_mtu: number; vlans: number[] }
+export interface WizardNIC { uuid: string; name: string; max_mtu: number; vlans: number[]; sriov: boolean; sriov_vlans: number[] }
 export interface NewNetworkChoices { title: string; host: string; external_name: string; private_name: string; nics: WizardNIC[]; min_vlan: number; bond: BondChoices;
   sriov: boolean; sriov_why: string; sriov_name: string; sriov_nics: WizardNIC[]; sriov_warning: string; sriov_ok: string }
 export interface NewSriovSpec { name: string; description: string; auto: boolean; host: string; nic: string }
-export interface NewNetworkSpec { external: boolean; name: string; description: string; auto: boolean; host: string; nic: string; vlan: string; mtu: string }
+export interface NewNetworkSpec { external: boolean; name: string; description: string; auto: boolean; host: string; nic: string; vlan: string; mtu: string; sriov: boolean }
 export interface BondWarning { block: boolean; title: string; text: string; ok: string }
 export interface MTUState { shown: boolean; enabled: boolean; min: number; max: number; note: string }
 export interface NICState { shown: boolean; enabled: boolean; note: string }

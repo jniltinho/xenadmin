@@ -8,6 +8,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 - Searches on a related object's properties (XenSearch RecursiveXMOPropertyQuery and RecursiveXMOListPropertyQuery:
   the VMs on an SR or a server, the servers running a VM, the VMs of a disk or a pool), run on every object's facts.
+- A VLAN on an SR-IOV network (NetWDetails' checkBoxSriov, NewNetworkWizard.CreateNonBonded): on a NIC with an
+  SR-IOV network the External network's Interface page offers "Create the VLAN on the SR-IOV network", which checks
+  the VLAN against those already on that network and makes it on its logical PIF. Unit-tested; not run on hardware.
 
 ## [0.2.0] — 2026-11-06
 
