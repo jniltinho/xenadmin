@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are t
 
 ## [Unreleased]
 
+—
+
+## [0.3.3] — 2026-11-06
+
+**Universal macOS builds (Apple Silicon and Intel), checked on a Mac; both apps built together.**
+
 ### Changed
 
 - The macOS app and CLI are universal (Apple Silicon and Intel in one binary): `make macos` and `make cli` build arm64
